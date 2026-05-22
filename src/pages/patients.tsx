@@ -22,7 +22,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { GenderAvatar, genderLabel } from "@/components/patient/gender-avatar"
+import { PatientAvatar, genderLabel } from "@/components/patient/patient-avatar"
 import { PatientForm } from "@/components/patient/patient-form"
 import { Breadcrumbs } from "@/components/breadcrumbs"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
@@ -154,7 +154,7 @@ export function PatientsPage() {
               className={`cursor-pointer transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${!p.active ? "opacity-60" : ""}`}
             >
               <CardContent className="flex items-start gap-3 p-4">
-                <GenderAvatar gender={p.gender} />
+                <PatientAvatar avatarId={p.avatarId} name={p.name} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <p className="truncate text-sm font-semibold">{p.name}</p>

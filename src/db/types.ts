@@ -21,6 +21,7 @@ export interface Patient {
   id: string
   name: string
   gender: Gender
+  avatarId: number
   age: number
   defaultWeekday: Weekday
   recurrence: Recurrence

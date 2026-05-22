@@ -26,7 +26,7 @@ import {
 import type { Occurrence, Patient } from "@/db/types"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
-import { GenderAvatar, genderLabel } from "@/components/patient/gender-avatar"
+import { PatientAvatar, genderLabel } from "@/components/patient/patient-avatar"
 import { effectiveValue, formatBRL } from "@/domain/finance"
 import { PatientDrawer } from "@/components/patient/patient-drawer"
 import { todayISO } from "@/domain/dates"
@@ -236,7 +236,7 @@ export function HomePage() {
                       {o.time}
                     </span>
                   )}
-                  <GenderAvatar gender={p!.gender} />
+                  <PatientAvatar avatarId={p!.avatarId} name={p!.name} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <p className="truncate text-sm font-medium">{p!.name}</p>

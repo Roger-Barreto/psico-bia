@@ -5,7 +5,7 @@ import {
   WarningIcon,
 } from "@phosphor-icons/react"
 import type { Occurrence, Patient } from "@/db/types"
-import { GenderAvatar, genderLabel } from "@/components/patient/gender-avatar"
+import { PatientAvatar, genderLabel } from "@/components/patient/patient-avatar"
 import { Card, CardContent } from "@/components/ui/card"
 import { formatBRL } from "@/domain/finance"
 import { cn } from "@/lib/utils"
@@ -50,7 +50,7 @@ export function PendencyList({
             )}
           >
             <CardContent className="flex items-start gap-3 p-3">
-              <GenderAvatar gender={it.patient.gender} size="md" />
+              <PatientAvatar avatarId={it.patient.avatarId} name={it.patient.name} size="md" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-start justify-between gap-2">
                   <span className="truncate text-sm font-semibold">

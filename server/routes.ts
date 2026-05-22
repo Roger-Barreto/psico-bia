@@ -23,6 +23,10 @@ import {
   patientPatchSchema,
 } from "./schemas"
 import type { ZodSchema } from "zod"
+import {
+  randomMonsterAvatarId,
+  stableMonsterAvatarId,
+} from "../src/lib/monster-avatars"
 
 type Json = unknown
 
@@ -38,6 +42,7 @@ interface Patient {
   id: string
   name: string
   gender: "male" | "female" | "other"
+  avatarId: number
   age: number
   defaultWeekday: number
   recurrence: "once" | "weekly" | "biweekly" | "monthly"
@@ -132,6 +137,7 @@ function normalizePatient(p: Patient): Patient {
     insuranceId: p.insuranceId ?? null,
     dischargedAt: p.dischargedAt ?? null,
     dischargeReasonId: p.dischargeReasonId ?? null,
+    avatarId: p.avatarId ?? stableMonsterAvatarId(p.id),
   }
 }
 
@@ -323,6 +329,7 @@ export async function handleApi(
       const created: Patient = {
         id: id("p"),
         ...r.data,
+        avatarId: randomMonsterAvatarId(),
         recurrenceHistory:
           r.data.recurrenceHistory && r.data.recurrenceHistory.length > 0
             ? r.data.recurrenceHistory

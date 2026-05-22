@@ -43,7 +43,7 @@ export function usePatients(opts?: Partial<UseQueryOptions<Patient[]>>) {
 export function useCreatePatient() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: Omit<Patient, "id" | "createdAt">) =>
+    mutationFn: (input: Omit<Patient, "id" | "createdAt" | "avatarId">) =>
       api.post<Patient>("/api/patients", input),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.patients }),
   })

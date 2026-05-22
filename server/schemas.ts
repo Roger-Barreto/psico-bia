@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { MONSTER_AVATAR_COUNT } from "../src/lib/monster-avatars"
 
 export const genderSchema = z.enum(["male", "female", "other"])
 export const recurrenceSchema = z.enum(["once", "weekly", "biweekly", "monthly"])
@@ -38,7 +39,11 @@ export const patientCreateSchema = z.object({
   dischargeReasonId: z.string().nullable().default(null),
 })
 
-export const patientPatchSchema = patientCreateSchema.partial()
+export const patientPatchSchema = patientCreateSchema
+  .extend({
+    avatarId: z.number().int().min(1).max(MONSTER_AVATAR_COUNT).optional(),
+  })
+  .partial()
 
 export const checklistItemCreateSchema = z.object({
   label: z.string().min(1).max(200),

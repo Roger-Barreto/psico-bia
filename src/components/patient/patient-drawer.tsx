@@ -39,7 +39,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { GenderAvatar, genderLabel } from "./gender-avatar"
+import { PatientAvatar, genderLabel } from "./patient-avatar"
 import { PaymentControl } from "./payment-control"
 import { PatientForm } from "./patient-form"
 import { AddAnnotationDialog } from "./add-annotation-dialog"
@@ -248,7 +248,7 @@ export function PatientDrawer({
 
         <div className="space-y-6 p-6">
           <div className="flex items-start gap-4">
-            <GenderAvatar gender={patient.gender} size="lg" />
+            <PatientAvatar avatarId={patient.avatarId} name={patient.name} size="lg" />
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-2">
                 <p className="text-lg font-semibold">{patient.name}</p>
