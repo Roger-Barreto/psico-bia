@@ -130,12 +130,9 @@ export function LoginPage() {
               </div>
 
               <div className="text-center lg:text-left">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary/80">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary/80">
                   Bem-vindo de volta
                 </p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight lg:text-3xl">
-                  Entre na sua conta
-                </h2>
                 <p className="mt-2 text-sm text-muted-foreground">
                   Acesse o painel para gerenciar pacientes e sessões.
                 </p>
@@ -214,17 +211,6 @@ export function LoginPage() {
               >
                 {loading ? "Entrando..." : "Entrar"}
               </Button>
-
-              <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                <span className="h-px flex-1 bg-border/60" />
-                <span>credenciais de teste</span>
-                <span className="h-px flex-1 bg-border/60" />
-              </div>
-
-              <p className="text-center text-xs text-muted-foreground">
-                Use <span className="font-mono text-foreground/80">admin</span>{" "}
-                / <span className="font-mono text-foreground/80">admin</span>
-              </p>
             </form>
           </div>
 
