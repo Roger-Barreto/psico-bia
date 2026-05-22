@@ -8,6 +8,7 @@ import {
   SignOutIcon,
   ChartLineIcon,
   IdentificationCardIcon,
+  UserCircleIcon,
   XCircleIcon,
   FolderIcon,
   type Icon,
@@ -23,6 +24,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { PatientAvatar } from "@/components/patient/patient-avatar"
+import { ProfileDrawer } from "@/components/profile/profile-drawer"
 
 type NavItem = {
   to: string
@@ -65,6 +68,10 @@ const navItems: NavEntry[] = [
 export function AppShell() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const [profileOpen, setProfileOpen] = useState(false)
+
+  const displayName = user?.displayName ?? user?.username ?? "admin"
+  const initials = displayName.slice(0, 2).toUpperCase()
 
   return (
     <div className="app-bg min-h-screen text-foreground">
@@ -77,14 +84,21 @@ export function AppShell() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-3 rounded-full p-1 pr-3 transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <Avatar className="h-9 w-9 ring-offset-0 ring-1">
-                    <AvatarFallback>
-                      {user?.username.slice(0, 2).toUpperCase() ?? "AD"}
-                    </AvatarFallback>
-                  </Avatar>
+                  {user?.avatarId != null ? (
+                    <PatientAvatar
+                      avatarId={user.avatarId}
+                      name={displayName}
+                      size="sm"
+                      className="size-9"
+                    />
+                  ) : (
+                    <Avatar className="h-9 w-9 ring-offset-0 ring-1">
+                      <AvatarFallback>{initials}</AvatarFallback>
+                    </Avatar>
+                  )}
                   <div className="hidden text-left sm:block">
                     <p className="text-sm font-medium leading-tight">
-                      {user?.username ?? "admin"}
+                      {displayName}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       Administrador
@@ -94,6 +108,10 @@ export function AppShell() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel>Minha conta</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setProfileOpen(true)}>
+                  <UserCircleIcon weight="fill" /> Meu perfil
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={() => {
@@ -115,6 +133,7 @@ export function AppShell() {
           </main>
         </div>
       </div>
+      <ProfileDrawer open={profileOpen} onOpenChange={setProfileOpen} />
     </div>
   )
 }

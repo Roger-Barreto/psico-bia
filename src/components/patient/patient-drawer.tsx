@@ -47,7 +47,7 @@ import { PatientForm } from "./patient-form"
 import { AddAnnotationDialog } from "./add-annotation-dialog"
 import { AddChecklistItemDialog } from "./add-checklist-item-dialog"
 import { buildSnapshotIds, checklistFor } from "@/domain/pendencies"
-import { todayISO } from "@/domain/dates"
+import { todayISO, formatLongDateBR } from "@/domain/dates"
 import { cn } from "@/lib/utils"
 
 const recurrenceLabel = {
@@ -317,7 +317,7 @@ export function PatientDrawer({
                   Data do atendimento
                 </p>
                 <p className="mt-0.5 text-base font-medium">
-                  {formatLongDate(occurrence.date)}
+                  {formatLongDateBR(occurrence.date)}
                   {occurrence.time && (
                     <span className="ml-2 text-sm text-muted-foreground">
                       às {occurrence.time}
@@ -326,7 +326,7 @@ export function PatientDrawer({
                 </p>
                 {isResched && (
                   <p className="mt-1 text-xs text-secondary">
-                    Reagendado de {occurrence.originDate}
+                    Reagendado de {formatLongDateBR(occurrence.originDate)}
                   </p>
                 )}
               </div>
@@ -416,7 +416,7 @@ export function PatientDrawer({
                 {isMissed &&
                   "Paciente faltou neste atendimento. Itens não cumpridos do checklist contam como pendência."}
                 {isResched &&
-                  `Reagendado para ${formatLongDate(occurrence.date)}.`}
+                  `Reagendado para ${formatLongDateBR(occurrence.date)}.`}
               </span>
             </div>
           )}
@@ -453,16 +453,15 @@ export function PatientDrawer({
             <PaymentControl appointment={appt} patient={patient} />
           )}
 
-          {/* CHECKLIST — header sempre visível; lista só quando atendido/faltou */}
+          {/* CHECKLIST — só quando atendido ou falta */}
+          {(isAttended || isMissed) && (
           <div className="space-y-2">
             <div className="flex items-baseline justify-between gap-2">
               <p className="text-sm font-semibold">Checklist do dia</p>
               <div className="flex items-center gap-2">
-                {(isAttended || isMissed) && (
-                  <p className="text-xs text-muted-foreground">
-                    {entries.filter((e) => e.checked).length} / {entries.length}
-                  </p>
-                )}
+                <p className="text-xs text-muted-foreground">
+                  {entries.filter((e) => e.checked).length} / {entries.length}
+                </p>
                 <button
                   type="button"
                   onClick={() => setAddChecklistOpen(true)}
@@ -474,54 +473,51 @@ export function PatientDrawer({
                 </button>
               </div>
             </div>
-            {(isAttended || isMissed) && (
-              <>
+            <p className="text-xs text-muted-foreground">
+              Itens não marcados contam como pendência no painel.
+            </p>
+            <div className="space-y-1.5 pt-1">
+              {entries.length === 0 && (
                 <p className="text-xs text-muted-foreground">
-                  Itens não marcados contam como pendência no painel.
+                  Sem itens neste checklist.
                 </p>
-                <div className="space-y-1.5 pt-1">
-                  {entries.length === 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      Sem itens neste checklist.
-                    </p>
+              )}
+              {entries.map((e) => (
+                <label
+                  key={e.id}
+                  className={cn(
+                    "flex cursor-pointer items-start gap-3 rounded-lg border border-border/60 bg-background/40 px-3 py-2.5 transition-colors",
+                    e.checked && "border-emerald-500/40 bg-emerald-500/10",
                   )}
-                  {entries.map((e) => (
-                    <label
-                      key={e.id}
+                >
+                  <Checkbox
+                    checked={e.checked}
+                    onCheckedChange={(v) => toggleItem(e.id, v === true)}
+                    className={cn(
+                      "mt-0.5",
+                      e.checked &&
+                        "border-emerald-500 bg-emerald-500 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500",
+                    )}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p
                       className={cn(
-                        "flex cursor-pointer items-start gap-3 rounded-lg border border-border/60 bg-background/40 px-3 py-2.5 transition-colors",
-                        e.checked && "border-emerald-500/40 bg-emerald-500/10",
+                        "text-sm",
+                        e.checked &&
+                          "text-muted-foreground line-through decoration-emerald-500/60",
                       )}
                     >
-                      <Checkbox
-                        checked={e.checked}
-                        onCheckedChange={(v) => toggleItem(e.id, v === true)}
-                        className={cn(
-                          "mt-0.5",
-                          e.checked &&
-                            "border-emerald-500 bg-emerald-500 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500",
-                        )}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p
-                          className={cn(
-                            "text-sm",
-                            e.checked &&
-                              "text-muted-foreground line-through decoration-emerald-500/60",
-                          )}
-                        >
-                          {e.label}
-                        </p>
-                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                          {e.source === "shared" ? "Compartilhado" : "Individual"}
-                        </p>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-              </>
-            )}
+                      {e.label}
+                    </p>
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                      {e.source === "shared" ? "Compartilhado" : "Individual"}
+                    </p>
+                  </div>
+                </label>
+              ))}
+            </div>
           </div>
+          )}
 
           {/* ANOTAÇÕES — sempre visível */}
           <div className="space-y-2">
@@ -685,34 +681,4 @@ function StatusPill({
       Pendente
     </span>
   )
-}
-
-const monthsLong = [
-  "janeiro",
-  "fevereiro",
-  "março",
-  "abril",
-  "maio",
-  "junho",
-  "julho",
-  "agosto",
-  "setembro",
-  "outubro",
-  "novembro",
-  "dezembro",
-]
-const weekdaysLong = [
-  "domingo",
-  "segunda",
-  "terça",
-  "quarta",
-  "quinta",
-  "sexta",
-  "sábado",
-]
-
-function formatLongDate(iso: string): string {
-  const [y, m, d] = iso.split("-").map(Number)
-  const dt = new Date(y, m - 1, d)
-  return `${weekdaysLong[dt.getDay()]}, ${d} de ${monthsLong[m - 1]}`
 }

@@ -18,10 +18,20 @@ import {
   individualChecklistItemPatchSchema,
   insuranceCreateSchema,
   insurancePatchSchema,
+  loginSchema,
+  passwordChangeSchema,
   patientAnnotationCreateSchema,
   patientCreateSchema,
   patientPatchSchema,
+  profilePatchSchema,
 } from "./schemas"
+import {
+  DEFAULT_USER,
+  hashPassword,
+  sanitizeUser,
+  verifyPassword,
+  type StoredUser,
+} from "./auth"
 import type { ZodSchema } from "zod"
 import {
   randomMonsterAvatarId,
@@ -215,6 +225,7 @@ function id(prefix: string) {
   return `${prefix}_${nanoid(10)}`
 }
 
+const USER = "user"
 const PATIENTS = "patients"
 const SHARED = "shared-checklist"
 const INDIV = "individual-checklist"
@@ -308,6 +319,63 @@ export async function handleApi(
   const method = req.method ?? "GET"
 
   await ensureMigrations()
+
+  // ─── USER PROFILE ────────────────────────────────────────
+  if (path === "/api/login") {
+    if (method === "POST") {
+      const body = await readBody(req)
+      const r = parse(loginSchema, body)
+      if (!r.ok) return send(res, 401, { error: "Credenciais inválidas" })
+      const user = await load<StoredUser>(USER, DEFAULT_USER)
+      if (
+        user.username !== r.data.username ||
+        !verifyPassword(r.data.password, user.password)
+      ) {
+        return send(res, 401, { error: "Credenciais inválidas" })
+      }
+      return send(res, 200, sanitizeUser(user))
+    }
+  }
+
+  if (path === "/api/me") {
+    if (method === "GET") {
+      const user = await load<StoredUser>(USER, DEFAULT_USER)
+      return send(res, 200, sanitizeUser(user))
+    }
+    if (method === "PATCH") {
+      const body = await readBody(req)
+      const r = parse(profilePatchSchema, body)
+      if (!r.ok) return bad(res, "invalid payload", r.details)
+      const next = await update<StoredUser>(USER, DEFAULT_USER, (cur) => ({
+        ...cur,
+        ...(r.data.displayName !== undefined
+          ? { displayName: r.data.displayName }
+          : {}),
+        ...(r.data.avatarId !== undefined ? { avatarId: r.data.avatarId } : {}),
+      }))
+      return send(res, 200, sanitizeUser(next))
+    }
+  }
+
+  if (path === "/api/me/password") {
+    if (method === "POST") {
+      const body = await readBody(req)
+      const r = parse(passwordChangeSchema, body)
+      if (!r.ok) return bad(res, "invalid payload", r.details)
+      let badCurrent = false
+      await update<StoredUser>(USER, DEFAULT_USER, (cur) => {
+        if (!verifyPassword(r.data.currentPassword, cur.password)) {
+          badCurrent = true
+          return cur
+        }
+        return { ...cur, password: hashPassword(r.data.newPassword) }
+      })
+      if (badCurrent) {
+        return send(res, 400, { error: "current_password_invalid" })
+      }
+      return send(res, 200, { ok: true })
+    }
+  }
 
   // ─── PATIENTS ────────────────────────────────────────────
   if (path === "/api/patients") {

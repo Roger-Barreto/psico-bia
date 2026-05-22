@@ -1,21 +1,21 @@
-export const MONSTER_AVATAR_COUNT = 45
+export const MONSTER_AVATAR_COUNT = 56;
 
 export function monsterAvatarSrc(avatarId: number): string {
-  return `/monster-avatars/${avatarId}.png`
+  return `/monster-avatars/${avatarId}.png`;
 }
 
 export function randomMonsterAvatarId(): number {
-  return Math.floor(Math.random() * MONSTER_AVATAR_COUNT) + 1
+  return Math.floor(Math.random() * MONSTER_AVATAR_COUNT) + 1;
 }
 
 export function monsterAvatarIds(): number[] {
-  return Array.from({ length: MONSTER_AVATAR_COUNT }, (_, i) => i + 1)
+  return Array.from({ length: MONSTER_AVATAR_COUNT }, (_, i) => i + 1);
 }
 
 export function stableMonsterAvatarId(seed: string): number {
-  let hash = 0
+  let hash = 0;
   for (let i = 0; i < seed.length; i++) {
-    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
   }
-  return (hash % MONSTER_AVATAR_COUNT) + 1
+  return (hash % MONSTER_AVATAR_COUNT) + 1;
 }

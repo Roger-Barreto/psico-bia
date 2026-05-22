@@ -48,3 +48,53 @@ export function sameDay(a: Date, b: Date): boolean {
     a.getDate() === b.getDate()
   )
 }
+
+const monthsLong = [
+  "janeiro",
+  "fevereiro",
+  "março",
+  "abril",
+  "maio",
+  "junho",
+  "julho",
+  "agosto",
+  "setembro",
+  "outubro",
+  "novembro",
+  "dezembro",
+]
+
+const weekdaysLong = [
+  "domingo",
+  "segunda",
+  "terça",
+  "quarta",
+  "quinta",
+  "sexta",
+  "sábado",
+]
+
+/** ISO date (YYYY-MM-DD) → DD/MM/YYYY */
+export function formatDateBR(iso: string): string {
+  const [y, m, d] = iso.split("-")
+  if (!y || !m || !d) return iso
+  return `${d}/${m}/${y}`
+}
+
+/** ISO date (YYYY-MM-DD) → "Sexta, 22 de maio" */
+export function formatLongDateBR(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number)
+  if (!y || !m || !d) return iso
+  const dt = new Date(y, m - 1, d)
+  const weekday = weekdaysLong[dt.getDay()]
+  return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)}, ${d} de ${monthsLong[m - 1]}`
+}
+
+/** ISO date or datetime → localized date string */
+export function formatDateTimeBR(iso: string): string {
+  if (!iso) return ""
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return formatDateBR(iso)
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleDateString("pt-BR")
+}

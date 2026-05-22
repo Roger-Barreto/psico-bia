@@ -109,3 +109,28 @@ export const patientAnnotationCreateSchema = z.object({
   patientId: z.string().min(1),
   text: z.string().min(1).max(2000),
 })
+
+export const loginSchema = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1),
+})
+
+export const profilePatchSchema = z
+  .object({
+    displayName: z.string().trim().min(1).max(80).optional(),
+    avatarId: z
+      .number()
+      .int()
+      .min(1)
+      .max(MONSTER_AVATAR_COUNT)
+      .nullable()
+      .optional(),
+  })
+  .strict()
+
+export const passwordChangeSchema = z
+  .object({
+    currentPassword: z.string().min(1),
+    newPassword: z.string().min(8).max(200),
+  })
+  .strict()

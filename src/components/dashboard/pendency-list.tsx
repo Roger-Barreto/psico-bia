@@ -7,6 +7,7 @@ import {
 import type { Occurrence, Patient } from "@/db/types"
 import { PatientAvatar, genderLabel } from "@/components/patient/patient-avatar"
 import { Card, CardContent } from "@/components/ui/card"
+import { formatDateBR } from "@/domain/dates"
 import { formatBRL } from "@/domain/finance"
 import { cn } from "@/lib/utils"
 
@@ -103,7 +104,7 @@ export function PendencyList({
                 </div>
                 {it.nextDate && it.nextDate >= today && (
                   <p className="mt-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-                    próxima sessão {formatDate(it.nextDate)}
+                    próxima sessão {formatDateBR(it.nextDate)}
                     {it.occurrence.time && ` às ${it.occurrence.time}`}
                   </p>
                 )}
@@ -139,9 +140,4 @@ function Tag({
       {children}
     </span>
   )
-}
-
-function formatDate(iso: string): string {
-  const [y, m, d] = iso.split("-").map(Number)
-  return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`
 }

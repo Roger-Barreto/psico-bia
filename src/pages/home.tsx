@@ -29,7 +29,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { PatientAvatar, genderLabel } from "@/components/patient/patient-avatar"
 import { effectiveValue, formatBRL } from "@/domain/finance"
 import { PatientDrawer } from "@/components/patient/patient-drawer"
-import { todayISO } from "@/domain/dates"
+import { todayISO, formatLongDateBR } from "@/domain/dates"
 import { cn } from "@/lib/utils"
 import { Breadcrumbs } from "@/components/breadcrumbs"
 import { Button } from "@/components/ui/button"
@@ -178,7 +178,7 @@ export function HomePage() {
                   className="size-5 text-primary"
                 />
                 <p className="text-sm font-semibold">
-                  {formatLongDate(selectedISO)}
+                  {formatLongDateBR(selectedISO)}
                 </p>
                 <span className="ml-auto text-xs text-muted-foreground">
                   {filteredDay.length}{" "}
@@ -398,40 +398,10 @@ function statusLabel(o: Occurrence): string {
     case "missed":
       return "Faltou"
     case "rescheduled":
-      return `Reagendado de ${o.originDate}`
+      return `Reagendado de ${formatLongDateBR(o.originDate)}`
     case "cancelled":
       return "Cancelado"
     default:
       return "Agendado"
   }
-}
-
-const monthsLong = [
-  "janeiro",
-  "fevereiro",
-  "março",
-  "abril",
-  "maio",
-  "junho",
-  "julho",
-  "agosto",
-  "setembro",
-  "outubro",
-  "novembro",
-  "dezembro",
-]
-const weekdaysLong = [
-  "Domingo",
-  "Segunda",
-  "Terça",
-  "Quarta",
-  "Quinta",
-  "Sexta",
-  "Sábado",
-]
-
-function formatLongDate(iso: string): string {
-  const [y, m, d] = iso.split("-").map(Number)
-  const dt = new Date(y, m - 1, d)
-  return `${weekdaysLong[dt.getDay()]}, ${d} de ${monthsLong[m - 1]}`
 }

@@ -38,7 +38,7 @@ import {
   RadioGroup,
   RadioGroupItem,
 } from "@/components/ui/radio-group"
-import { todayISO } from "@/domain/dates"
+import { todayISO, formatDateBR } from "@/domain/dates"
 import { randomMonsterAvatarId } from "@/lib/monster-avatars"
 import { cn } from "@/lib/utils"
 import { PatientDocuments } from "./patient-documents"
@@ -67,11 +67,6 @@ type TabKey = "dados" | "checklist" | "documentos"
 interface Props {
   patient?: Patient
   onDone: () => void
-}
-
-function formatISODateBR(iso: string): string {
-  const [y, m, d] = iso.split("-")
-  return `${d}/${m}/${y}`
 }
 
 function SectionBlock({
@@ -514,7 +509,7 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
                 <div className="flex items-center justify-between gap-3 rounded-lg border border-secondary/40 bg-secondary/10 px-3 py-2.5">
                   <div className="min-w-0 text-sm">
                     <p className="font-medium text-secondary">
-                      Encerrado em {formatISODateBR(patient.dischargedAt)}
+                      Encerrado em {formatDateBR(patient.dischargedAt)}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       Motivo:{" "}

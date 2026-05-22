@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
 import { celebrate } from "@/lib/celebrate"
+import { formatDateTimeBR } from "@/domain/dates"
 
 interface Props {
   appointment: Appointment
@@ -22,11 +23,6 @@ function formatBRL(n: number): string {
     style: "currency",
     currency: "BRL",
   })
-}
-
-function formatShortDate(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleDateString("pt-BR")
 }
 
 export function PaymentControl({ appointment, patient }: Props) {
@@ -96,7 +92,7 @@ export function PaymentControl({ appointment, patient }: Props) {
           Pago {formatBRL(appointment.paidValue ?? 0)}
           {appointment.paidAt && (
             <span className="text-xs opacity-80">
-              em {formatShortDate(appointment.paidAt)}
+              em {formatDateTimeBR(appointment.paidAt)}
             </span>
           )}
         </span>
