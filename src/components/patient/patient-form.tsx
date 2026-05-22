@@ -24,6 +24,8 @@ import {
 } from "@/api/queries"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { DatePicker } from "@/components/ui/date-picker"
+import { TimePicker } from "@/components/ui/time-picker"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -394,20 +396,18 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="anchor">Data inicial</Label>
-                <Input
+                <DatePicker
                   id="anchor"
-                  type="date"
                   value={anchorDate}
-                  onChange={(e) => setAnchorDate(e.target.value)}
+                  onChange={setAnchorDate}
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="time">Horário</Label>
-                <Input
+                <TimePicker
                   id="time"
-                  type="time"
                   value={defaultTime}
-                  onChange={(e) => setDefaultTime(e.target.value)}
+                  onChange={setDefaultTime}
                 />
               </div>
             </div>
@@ -519,10 +519,9 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
                       <label className="text-xs text-muted-foreground">
                         Data
                       </label>
-                      <Input
-                        type="date"
+                      <DatePicker
                         value={dischargeDate}
-                        onChange={(e) => setDischargeDate(e.target.value)}
+                        onChange={setDischargeDate}
                       />
                     </div>
                     <div className="space-y-1">

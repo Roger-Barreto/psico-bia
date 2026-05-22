@@ -77,6 +77,22 @@
       hsl(var(--background));
   }
 
+  /* native date/time picker indicators: invert so visible on dark bg
+     (fallback for any inputs not migrated to DatePicker/TimePicker) */
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="time"]::-webkit-calendar-picker-indicator,
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+  input[type="month"]::-webkit-calendar-picker-indicator,
+  input[type="week"]::-webkit-calendar-picker-indicator {
+    filter: invert(1) brightness(1.2);
+    opacity: 0.75;
+    cursor: pointer;
+  }
+  input[type="date"]::-webkit-calendar-picker-indicator:hover,
+  input[type="time"]::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+  }
+
   ::selection {
     background: hsl(var(--primary) / 0.35);
     color: hsl(var(--foreground));

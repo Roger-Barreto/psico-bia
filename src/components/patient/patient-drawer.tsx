@@ -29,7 +29,8 @@ import {
 } from "@/api/queries"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Input } from "@/components/ui/input"
+import { DatePicker } from "@/components/ui/date-picker"
+import { TimePicker } from "@/components/ui/time-picker"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
 import { celebrate } from "@/lib/celebrate"
 import {
@@ -403,18 +404,16 @@ export function PatientDrawer({
             <div className="rounded-xl border border-secondary/40 bg-secondary/10 p-3">
               <p className="mb-2 text-sm font-medium">Nova data e horário</p>
               <div className="flex gap-2">
-                <Input
-                  type="date"
+                <DatePicker
                   value={reschedDate}
                   min={todayISO()}
-                  onChange={(e) => setReschedDate(e.target.value)}
+                  onChange={setReschedDate}
                   className="flex-1"
                 />
-                <Input
-                  type="time"
+                <TimePicker
                   value={reschedTime}
-                  onChange={(e) => setReschedTime(e.target.value)}
-                  className="w-28"
+                  onChange={setReschedTime}
+                  className="w-32"
                 />
                 <Button
                   onClick={reschedule}
