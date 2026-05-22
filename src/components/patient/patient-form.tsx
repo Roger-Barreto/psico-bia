@@ -39,8 +39,10 @@ import {
   RadioGroupItem,
 } from "@/components/ui/radio-group"
 import { todayISO } from "@/domain/dates"
+import { randomMonsterAvatarId } from "@/lib/monster-avatars"
 import { cn } from "@/lib/utils"
 import { PatientDocuments } from "./patient-documents"
+import { AvatarPicker } from "./avatar-picker"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
 
 const weekdays: { value: Weekday; label: string }[] = [
@@ -105,6 +107,9 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
   const [tab, setTab] = useState<TabKey>("dados")
   const [name, setName] = useState(patient?.name ?? "")
   const [gender, setGender] = useState<Gender>(patient?.gender ?? "female")
+  const [avatarId, setAvatarId] = useState<number>(
+    patient?.avatarId ?? randomMonsterAvatarId(),
+  )
   const [age, setAge] = useState<string>(patient ? String(patient.age) : "")
   const [defaultWeekday, setDefaultWeekday] = useState<Weekday>(
     patient?.defaultWeekday ?? 1,
@@ -138,18 +143,21 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
   const reasonsQ = useDischargeReasons()
 
   useEffect(() => {
-    if (!patient) {
-      setName("")
-      setGender("female")
-      setAge("")
-      setDefaultWeekday(1)
-      setRecurrence("weekly")
-      setAnchorDate(todayISO())
-      setDefaultTime("08:00")
-      setConsultationValue("0")
-      setInsuranceId("__none__")
-      setTab("dados")
+    if (patient) {
+      setAvatarId(patient.avatarId)
+      return
     }
+    setName("")
+    setGender("female")
+    setAvatarId(randomMonsterAvatarId())
+    setAge("")
+    setDefaultWeekday(1)
+    setRecurrence("weekly")
+    setAnchorDate(todayISO())
+    setDefaultTime("08:00")
+    setConsultationValue("0")
+    setInsuranceId("__none__")
+    setTab("dados")
   }, [patient])
 
   function bumpValue(delta: number) {
@@ -223,6 +231,7 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
           patch: {
             name: name.trim(),
             gender,
+            avatarId,
             age: ageNum,
             defaultWeekday,
             recurrence,
@@ -237,6 +246,7 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
         await createMut.mutateAsync({
           name: name.trim(),
           gender,
+          avatarId,
           age: ageNum,
           defaultWeekday,
           recurrence,
@@ -306,6 +316,18 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
       {tab === "dados" && (
         <>
           <SectionBlock title="Identificação" icon={UserCircleIcon}>
+            <div className="flex flex-col items-center gap-1 pb-1">
+              <AvatarPicker
+                value={avatarId}
+                onChange={setAvatarId}
+                name={name}
+                size="lg"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Toque para escolher o avatar
+              </p>
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="name">Nome</Label>
               <Input

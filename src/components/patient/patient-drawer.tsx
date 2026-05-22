@@ -26,6 +26,7 @@ import {
   usePatientAnnotations,
   useSharedChecklist,
   useUpsertAppointment,
+  useUpdatePatient,
 } from "@/api/queries"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -39,7 +40,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { PatientAvatar, genderLabel } from "./patient-avatar"
+import { genderLabel } from "./patient-avatar"
+import { AvatarPicker } from "./avatar-picker"
 import { PaymentControl } from "./payment-control"
 import { PatientForm } from "./patient-form"
 import { AddAnnotationDialog } from "./add-annotation-dialog"
@@ -73,6 +75,7 @@ export function PatientDrawer({
   const qc = useQueryClient()
   const upsert = useUpsertAppointment()
   const patch = usePatchAppointment()
+  const updatePatient = useUpdatePatient()
   const sharedQ = useSharedChecklist()
   const indivQ = useIndividualChecklist(patient?.id)
   const insurancesQ = useInsurances()
@@ -239,6 +242,19 @@ export function PatientDrawer({
     }
   }
 
+  async function changeAvatar(nextAvatarId: number) {
+    if (nextAvatarId === p.avatarId) return
+    try {
+      await updatePatient.mutateAsync({
+        id: p.id,
+        patch: { avatarId: nextAvatarId },
+      })
+      toast.success("Avatar atualizado")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao atualizar avatar")
+    }
+  }
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full max-w-md overflow-y-auto sm:max-w-lg">
@@ -248,7 +264,13 @@ export function PatientDrawer({
 
         <div className="space-y-6 p-6">
           <div className="flex items-start gap-4">
-            <PatientAvatar avatarId={patient.avatarId} name={patient.name} size="lg" />
+            <AvatarPicker
+              value={patient.avatarId}
+              onChange={changeAvatar}
+              name={patient.name}
+              size="lg"
+              disabled={updatePatient.isPending}
+            />
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-2">
                 <p className="text-lg font-semibold">{patient.name}</p>

@@ -8,6 +8,10 @@ export function randomMonsterAvatarId(): number {
   return Math.floor(Math.random() * MONSTER_AVATAR_COUNT) + 1
 }
 
+export function monsterAvatarIds(): number[] {
+  return Array.from({ length: MONSTER_AVATAR_COUNT }, (_, i) => i + 1)
+}
+
 export function stableMonsterAvatarId(seed: string): number {
   let hash = 0
   for (let i = 0; i < seed.length; i++) {

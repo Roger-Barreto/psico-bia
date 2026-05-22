@@ -329,7 +329,7 @@ export async function handleApi(
       const created: Patient = {
         id: id("p"),
         ...r.data,
-        avatarId: randomMonsterAvatarId(),
+        avatarId: r.data.avatarId ?? randomMonsterAvatarId(),
         recurrenceHistory:
           r.data.recurrenceHistory && r.data.recurrenceHistory.length > 0
             ? r.data.recurrenceHistory

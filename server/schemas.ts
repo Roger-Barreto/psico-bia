@@ -37,6 +37,7 @@ export const patientCreateSchema = z.object({
   insuranceId: z.string().nullable().default(null),
   dischargedAt: isoDate.nullable().default(null),
   dischargeReasonId: z.string().nullable().default(null),
+  avatarId: z.number().int().min(1).max(MONSTER_AVATAR_COUNT).optional(),
 })
 
 export const patientPatchSchema = patientCreateSchema
