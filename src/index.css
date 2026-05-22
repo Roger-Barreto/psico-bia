@@ -1,0 +1,103 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root,
+  .dark {
+    /* Deep navy background */
+    --background: 231 42% 10%;
+    --foreground: 14 80% 95%;
+
+    /* Cards / surfaces */
+    --card: 231 38% 13%;
+    --card-foreground: 14 80% 95%;
+
+    --popover: 231 40% 12%;
+    --popover-foreground: 14 80% 95%;
+
+    /* Primary = pink */
+    --primary: 353 78% 74%;
+    --primary-foreground: 231 45% 12%;
+
+    /* Secondary = yellow */
+    --secondary: 46 100% 85%;
+    --secondary-foreground: 231 45% 14%;
+
+    /* Soft pink accent */
+    --accent: 14 95% 91%;
+    --accent-foreground: 231 45% 14%;
+
+    --muted: 231 28% 20%;
+    --muted-foreground: 14 25% 75%;
+
+    --destructive: 0 72% 60%;
+    --destructive-foreground: 14 80% 95%;
+
+    --border: 231 28% 22%;
+    --input: 231 28% 22%;
+    --ring: 353 78% 74%;
+
+    --radius: 0.85rem;
+
+    --sidebar: 231 44% 9%;
+    --sidebar-foreground: 14 30% 88%;
+    --sidebar-border: 231 28% 18%;
+    --sidebar-accent: 353 78% 74%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased font-sans;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* subtle gradient ambience on app shell */
+  .app-bg {
+    background:
+      radial-gradient(
+        1200px 600px at 80% -10%,
+        hsl(353 78% 74% / 0.08),
+        transparent 60%
+      ),
+      radial-gradient(
+        900px 500px at -10% 110%,
+        hsl(46 100% 75% / 0.06),
+        transparent 60%
+      ),
+      hsl(var(--background));
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.35);
+    color: hsl(var(--foreground));
+  }
+
+  /* scrollbar */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted));
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--primary) / 0.6);
+    background-clip: padding-box;
+  }
+}
