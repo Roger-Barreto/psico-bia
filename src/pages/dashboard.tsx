@@ -22,6 +22,7 @@ import {
   todayISO,
 } from "@/domain/dates"
 import { effectiveValue, formatBRL } from "@/domain/finance"
+import { occurrencesForPatient } from "@/domain/recurrence"
 import { MonthSelector } from "@/components/dashboard/month-selector"
 import { PendencyBlock } from "@/components/dashboard/pendency-block"
 import { KpiCard } from "@/components/dashboard/kpi-card"
@@ -261,15 +262,22 @@ export function DashboardPage() {
   }, [appts, patientsById, today])
 
   const estimatedBilling = useMemo(() => {
+    const range = { fromISO: from, toISO: to }
     let sum = 0
-    for (const a of appts) {
-      if (a.status !== "scheduled") continue
-      const p = patientsById.get(a.patientId)
-      if (!p) continue
-      sum += effectiveValue(a, p)
+    for (const p of patients) {
+      const occs = occurrencesForPatient(p, range, appts)
+      for (const o of occs) {
+        const a = o.appointment
+        if (a) {
+          if (a.status !== "scheduled") continue
+          sum += effectiveValue(a, p)
+        } else {
+          sum += p.consultationValue ?? 0
+        }
+      }
     }
     return sum
-  }, [appts, patientsById])
+  }, [patients, appts, from, to])
 
   const attendedCount = appts.filter((a) => a.status === "attended").length
   const missedCount = appts.filter((a) => a.status === "missed").length
