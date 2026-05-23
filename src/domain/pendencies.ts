@@ -14,10 +14,13 @@ export interface ChecklistEntry {
 
 /**
  * Compute pendency count for a single occurrence.
- * Pendency includes:
- *   - Unchecked checklist items on past attended/missed/scheduled occurrences
- *   - Attended sessions that are not paid yet
- *   - Scheduled occurrences whose date is past (not confirmed as attended/missed yet)
+ * Pendency = ações que o psicólogo precisa tomar:
+ *   - Itens de checklist não marcados em sessões passadas (attended/missed)
+ *   - Itens de checklist abertos quando ocorrência scheduled passou da data
+ *   - Ocorrência scheduled com data passada (precisa confirmar atendido/falta)
+ *
+ * Sessões atendidas não pagas NÃO entram aqui — são tratadas separadamente
+ * via {@link isUnpaidAttended} / {@link unpaidIndex}.
  */
 export function pendencyCount(
   occ: Occurrence,
@@ -38,7 +41,6 @@ export function pendencyCount(
     )
     count += unchecked.length
   } else {
-    // scheduled / no appointment yet — all current items are pending checklist
     const sharedActive = sharedItems.filter((s) => !s.archived).length
     const individualActive = individualItems.filter(
       (i) => i.patientId === occ.patientId && !i.archived,
@@ -46,17 +48,40 @@ export function pendencyCount(
     count += sharedActive + individualActive
   }
 
-  // Attended session not paid yet
-  if (appt && appt.status === "attended" && !appt.paid) {
-    count += 1
-  }
-
-  // Scheduled occurrence past its date with no confirmation yet
   if (occ.date < today && (!appt || appt.status === "scheduled")) {
     count += 1
   }
 
   return count
+}
+
+/**
+ * Atendimento atendido porém não pago. Não conta como pendência —
+ * é um alerta financeiro tratado em UI separada.
+ */
+export function isUnpaidAttended(occ: Occurrence): boolean {
+  const a = occ.appointment
+  return !!a && a.status === "attended" && !a.paid
+}
+
+/**
+ * Agrega ocorrências não pagas por data ISO.
+ * `valueFor(occ)` deve retornar o valor financeiro daquela sessão
+ * (geralmente `effectiveValue(appointment, patient)`).
+ */
+export function unpaidIndex(
+  occurrences: Occurrence[],
+  valueFor: (occ: Occurrence) => number,
+): Map<string, { count: number; value: number }> {
+  const map = new Map<string, { count: number; value: number }>()
+  for (const o of occurrences) {
+    if (!isUnpaidAttended(o)) continue
+    const cur = map.get(o.date) ?? { count: 0, value: 0 }
+    cur.count++
+    cur.value += valueFor(o)
+    map.set(o.date, cur)
+  }
+  return map
 }
 
 export function checklistFor(

@@ -2,6 +2,7 @@ import { useMemo } from "react"
 import {
   CaretLeftIcon,
   CaretRightIcon,
+  CurrencyDollarIcon,
   WarningIcon,
 } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
@@ -34,6 +35,7 @@ const monthLabel = [
 export interface DayMeta {
   count: number
   pendencies: number
+  unpaid?: number
 }
 
 interface Props {
@@ -105,6 +107,7 @@ export function MiniCalendar({
           const isToday = iso === today
           const hasPatients = !!meta && meta.count > 0
           const hasPendency = !!meta && meta.pendencies > 0
+          const hasUnpaid = !!meta && (meta.unpaid ?? 0) > 0
 
           return (
             <button
@@ -117,6 +120,7 @@ export function MiniCalendar({
                 selected && "ring-2 ring-primary",
                 isToday && !selected && "border-primary/40",
                 hasPendency && "bg-destructive/15",
+                !hasPendency && hasUnpaid && "bg-amber-500/15",
               )}
               aria-label={iso}
               aria-selected={selected}
@@ -135,12 +139,22 @@ export function MiniCalendar({
                   <WarningIcon weight="fill" className="size-3" />
                 </span>
               )}
+              {!hasPendency && hasUnpaid && (
+                <span className="absolute right-1 top-1 text-amber-400">
+                  <CurrencyDollarIcon weight="fill" className="size-3" />
+                </span>
+              )}
+              {hasPendency && hasUnpaid && (
+                <span className="absolute bottom-0.5 right-1 text-amber-400">
+                  <CurrencyDollarIcon weight="fill" className="size-2.5" />
+                </span>
+              )}
             </button>
           )
         })}
       </div>
 
-      <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <span className="grid min-w-[14px] place-items-center rounded-full bg-amber-400 px-1 text-[9px] font-bold leading-none text-amber-950">
             N
@@ -150,6 +164,10 @@ export function MiniCalendar({
         <span className="flex items-center gap-1.5">
           <WarningIcon weight="fill" className="size-3 text-destructive" />{" "}
           pendência
+        </span>
+        <span className="flex items-center gap-1.5">
+          <CurrencyDollarIcon weight="fill" className="size-3 text-amber-400" />{" "}
+          não pago
         </span>
       </div>
     </div>

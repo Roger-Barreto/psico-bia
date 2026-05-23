@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import {
   ArrowCounterClockwiseIcon,
@@ -13,6 +13,8 @@ import {
 } from "@phosphor-icons/react"
 import type { Gender, Patient } from "@/db/types"
 import {
+  useAppointmentSeries,
+  useAppointmentsInRange,
   useArchiveIndividualItem,
   useCreateIndividualItem,
   useCreatePatient,
@@ -25,6 +27,7 @@ import {
   useReopenPatient,
   useUpdatePatient,
 } from "@/api/queries"
+import { occurrencesForPatient } from "@/domain/recurrence"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DatePicker } from "@/components/ui/date-picker"
@@ -113,6 +116,46 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
   const insurancesQ = useInsurances()
   const reasonsQ = useDischargeReasons()
 
+  // Forecast future occurrences for discharge dialog
+  const dischargeForecastRange = useMemo(() => {
+    const start = dischargeDate || todayISO()
+    const end = new Date(start + "T00:00:00Z")
+    end.setUTCFullYear(end.getUTCFullYear() + 2)
+    return { from: start, to: end.toISOString().slice(0, 10) }
+  }, [dischargeDate])
+  const dischargeSeriesQ = useAppointmentSeries(patient?.id)
+  const dischargeApptsQ = useAppointmentsInRange(
+    dischargeForecastRange.from,
+    dischargeForecastRange.to,
+  )
+  const futureOccurrenceCount = useMemo(() => {
+    if (!patient) return 0
+    if (!dischargeDate) return 0
+    const series = dischargeSeriesQ.data ?? []
+    const appts = (dischargeApptsQ.data ?? []).filter(
+      (a) => a.patientId === patient.id,
+    )
+    const occs = occurrencesForPatient(
+      { ...patient, dischargedAt: null },
+      series,
+      { fromISO: dischargeForecastRange.from, toISO: dischargeForecastRange.to },
+      appts,
+    )
+    let n = 0
+    for (const o of occs) {
+      if (o.date <= dischargeDate) continue
+      const a = o.appointment
+      if (!a || a.status === "scheduled" || a.status === "rescheduled") n++
+    }
+    return n
+  }, [
+    patient,
+    dischargeDate,
+    dischargeForecastRange,
+    dischargeSeriesQ.data,
+    dischargeApptsQ.data,
+  ])
+
   useEffect(() => {
     if (patient) {
       setAvatarId(patient.avatarId)
@@ -145,24 +188,36 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
     if (!patient) return
     if (!dischargeReasonId) return toast.error("Selecione um motivo")
     if (!dischargeDate) return toast.error("Informe a data")
+    const n = futureOccurrenceCount
+    const futureMsg =
+      n === 0
+        ? "Nenhum atendimento futuro a remover."
+        : n === 1
+        ? "1 atendimento futuro será deletado permanentemente."
+        : `${n} atendimentos futuros serão deletados permanentemente.`
     if (
       !(await confirmDialog({
         title: "Encerrar tratamento?",
-        description:
-          "Todos os atendimentos futuros deste paciente serão cancelados. O cadastro permanecerá disponível para reagendamento.",
+        description: `Encerrando em ${formatDateBR(dischargeDate)}. ${futureMsg} Atendimentos passados permanecem para histórico. Você poderá reabrir o tratamento depois.`,
         confirmLabel: "Encerrar",
         cancelLabel: "Cancelar",
+        destructive: n > 0,
       }))
     )
       return
     try {
-      await dischargeMut.mutateAsync({
+      const result = await dischargeMut.mutateAsync({
         id: patient.id,
         dischargedAt: dischargeDate,
         dischargeReasonId,
       })
       setDischargeOpen(false)
-      toast.success("Tratamento encerrado")
+      const removed = result.deletedAppointments
+      toast.success(
+        removed > 0
+          ? `Tratamento encerrado · ${removed} atendimento${removed === 1 ? "" : "s"} removido${removed === 1 ? "" : "s"}`
+          : "Tratamento encerrado",
+      )
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro")
     }

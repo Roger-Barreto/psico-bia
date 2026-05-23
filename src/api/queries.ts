@@ -81,10 +81,10 @@ export function useDischargePatient() {
       dischargedAt: string
       dischargeReasonId: string
     }) =>
-      api.post<Patient>(`/api/patients/${id}/discharge`, {
-        dischargedAt,
-        dischargeReasonId,
-      }),
+      api.post<{ patient: Patient; deletedAppointments: number }>(
+        `/api/patients/${id}/discharge`,
+        { dischargedAt, dischargeReasonId },
+      ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.patients })
       qc.invalidateQueries({ queryKey: ["series"] })
@@ -301,6 +301,27 @@ export function useUpsertAppointment() {
     }) => api.post<Appointment>("/api/appointments", input),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ["appointments"] }),
+  })
+}
+
+export function useUndoAppointment() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: {
+      seriesId: string
+      scope: "one" | "future" | "all"
+      originDate?: string
+    }) =>
+      api.post<{
+        ok: boolean
+        removedCount: number
+        cancelledCount: number
+        seriesDeleted: boolean
+      }>("/api/appointments/bulk-delete", input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["appointments"] })
+      qc.invalidateQueries({ queryKey: ["series"] })
+    },
   })
 }
 

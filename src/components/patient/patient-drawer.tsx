@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { useQueryClient } from "@tanstack/react-query"
 import {
+  ArrowUUpLeftIcon,
   CalendarBlankIcon,
   CheckCircleIcon,
   ClockIcon,
+  CurrencyDollarIcon,
   PencilSimpleIcon,
   PlusIcon,
   ProhibitIcon,
@@ -49,6 +51,7 @@ import { buildSnapshotIds, checklistFor } from "@/domain/pendencies"
 import { todayISO, formatLongDateBR } from "@/domain/dates"
 import { cn } from "@/lib/utils"
 import { ageFromBirthdate } from "@/domain/age"
+import { UndoAppointmentDialog } from "@/components/appointments/undo-appointment-dialog"
 
 interface Props {
   occurrence: Occurrence | null
@@ -78,6 +81,7 @@ export function PatientDrawer({
   const [editPatientOpen, setEditPatientOpen] = useState(false)
   const [addChecklistOpen, setAddChecklistOpen] = useState(false)
   const [addAnnotationOpen, setAddAnnotationOpen] = useState(false)
+  const [undoOpen, setUndoOpen] = useState(false)
 
   const shared = sharedQ.data ?? []
   const individual = indivQ.data ?? []
@@ -316,16 +320,27 @@ export function PatientDrawer({
                   </p>
                 )}
               </div>
-              <StatusPill
-                status={status}
-                isFuture={isFuture}
-                pendencyCount={occurrence.pendencyCount}
-              />
+              <div className="flex flex-col items-end gap-1">
+                <StatusPill
+                  status={status}
+                  isFuture={isFuture}
+                  pendencyCount={occurrence.pendencyCount}
+                  isUnpaid={isAttended && !!appt && !appt.paid}
+                />
+                <button
+                  type="button"
+                  onClick={() => setUndoOpen(true)}
+                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                >
+                  <ArrowUUpLeftIcon weight="fill" className="size-3" />
+                  Desfazer
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* AÇÕES — só aparecem se faz sentido agir */}
-          {canAct && (
+          {/* AÇÕES — Atendido/Falta só quando faz sentido; Reagendar sempre */}
+          {canAct ? (
             <div className="grid grid-cols-3 gap-2">
               <Button
                 onClick={markAttended}
@@ -352,6 +367,15 @@ export function PatientDrawer({
                 Reagendar
               </Button>
             </div>
+          ) : (
+            <Button
+              onClick={() => setReschedOpen((v) => !v)}
+              variant="outline"
+              className="w-full border-secondary/40 text-secondary hover:bg-secondary/10"
+            >
+              <CalendarBlankIcon weight="fill" />
+              Reagendar
+            </Button>
           )}
 
           {/* MENSAGEM CONTEXTUAL quando não pode agir */}
@@ -408,13 +432,12 @@ export function PatientDrawer({
           )}
 
           {/* REAGENDAR FORM */}
-          {reschedOpen && canAct && (
+          {reschedOpen && (
             <div className="rounded-xl border border-secondary/40 bg-secondary/10 p-3">
               <p className="mb-2 text-sm font-medium">Nova data e horário</p>
               <div className="flex gap-2">
                 <DatePicker
                   value={reschedDate}
-                  min={todayISO()}
                   onChange={setReschedDate}
                   className="flex-1"
                 />
@@ -591,6 +614,14 @@ export function PatientDrawer({
         open={addAnnotationOpen}
         onOpenChange={setAddAnnotationOpen}
       />
+      <UndoAppointmentDialog
+        open={undoOpen}
+        onOpenChange={setUndoOpen}
+        seriesId={o.seriesId}
+        originDate={o.originDate}
+        hasOverride={!!appt}
+        onDone={() => onOpenChange(false)}
+      />
     </Sheet>
   )
 }
@@ -609,16 +640,34 @@ function StatusPill({
   status,
   isFuture,
   pendencyCount,
+  isUnpaid,
 }: {
   status: Appointment["status"] | null
   isFuture: boolean
   pendencyCount: number
+  isUnpaid: boolean
 }) {
   if (status === "attended" && pendencyCount > 0) {
     return (
-      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-destructive/20 px-2.5 py-1 text-xs font-medium text-destructive">
-        <WarningIcon weight="fill" className="size-3" />
-        {pendencyCount} pendência{pendencyCount === 1 ? "" : "s"}
+      <div className="flex flex-col items-end gap-1">
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-destructive/20 px-2.5 py-1 text-xs font-medium text-destructive">
+          <WarningIcon weight="fill" className="size-3" />
+          {pendencyCount} pendência{pendencyCount === 1 ? "" : "s"}
+        </span>
+        {isUnpaid && (
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/20 px-2.5 py-1 text-xs font-medium text-amber-300">
+            <CurrencyDollarIcon weight="fill" className="size-3" />
+            Não pago
+          </span>
+        )}
+      </div>
+    )
+  }
+  if (status === "attended" && isUnpaid) {
+    return (
+      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/20 px-2.5 py-1 text-xs font-medium text-amber-300">
+        <CurrencyDollarIcon weight="fill" className="size-3" />
+        Atendido · não pago
       </span>
     )
   }

@@ -77,6 +77,17 @@ export const appointmentUpsertSchema = z.object({
   paidAt: z.string().nullable().optional(),
 })
 
+export const appointmentBulkDeleteSchema = z
+  .object({
+    seriesId: z.string().min(1),
+    scope: z.enum(["one", "future", "all"]),
+    originDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD").optional(),
+  })
+  .refine(
+    (d) => d.scope === "all" || !!d.originDate,
+    "originDate required for scope=one|future",
+  )
+
 export const appointmentPatchSchema = z.object({
   date: isoDate.optional(),
   status: statusSchema.optional(),

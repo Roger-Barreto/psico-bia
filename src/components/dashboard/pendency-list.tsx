@@ -1,14 +1,12 @@
 import {
   CalendarBlankIcon,
   ChecksIcon,
-  CurrencyDollarIcon,
   WarningIcon,
 } from "@phosphor-icons/react"
 import type { Occurrence, Patient } from "@/db/types"
 import { PatientAvatar, genderLabel } from "@/components/patient/patient-avatar"
 import { Card, CardContent } from "@/components/ui/card"
 import { formatDateBR } from "@/domain/dates"
-import { formatBRL } from "@/domain/finance"
 import { ageFromBirthdate } from "@/domain/age"
 import { cn } from "@/lib/utils"
 
@@ -16,9 +14,7 @@ export interface PendencyBreakdown {
   patient: Patient
   insuranceName?: string | null
   checklistCount: number
-  unpaidCount: number
   overdueCount: number
-  unpaidValue: number
   nextDate?: string | null
   occurrence: Occurrence
 }
@@ -60,7 +56,7 @@ export function PendencyList({
                   </span>
                   <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-destructive/20 px-2 py-0.5 text-xs font-medium text-destructive">
                     <WarningIcon weight="fill" className="size-3" />
-                    {it.checklistCount + it.unpaidCount + it.overdueCount}
+                    {it.checklistCount + it.overdueCount}
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -73,20 +69,6 @@ export function PendencyList({
                     <Tag tone="amber" icon={<ChecksIcon weight="fill" className="size-3" />}>
                       {it.checklistCount}{" "}
                       {it.checklistCount === 1 ? "item" : "itens"} checklist
-                    </Tag>
-                  )}
-                  {it.unpaidCount > 0 && (
-                    <Tag
-                      tone="emerald"
-                      icon={
-                        <CurrencyDollarIcon
-                          weight="fill"
-                          className="size-3"
-                        />
-                      }
-                    >
-                      {it.unpaidCount} não pago
-                      {it.unpaidValue > 0 && ` · ${formatBRL(it.unpaidValue)}`}
                     </Tag>
                   )}
                   {it.overdueCount > 0 && (
@@ -124,7 +106,7 @@ function Tag({
   icon,
   children,
 }: {
-  tone: "amber" | "emerald" | "red"
+  tone: "amber" | "red"
   icon: React.ReactNode
   children: React.ReactNode
 }) {
@@ -133,7 +115,6 @@ function Tag({
       className={cn(
         "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium",
         tone === "amber" && "bg-amber-500/15 text-amber-300",
-        tone === "emerald" && "bg-emerald-500/15 text-emerald-300",
         tone === "red" && "bg-destructive/20 text-destructive",
       )}
     >

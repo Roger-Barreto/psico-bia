@@ -39,6 +39,11 @@ import {
   PendencyList,
   type PendencyBreakdown,
 } from "@/components/dashboard/pendency-list"
+import { UnpaidSummary } from "@/components/dashboard/unpaid-summary"
+import {
+  UnpaidPatientsDialog,
+  type UnpaidPatientEntry,
+} from "@/components/dashboard/unpaid-patients-dialog"
 import { Breadcrumbs } from "@/components/breadcrumbs"
 import { DashboardSkeleton } from "@/components/dashboard/skeletons"
 import { cn } from "@/lib/utils"
@@ -82,6 +87,7 @@ export function DashboardPage() {
     prevMonthIndex.current = monthIndex
   }, [monthIndex])
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [unpaidOpen, setUnpaidOpen] = useState(false)
   const [activeKey, setActiveKey] = useState<{
     seriesId: string
     patientId: string
@@ -155,18 +161,17 @@ export function DashboardPage() {
 
   function countPendencyItems(
     appt: (typeof appts)[number],
-    patient: Patient | undefined,
+    _patient: Patient | undefined,
   ): {
     checklist: number
-    unpaid: number
     overdue: number
-    unpaidValue: number
   } {
+    void _patient
     if (appt.status === "cancelled" || appt.status === "rescheduled") {
-      return { checklist: 0, unpaid: 0, overdue: 0, unpaidValue: 0 }
+      return { checklist: 0, overdue: 0 }
     }
     if (appt.date > today) {
-      return { checklist: 0, unpaid: 0, overdue: 0, unpaidValue: 0 }
+      return { checklist: 0, overdue: 0 }
     }
     let checklist = 0
     if (appt.status === "attended" || appt.status === "missed") {
@@ -177,11 +182,9 @@ export function DashboardPage() {
       checklist =
         sharedActiveCount + (individualByPatient.get(appt.patientId) ?? 0)
     }
-    const unpaid = appt.status === "attended" && !appt.paid ? 1 : 0
-    const unpaidValue = unpaid ? effectiveValue(appt, patient) : 0
     const overdue =
       appt.status === "scheduled" && appt.date < today ? 1 : 0
-    return { checklist, unpaid, overdue, unpaidValue }
+    return { checklist, overdue }
   }
 
   // ── Pendency totals (item-level) ─────────────────────────
@@ -191,7 +194,7 @@ export function DashboardPage() {
     let todayN = 0
     for (const a of appts) {
       const c = countPendencyItems(a, patientsById.get(a.patientId))
-      const sum = c.checklist + c.unpaid + c.overdue
+      const sum = c.checklist + c.overdue
       if (sum === 0) continue
       total += sum
       if (a.date < today) overdue += sum
@@ -208,7 +211,7 @@ export function DashboardPage() {
       const patient = patientsById.get(a.patientId)
       if (!patient) continue
       const c = countPendencyItems(a, patient)
-      const pendSum = c.checklist + c.unpaid + c.overdue
+      const pendSum = c.checklist + c.overdue
       if (pendSum === 0) continue
       const insuranceName =
         insurances.find((i) => i.id === patient.insuranceId)?.name ?? null
@@ -224,9 +227,7 @@ export function DashboardPage() {
       const existing = map.get(patient.id)
       if (existing) {
         existing.checklistCount += c.checklist
-        existing.unpaidCount += c.unpaid
         existing.overdueCount += c.overdue
-        existing.unpaidValue += c.unpaidValue
         if (occ.date < existing.occurrence.date) {
           existing.occurrence = occ
         }
@@ -235,9 +236,7 @@ export function DashboardPage() {
           patient,
           insuranceName,
           checklistCount: c.checklist,
-          unpaidCount: c.unpaid,
           overdueCount: c.overdue,
-          unpaidValue: c.unpaidValue,
           nextDate: null,
           occurrence: occ,
         })
@@ -245,11 +244,59 @@ export function DashboardPage() {
     }
     return Array.from(map.values()).sort(
       (a, b) =>
-        b.checklistCount + b.unpaidCount + b.overdueCount -
-        (a.checklistCount + a.unpaidCount + a.overdueCount),
+        b.checklistCount + b.overdueCount -
+        (a.checklistCount + a.overdueCount),
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appts, patientsById, sharedActiveCount, individualByPatient, today, insurances])
+
+  // ── Unpaid (atendido & !paid) ────────────────────────────
+  const unpaidStats = useMemo(() => {
+    const map = new Map<string, UnpaidPatientEntry>()
+    let count = 0
+    let totalValue = 0
+    for (const a of appts) {
+      if (a.status !== "attended" || a.paid) continue
+      const patient = patientsById.get(a.patientId)
+      if (!patient) continue
+      const value = effectiveValue(a, patient)
+      count++
+      totalValue += value
+      const insuranceName =
+        insurances.find((i) => i.id === patient.insuranceId)?.name ?? null
+      const occ: Occurrence = {
+        seriesId: a.seriesId,
+        patientId: patient.id,
+        originDate: a.originDate,
+        date: a.date,
+        time: a.time ?? seriesById.get(a.seriesId)?.time ?? "08:00",
+        appointment: a,
+        pendencyCount: 0,
+      }
+      const existing = map.get(patient.id)
+      if (existing) {
+        existing.count++
+        existing.totalValue += value
+        if (occ.date < existing.oldestDate) {
+          existing.oldestDate = occ.date
+          existing.occurrence = occ
+        }
+      } else {
+        map.set(patient.id, {
+          patient,
+          insuranceName,
+          count: 1,
+          totalValue: value,
+          oldestDate: occ.date,
+          occurrence: occ,
+        })
+      }
+    }
+    const items = Array.from(map.values()).sort(
+      (a, b) => b.totalValue - a.totalValue,
+    )
+    return { count, totalValue, items }
+  }, [appts, patientsById, insurances, seriesById])
 
   // ── KPIs ─────────────────────────────────────────────────
   const revenue = useMemo(() => {
@@ -451,7 +498,7 @@ export function DashboardPage() {
           : a.date,
       time: a.time ?? seriesById.get(a.seriesId)?.time ?? "08:00",
       appointment: a,
-      pendencyCount: c.checklist + c.unpaid + c.overdue,
+      pendencyCount: c.checklist + c.overdue,
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKey, appts, patientsById, seriesById, sharedActiveCount, individualByPatient, today])
@@ -524,26 +571,23 @@ export function DashboardPage() {
             overdueCount={pendencyStats.overdue}
             todayCount={pendencyStats.today}
           />
-          <div className="grid gap-3 grid-cols-2">
-            <KpiCard
-              label="Estimado no mês"
-              value={formatBRL(estimatedBilling)}
-              tone="primary"
-              hint="Sessões agendadas restantes"
-            />
-            <KpiCard
-              label="Faturado no mês"
-              value={formatBRL(revenue)}
-              tone="success"
-            />
-            <KpiCard
-              label="Pendente no mês"
-              value={formatBRL(pendingValue)}
-              tone="warning"
-              hint="Não pago + sessões vencidas"
-            />
-            <KpiCard label="Atendidos" value={attendedCount} tone="primary" />
-          </div>
+          <UnpaidSummary
+            count={unpaidStats.count}
+            totalValue={unpaidStats.totalValue}
+            onClick={
+              unpaidStats.count > 0 ? () => setUnpaidOpen(true) : undefined
+            }
+          />
+        </div>
+      )}
+
+      {!isLoading && pendencyByPatient.length > 0 && unpaidStats.count > 0 && (
+        <div>
+          <UnpaidSummary
+            count={unpaidStats.count}
+            totalValue={unpaidStats.totalValue}
+            onClick={() => setUnpaidOpen(true)}
+          />
         </div>
       )}
 
@@ -660,6 +704,22 @@ export function DashboardPage() {
         onOpenChange={(v) => {
           setDrawerOpen(v)
           if (!v) setActiveKey(null)
+        }}
+      />
+
+      <UnpaidPatientsDialog
+        open={unpaidOpen}
+        onOpenChange={setUnpaidOpen}
+        items={unpaidStats.items}
+        totalValue={unpaidStats.totalValue}
+        onSelect={(it) => {
+          setActiveKey({
+            seriesId: it.occurrence.seriesId,
+            patientId: it.patient.id,
+            originDate: it.occurrence.originDate,
+          })
+          setUnpaidOpen(false)
+          setDrawerOpen(true)
         }}
       />
     </div>

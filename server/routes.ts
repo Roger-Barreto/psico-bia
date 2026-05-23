@@ -8,6 +8,7 @@ import busboy from "busboy"
 import { nanoid } from "nanoid"
 import { dataDir, load, slugifyName, update } from "./db"
 import {
+  appointmentBulkDeleteSchema,
   appointmentPatchSchema,
   appointmentSeriesCreateSchema,
   appointmentSeriesPatchSchema,
@@ -157,6 +158,12 @@ function normalizeSeries(s: AppointmentSeries): AppointmentSeries {
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10)
+}
+
+function prevISODate(iso: string): string {
+  const d = new Date(iso + "T00:00:00Z")
+  d.setUTCDate(d.getUTCDate() - 1)
+  return d.toISOString().slice(0, 10)
 }
 
 function send(res: ServerResponse, status: number, body: Json) {
@@ -485,7 +492,6 @@ export async function handleApi(
     const r = parse(dischargeSchema, body)
     if (!r.ok) return bad(res, "invalid payload", r.details)
     const { dischargedAt, dischargeReasonId } = r.data
-    const now = new Date().toISOString()
     let updated: Patient | null = null
     await update<Patient[]>(PATIENTS, [], (list) =>
       list.map((p) => {
@@ -504,17 +510,19 @@ export async function handleApi(
         return s
       }),
     )
+    let deletedAppointments = 0
     await update<Appointment[]>(APPTS, [], (list) =>
-      list.map((a) => {
-        if (a.patientId !== pid) return a
-        if (a.date <= dischargedAt) return a
+      list.filter((a) => {
+        if (a.patientId !== pid) return true
+        if (a.date <= dischargedAt) return true
         if (a.status === "scheduled" || a.status === "rescheduled") {
-          return { ...a, status: "cancelled", updatedAt: now }
+          deletedAppointments++
+          return false
         }
-        return a
+        return true
       }),
     )
-    return send(res, 200, updated)
+    return send(res, 200, { patient: updated, deletedAppointments })
   }
 
   const reopenMatch = path.match(/^\/api\/patients\/([^/]+)\/reopen$/)
@@ -791,6 +799,120 @@ export async function handleApi(
       )
       return send(res, 200, removed)
     }
+  }
+
+  // ─── APPOINTMENTS BULK DELETE (undo) ─────────────────────
+  if (path === "/api/appointments/bulk-delete" && method === "POST") {
+    const body = await readBody(req)
+    const r = parse(appointmentBulkDeleteSchema, body)
+    if (!r.ok) return bad(res, "invalid payload", r.details)
+    const { seriesId, scope, originDate } = r.data
+
+    const seriesList = await load<AppointmentSeries[]>(SERIES, [])
+    const series = seriesList.find((s) => s.id === seriesId)
+    if (!series) return notFound(res)
+
+    let removedCount = 0
+    let cancelledCount = 0
+    let seriesDeleted = false
+    const now = new Date().toISOString()
+
+    async function deleteEntireSeries() {
+      await update<AppointmentSeries[]>(SERIES, [], (list) =>
+        list.filter((s) => s.id !== seriesId),
+      )
+      await update<Appointment[]>(APPTS, [], (list) =>
+        list.filter((a) => {
+          if (a.seriesId !== seriesId) return true
+          removedCount++
+          return false
+        }),
+      )
+      seriesDeleted = true
+    }
+
+    if (scope === "all") {
+      await deleteEntireSeries()
+    } else if (scope === "one") {
+      if (series.frequency === null) {
+        await deleteEntireSeries()
+      } else {
+        const origin = originDate as string
+        await update<Appointment[]>(APPTS, [], (list) => {
+          const idx = list.findIndex(
+            (a) => a.seriesId === seriesId && a.originDate === origin,
+          )
+          if (idx === -1) {
+            const created: Appointment = {
+              id: id("ap"),
+              seriesId,
+              patientId: series.patientId,
+              date: origin,
+              originDate: origin,
+              status: "cancelled",
+              rescheduledTo: null,
+              time: null,
+              checkedItemIds: [],
+              snapshotItemIds: [],
+              notes: null,
+              updatedAt: now,
+              paid: false,
+              paidValue: null,
+              paidAt: null,
+            }
+            cancelledCount++
+            return [...list, created]
+          }
+          const prev = normalizeAppointment(list[idx])
+          const next: Appointment = {
+            ...prev,
+            status: "cancelled",
+            rescheduledTo: null,
+            checkedItemIds: [],
+            snapshotItemIds: [],
+            notes: null,
+            paid: false,
+            paidValue: null,
+            paidAt: null,
+            updatedAt: now,
+          }
+          cancelledCount++
+          const copy = list.slice()
+          copy[idx] = next
+          return copy
+        })
+      }
+    } else {
+      // scope === "future"
+      const origin = originDate as string
+      const newEnd = prevISODate(origin)
+      if (newEnd < series.startDate) {
+        await deleteEntireSeries()
+      } else {
+        await update<AppointmentSeries[]>(SERIES, [], (list) =>
+          list.map((s) =>
+            s.id === seriesId ? { ...s, endDate: newEnd } : s,
+          ),
+        )
+        await update<Appointment[]>(APPTS, [], (list) =>
+          list.filter((a) => {
+            if (a.seriesId !== seriesId) return true
+            if (a.originDate >= origin) {
+              removedCount++
+              return false
+            }
+            return true
+          }),
+        )
+      }
+    }
+
+    return send(res, 200, {
+      ok: true,
+      removedCount,
+      cancelledCount,
+      seriesDeleted,
+    })
   }
 
   // ─── APPOINTMENTS ────────────────────────────────────────

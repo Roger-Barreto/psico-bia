@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react"
 import {
   CalendarBlankIcon,
+  CurrencyDollarIcon,
   MagnifyingGlassIcon,
   PlusIcon,
   WarningIcon,
@@ -21,8 +22,10 @@ import {
   occurrencesForPatient,
 } from "@/domain/recurrence"
 import {
+  isUnpaidAttended,
   pendencyCount,
   pendencyIndex,
+  unpaidIndex,
 } from "@/domain/pendencies"
 import type { Occurrence, Patient } from "@/db/types"
 import { ageFromBirthdate } from "@/domain/age"
@@ -80,6 +83,12 @@ export function HomePage() {
     return m
   }, [insurances])
 
+  const patientById = useMemo(() => {
+    const m = new Map<string, Patient>()
+    for (const p of patients) m.set(p.id, p)
+    return m
+  }, [patients])
+
   // all occurrences in visible month (memo-cached)
   const monthOccurrences: Occurrence[] = useMemo(() => {
     const out: Occurrence[] = []
@@ -94,21 +103,32 @@ export function HomePage() {
     return out
   }, [patients, series, appointments, range, shared, individual])
 
-  const byDate = useMemo(
-    () => pendencyIndex(monthOccurrences, shared, individual),
-    [monthOccurrences, shared, individual],
-  )
+  const byDate = useMemo(() => {
+    const pend = pendencyIndex(monthOccurrences, shared, individual)
+    const unpaid = unpaidIndex(monthOccurrences, (o) =>
+      o.appointment
+        ? effectiveValue(o.appointment, patientById.get(o.patientId))
+        : 0,
+    )
+    const out = new Map<
+      string,
+      { count: number; pendencies: number; unpaid?: number }
+    >()
+    for (const [iso, meta] of pend) {
+      const u = unpaid.get(iso)?.count ?? 0
+      out.set(iso, { ...meta, unpaid: u })
+    }
+    for (const [iso, u] of unpaid) {
+      if (out.has(iso)) continue
+      out.set(iso, { count: 0, pendencies: 0, unpaid: u.count })
+    }
+    return out
+  }, [monthOccurrences, shared, individual, patientById])
 
   const dayOccurrences = useMemo(
     () => monthOccurrences.filter((o) => o.date === selectedISO),
     [monthOccurrences, selectedISO],
   )
-
-  const patientById = useMemo(() => {
-    const m = new Map<string, Patient>()
-    for (const p of patients) m.set(p.id, p)
-    return m
-  }, [patients])
 
   const filteredDay = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -265,7 +285,15 @@ export function HomePage() {
                       {statusLabel(o)}
                     </p>
                   </div>
-                  <StatusBadge occurrence={o} selectedISO={selectedISO} />
+                  <div className="flex flex-col items-end gap-1">
+                    <StatusBadge occurrence={o} selectedISO={selectedISO} />
+                    {isUnpaidAttended(o) && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-300">
+                        <CurrencyDollarIcon weight="fill" className="size-3" />
+                        Não pago
+                      </span>
+                    )}
+                  </div>
                 </button>
               )
             })}
@@ -313,6 +341,9 @@ function cardClassFor(o: Occurrence, _selectedISO: string): string {
   const status = o.appointment?.status
   if (status === "attended" && o.pendencyCount > 0) {
     return "border-destructive/40 bg-destructive/10 hover:border-destructive/60"
+  }
+  if (status === "attended" && o.appointment && !o.appointment.paid) {
+    return "border-amber-500/40 bg-amber-500/10 hover:border-amber-500/60"
   }
   if (status === "attended") {
     return "border-emerald-500/40 bg-emerald-500/10 hover:border-emerald-500/60"
