@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { useQueryClient } from "@tanstack/react-query"
 import {
-  ArrowsClockwiseIcon,
   CalendarBlankIcon,
   CheckCircleIcon,
   ClockIcon,
@@ -49,15 +48,7 @@ import { AddChecklistItemDialog } from "./add-checklist-item-dialog"
 import { buildSnapshotIds, checklistFor } from "@/domain/pendencies"
 import { todayISO, formatLongDateBR } from "@/domain/dates"
 import { cn } from "@/lib/utils"
-
-const recurrenceLabel = {
-  once: "Único",
-  weekly: "Semanal",
-  biweekly: "Quinzenal",
-  monthly: "Mensal",
-} as const
-
-const weekdayLabel = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
+import { ageFromBirthdate } from "@/domain/age"
 
 interface Props {
   occurrence: Occurrence | null
@@ -138,6 +129,7 @@ export function PatientDrawer({
     const snapshot = buildSnapshotIds(p.id, shared, individual)
     try {
       await upsert.mutateAsync({
+        seriesId: o.seriesId,
         patientId: p.id,
         originDate: o.originDate,
         date: o.date,
@@ -166,6 +158,7 @@ export function PatientDrawer({
     const snapshot = buildSnapshotIds(p.id, shared, individual)
     try {
       await upsert.mutateAsync({
+        seriesId: o.seriesId,
         patientId: p.id,
         originDate: o.originDate,
         date: o.date,
@@ -187,6 +180,7 @@ export function PatientDrawer({
     if (!reschedTime) return toast.error("Selecione um horário")
     try {
       await upsert.mutateAsync({
+        seriesId: o.seriesId,
         patientId: p.id,
         originDate: o.originDate,
         date: reschedDate,
@@ -285,17 +279,9 @@ export function PatientDrawer({
                 </button>
               </div>
               <p className="text-sm text-muted-foreground">
-                {patient.age} anos · {genderLabel(patient.gender)}
+                {ageFromBirthdate(patient.birthdate)} anos · {genderLabel(patient.gender)}
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
-                <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-xs text-primary">
-                  <ArrowsClockwiseIcon weight="fill" className="size-3" />
-                  {recurrenceLabel[patient.recurrence]}
-                </span>
-                <span className="inline-flex items-center gap-1 rounded-full bg-secondary/25 px-2 py-0.5 text-xs text-secondary">
-                  <CalendarBlankIcon weight="fill" className="size-3" />
-                  {weekdayLabel[patient.defaultWeekday]}
-                </span>
                 {patient.consultationValue > 0 && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-300">
                     R$ {patient.consultationValue.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

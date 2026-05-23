@@ -9,6 +9,7 @@ import { PatientAvatar, genderLabel } from "@/components/patient/patient-avatar"
 import { Card, CardContent } from "@/components/ui/card"
 import { formatDateBR } from "@/domain/dates"
 import { formatBRL } from "@/domain/finance"
+import { ageFromBirthdate } from "@/domain/age"
 import { cn } from "@/lib/utils"
 
 export interface PendencyBreakdown {
@@ -63,7 +64,7 @@ export function PendencyList({
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {it.patient.age} anos · {genderLabel(it.patient.gender)}
+                  {ageFromBirthdate(it.patient.birthdate)} anos · {genderLabel(it.patient.gender)}
                   {it.insuranceName && ` · ${it.insuranceName}`}
                   {!it.insuranceName && " · Particular"}
                 </p>

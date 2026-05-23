@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import type {
+  AppointmentSeries,
   DischargeReason,
   Insurance,
   Occurrence,
@@ -8,6 +9,7 @@ import type {
 } from "@/db/types"
 import { PatientDrawer } from "@/components/patient/patient-drawer"
 import {
+  useAppointmentSeries,
   useAppointmentsInRange,
   useDischargeReasons,
   useIndividualChecklist,
@@ -81,6 +83,7 @@ export function DashboardPage() {
   }, [monthIndex])
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [activeKey, setActiveKey] = useState<{
+    seriesId: string
     patientId: string
     originDate: string
   } | null>(null)
@@ -88,6 +91,7 @@ export function DashboardPage() {
   const { from, to } = monthRangeISO(year, month)
   const apptsQ = useAppointmentsInRange(from, to)
   const patientsQ = usePatients()
+  const seriesQ = useAppointmentSeries()
   const insurancesQ = useInsurances()
   const reasonsQ = useDischargeReasons()
   const sharedQ = useSharedChecklist()
@@ -112,8 +116,15 @@ export function DashboardPage() {
   const insurances = insurancesQ.data ?? []
   const reasons = reasonsQ.data ?? []
   const allAppts = apptsQ.data ?? []
+  const allSeries = seriesQ.data ?? []
   const shared = sharedQ.data ?? []
   const individual = indivQ.data ?? []
+
+  const seriesById = useMemo(() => {
+    const m = new Map<string, AppointmentSeries>()
+    for (const s of allSeries) m.set(s.id, s)
+    return m
+  }, [allSeries])
 
   // Active patients = active=true (includes discharged for historical metrics)
   const patients = useMemo(
@@ -202,10 +213,11 @@ export function DashboardPage() {
       const insuranceName =
         insurances.find((i) => i.id === patient.insuranceId)?.name ?? null
       const occ: Occurrence = {
+        seriesId: a.seriesId,
         patientId: patient.id,
         originDate: a.originDate,
         date: a.status === "rescheduled" && a.rescheduledTo ? a.rescheduledTo : a.date,
-        time: a.time ?? patient.defaultTime,
+        time: a.time ?? seriesById.get(a.seriesId)?.time ?? "08:00",
         appointment: a,
         pendencyCount: pendSum,
       }
@@ -265,11 +277,11 @@ export function DashboardPage() {
     const range = { fromISO: from, toISO: to }
     let sum = 0
     for (const p of patients) {
-      const occs = occurrencesForPatient(p, range, appts)
+      const occs = occurrencesForPatient(p, allSeries, range, appts)
       for (const o of occs) {
         const a = o.appointment
         if (a) {
-          if (a.status !== "scheduled") continue
+          if (a.status === "missed" || a.status === "cancelled") continue
           sum += effectiveValue(a, p)
         } else {
           sum += p.consultationValue ?? 0
@@ -277,7 +289,7 @@ export function DashboardPage() {
       }
     }
     return sum
-  }, [patients, appts, from, to])
+  }, [patients, allSeries, appts, from, to])
 
   const attendedCount = appts.filter((a) => a.status === "attended").length
   const missedCount = appts.filter((a) => a.status === "missed").length
@@ -424,25 +436,25 @@ export function DashboardPage() {
     if (!activeKey) return null
     const a = appts.find(
       (x) =>
-        x.patientId === activeKey.patientId &&
+        x.seriesId === activeKey.seriesId &&
         x.originDate === activeKey.originDate,
     )
     if (!a) return null
     const c = countPendencyItems(a, patientsById.get(a.patientId))
-    const pat = patientsById.get(a.patientId)
     return {
+      seriesId: a.seriesId,
       patientId: a.patientId,
       originDate: a.originDate,
       date:
         a.status === "rescheduled" && a.rescheduledTo
           ? a.rescheduledTo
           : a.date,
-      time: a.time ?? pat?.defaultTime ?? "08:00",
+      time: a.time ?? seriesById.get(a.seriesId)?.time ?? "08:00",
       appointment: a,
       pendencyCount: c.checklist + c.unpaid + c.overdue,
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeKey, appts, patientsById, sharedActiveCount, individualByPatient, today])
+  }, [activeKey, appts, patientsById, seriesById, sharedActiveCount, individualByPatient, today])
 
   const activePatient = activeKey
     ? patientsById.get(activeKey.patientId) ?? null
@@ -497,6 +509,7 @@ export function DashboardPage() {
             today={today}
             onSelect={(it) => {
               setActiveKey({
+                seriesId: it.occurrence.seriesId,
                 patientId: it.patient.id,
                 originDate: it.occurrence.originDate,
               })

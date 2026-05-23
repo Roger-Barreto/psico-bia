@@ -6,6 +6,7 @@ import {
   WarningIcon,
 } from "@phosphor-icons/react"
 import {
+  useAppointmentSeries,
   useAppointmentsInRange,
   useIndividualChecklist,
   useInsurances,
@@ -24,6 +25,8 @@ import {
   pendencyIndex,
 } from "@/domain/pendencies"
 import type { Occurrence, Patient } from "@/db/types"
+import { ageFromBirthdate } from "@/domain/age"
+import { ScheduleAppointmentDialog } from "@/components/appointments/schedule-appointment-dialog"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { PatientAvatar, genderLabel } from "@/components/patient/patient-avatar"
@@ -50,6 +53,7 @@ export function HomePage() {
   const [query, setQuery] = useState("")
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [newPatientOpen, setNewPatientOpen] = useState(false)
+  const [scheduleOpen, setScheduleOpen] = useState(false)
   const [activeKey, setActiveKey] = useState<{
     patientId: string
     originDate: string
@@ -58,12 +62,14 @@ export function HomePage() {
   const range = useMemo(() => monthRange(visibleMonth), [visibleMonth])
   const patientsQ = usePatients()
   const apptQ = useAppointmentsInRange(range.fromISO, range.toISO)
+  const seriesQ = useAppointmentSeries()
   const sharedQ = useSharedChecklist()
   const indivQ = useIndividualChecklist()
   const insurancesQ = useInsurances()
 
   const patients = patientsQ.data ?? []
   const appointments = apptQ.data ?? []
+  const series = seriesQ.data ?? []
   const shared = sharedQ.data ?? []
   const individual = indivQ.data ?? []
   const insurances = insurancesQ.data ?? []
@@ -79,14 +85,14 @@ export function HomePage() {
     const out: Occurrence[] = []
     for (const p of patients) {
       if (!p.active) continue
-      const occs = occurrencesForPatient(p, range, appointments)
+      const occs = occurrencesForPatient(p, series, range, appointments)
       for (const o of occs) {
         o.pendencyCount = pendencyCount(o, shared, individual)
         out.push(o)
       }
     }
     return out
-  }, [patients, appointments, range, shared, individual])
+  }, [patients, series, appointments, range, shared, individual])
 
   const byDate = useMemo(
     () => pendencyIndex(monthOccurrences, shared, individual),
@@ -143,10 +149,16 @@ export function HomePage() {
             Gestão de pacientes
           </p>
         </div>
-        <Button onClick={() => setNewPatientOpen(true)}>
-          <PlusIcon weight="bold" />
-          Novo paciente
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => setScheduleOpen(true)}>
+            <PlusIcon weight="bold" />
+            Novo atendimento
+          </Button>
+          <Button variant="outline" onClick={() => setNewPatientOpen(true)}>
+            <PlusIcon weight="bold" />
+            Novo paciente
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
@@ -247,10 +259,7 @@ export function HomePage() {
                       )}
                     </div>
                     <p className="truncate text-[11px] text-muted-foreground">
-                      {p!.age} anos · {genderLabel(p!.gender)} · {insuranceName}
-                      {recurrenceLabel(p!.recurrence)
-                        ? ` · ${recurrenceLabel(p!.recurrence)}`
-                        : ""}
+                      {ageFromBirthdate(p!.birthdate)} anos · {genderLabel(p!.gender)} · {insuranceName}
                     </p>
                     <p className={cn("mt-0.5 text-xs", statusTextClass(o))}>
                       {statusLabel(o)}
@@ -286,6 +295,12 @@ export function HomePage() {
           />
         </SheetContent>
       </Sheet>
+
+      <ScheduleAppointmentDialog
+        open={scheduleOpen}
+        onOpenChange={setScheduleOpen}
+        defaultDate={selectedISO}
+      />
     </div>
   )
 }
@@ -369,21 +384,6 @@ function StatusBadge({
     )
   }
   return null
-}
-
-function recurrenceLabel(r: Patient["recurrence"]): string {
-  switch (r) {
-    case "weekly":
-      return "Semanal"
-    case "biweekly":
-      return "Quinzenal"
-    case "monthly":
-      return "Mensal"
-    case "once":
-      return "Avulso"
-    default:
-      return ""
-  }
 }
 
 function statusLabel(o: Occurrence): string {

@@ -11,21 +11,23 @@ import {
   UserCircleIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react"
-import type { Gender, Patient, Recurrence, Weekday } from "@/db/types"
+import type { Gender, Patient } from "@/db/types"
 import {
   useArchiveIndividualItem,
   useCreateIndividualItem,
   useCreatePatient,
+  useDeletePatientPermanently,
+  useDischargePatient,
   useDischargeReasons,
   useIndividualChecklist,
   useInsurances,
   usePatients,
+  useReopenPatient,
   useUpdatePatient,
 } from "@/api/queries"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DatePicker } from "@/components/ui/date-picker"
-import { TimePicker } from "@/components/ui/time-picker"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -44,23 +46,6 @@ import { cn } from "@/lib/utils"
 import { PatientDocuments } from "./patient-documents"
 import { AvatarPicker } from "./avatar-picker"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
-
-const weekdays: { value: Weekday; label: string }[] = [
-  { value: 0, label: "Domingo" },
-  { value: 1, label: "Segunda" },
-  { value: 2, label: "Terça" },
-  { value: 3, label: "Quarta" },
-  { value: 4, label: "Quinta" },
-  { value: 5, label: "Sexta" },
-  { value: 6, label: "Sábado" },
-]
-
-const recurrences: { value: Recurrence; label: string }[] = [
-  { value: "once", label: "Único" },
-  { value: "weekly", label: "Semanal" },
-  { value: "biweekly", label: "Quinzenal" },
-  { value: "monthly", label: "Mensal" },
-]
 
 type TabKey = "dados" | "checklist" | "documentos"
 
@@ -105,19 +90,7 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
   const [avatarId, setAvatarId] = useState<number>(
     patient?.avatarId ?? randomMonsterAvatarId(),
   )
-  const [age, setAge] = useState<string>(patient ? String(patient.age) : "")
-  const [defaultWeekday, setDefaultWeekday] = useState<Weekday>(
-    patient?.defaultWeekday ?? 1,
-  )
-  const [recurrence, setRecurrence] = useState<Recurrence>(
-    patient?.recurrence ?? "weekly",
-  )
-  const [anchorDate, setAnchorDate] = useState<string>(
-    patient?.anchorDate ?? todayISO(),
-  )
-  const [defaultTime, setDefaultTime] = useState<string>(
-    patient?.defaultTime ?? "08:00",
-  )
+  const [birthdate, setBirthdate] = useState<string>(patient?.birthdate ?? "")
   const [consultationValue, setConsultationValue] = useState<string>(
     patient ? String(patient.consultationValue ?? 0) : "0",
   )
@@ -131,6 +104,9 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
 
   const createMut = useCreatePatient()
   const updateMut = useUpdatePatient()
+  const dischargeMut = useDischargePatient()
+  const reopenMut = useReopenPatient()
+  const deletePermanentMut = useDeletePatientPermanently()
   const indivQ = useIndividualChecklist(patient?.id)
   const addItemMut = useCreateIndividualItem()
   const archiveItemMut = useArchiveIndividualItem()
@@ -145,11 +121,7 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
     setName("")
     setGender("female")
     setAvatarId(randomMonsterAvatarId())
-    setAge("")
-    setDefaultWeekday(1)
-    setRecurrence("weekly")
-    setAnchorDate(todayISO())
-    setDefaultTime("08:00")
+    setBirthdate("")
     setConsultationValue("0")
     setInsuranceId("__none__")
     setTab("dados")
@@ -171,16 +143,23 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
 
   async function confirmDischarge() {
     if (!patient) return
-    if (!dischargeReasonId)
-      return toast.error("Selecione um motivo")
+    if (!dischargeReasonId) return toast.error("Selecione um motivo")
     if (!dischargeDate) return toast.error("Informe a data")
+    if (
+      !(await confirmDialog({
+        title: "Encerrar tratamento?",
+        description:
+          "Todos os atendimentos futuros deste paciente serão cancelados. O cadastro permanecerá disponível para reagendamento.",
+        confirmLabel: "Encerrar",
+        cancelLabel: "Cancelar",
+      }))
+    )
+      return
     try {
-      await updateMut.mutateAsync({
+      await dischargeMut.mutateAsync({
         id: patient.id,
-        patch: {
-          dischargedAt: dischargeDate,
-          dischargeReasonId,
-        },
+        dischargedAt: dischargeDate,
+        dischargeReasonId,
       })
       setDischargeOpen(false)
       toast.success("Tratamento encerrado")
@@ -199,22 +178,58 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
     )
       return
     try {
-      await updateMut.mutateAsync({
-        id: patient.id,
-        patch: { dischargedAt: null, dischargeReasonId: null },
-      })
+      await reopenMut.mutateAsync(patient.id)
       toast.success("Tratamento reaberto")
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro")
     }
   }
 
+  async function confirmPermanentDelete() {
+    if (!patient) return
+    if (
+      !(await confirmDialog({
+        title: "Excluir paciente permanentemente?",
+        description:
+          "Esta ação é irreversível. Todos os dados deste paciente serão apagados: atendimentos passados e futuros, anotações, checklist individual e documentos anexados. O cadastro também será removido.",
+        confirmLabel: "Excluir definitivamente",
+        cancelLabel: "Cancelar",
+        destructive: true,
+      }))
+    )
+      return
+    try {
+      await deletePermanentMut.mutateAsync(patient.id)
+      toast.success("Paciente excluído")
+      onDone()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao excluir")
+    }
+  }
+
+  function validateBirthdate(iso: string): string | null {
+    if (!iso) return "Informe a data de nascimento"
+    const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+    if (!m) return "Data inválida"
+    const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])]
+    if (y < 1900 || y > new Date().getFullYear())
+      return "Ano fora do intervalo"
+    const date = new Date(y, mo - 1, d)
+    if (
+      date.getFullYear() !== y ||
+      date.getMonth() !== mo - 1 ||
+      date.getDate() !== d
+    )
+      return "Data inválida"
+    if (iso > todayISO()) return "Data não pode estar no futuro"
+    return null
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim()) return toast.error("Nome é obrigatório")
-    const ageNum = Number(age)
-    if (!Number.isFinite(ageNum) || ageNum < 0)
-      return toast.error("Idade inválida")
+    const bdErr = validateBirthdate(birthdate)
+    if (bdErr) return toast.error(bdErr)
     const valueNum = Number(consultationValue)
     if (!Number.isFinite(valueNum) || valueNum < 0)
       return toast.error("Valor de consulta inválido")
@@ -227,11 +242,7 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
             name: name.trim(),
             gender,
             avatarId,
-            age: ageNum,
-            defaultWeekday,
-            recurrence,
-            anchorDate,
-            defaultTime,
+            birthdate,
             consultationValue: valueNum,
             insuranceId: insuranceFinal,
           },
@@ -242,12 +253,7 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
           name: name.trim(),
           gender,
           avatarId,
-          age: ageNum,
-          defaultWeekday,
-          recurrence,
-          anchorDate,
-          defaultTime,
-          recurrenceHistory: [],
+          birthdate,
           individualChecklistItemIds: [],
           active: true,
           consultationValue: valueNum,
@@ -354,86 +360,15 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
                 </RadioGroup>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="age">Idade</Label>
-                <Input
-                  id="age"
-                  type="number"
-                  min={0}
-                  max={130}
-                  value={age}
-                  onChange={(e) => setAge(e.target.value)}
-                  required
-                />
-              </div>
-            </div>
-          </SectionBlock>
-
-          <SectionBlock title="Agendamento">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Dia padrão</Label>
-                <Select
-                  value={String(defaultWeekday)}
-                  onValueChange={(v) =>
-                    setDefaultWeekday(Number(v) as Weekday)
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {weekdays.map((w) => (
-                      <SelectItem key={w.value} value={String(w.value)}>
-                        {w.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Recorrência</Label>
-                <Select
-                  value={recurrence}
-                  onValueChange={(v) => setRecurrence(v as Recurrence)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {recurrences.map((r) => (
-                      <SelectItem key={r.value} value={r.value}>
-                        {r.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="anchor">Data inicial</Label>
+                <Label htmlFor="birthdate">Data de nascimento</Label>
                 <DatePicker
-                  id="anchor"
-                  value={anchorDate}
-                  onChange={setAnchorDate}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="time">Horário</Label>
-                <TimePicker
-                  id="time"
-                  value={defaultTime}
-                  onChange={setDefaultTime}
+                  id="birthdate"
+                  value={birthdate}
+                  onChange={setBirthdate}
+                  max={todayISO()}
                 />
               </div>
             </div>
-            {isEdit && (
-              <p className="text-xs text-muted-foreground">
-                Alterações na recorrência valem a partir de hoje. Registros
-                passados são preservados.
-              </p>
-            )}
           </SectionBlock>
 
           <SectionBlock title="Financeiro" icon={IdentificationCardIcon}>
@@ -531,6 +466,10 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
               ) : dischargeOpen ? (
                 <div className="space-y-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3">
                   <p className="text-sm font-medium">Encerrar tratamento</p>
+                  <p className="text-xs text-muted-foreground">
+                    Todos os atendimentos futuros deste paciente serão
+                    cancelados. O cadastro permanece para reagendamento.
+                  </p>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <div className="space-y-1">
                       <label className="text-xs text-muted-foreground">
@@ -577,7 +516,7 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
                       type="button"
                       size="sm"
                       onClick={confirmDischarge}
-                      disabled={updateMut.isPending}
+                      disabled={dischargeMut.isPending}
                       className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     >
                       Confirmar
@@ -595,6 +534,21 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
                   Encerrar tratamento
                 </Button>
               )}
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={confirmPermanentDelete}
+                disabled={deletePermanentMut.isPending}
+                className="mt-3 w-full justify-center border-destructive/60 bg-destructive/5 text-destructive hover:bg-destructive/15"
+              >
+                <TrashIcon weight="fill" />
+                Excluir permanentemente
+              </Button>
+              <p className="text-[11px] text-muted-foreground">
+                Excluir remove o paciente e todos os dados associados
+                (atendimentos, anotações, documentos). Ação irreversível.
+              </p>
             </SectionBlock>
           )}
         </>

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import {
-  ArrowsClockwiseIcon,
   MagnifyingGlassIcon,
   PencilSimpleIcon,
   PlusIcon,
@@ -26,15 +25,7 @@ import { PatientAvatar, genderLabel } from "@/components/patient/patient-avatar"
 import { PatientForm } from "@/components/patient/patient-form"
 import { Breadcrumbs } from "@/components/breadcrumbs"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
-
-const recurrenceLabel: Record<Patient["recurrence"], string> = {
-  once: "Único",
-  weekly: "Semanal",
-  biweekly: "Quinzenal",
-  monthly: "Mensal",
-}
-
-const weekdayLabel = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
+import { ageFromBirthdate } from "@/domain/age"
 
 export function PatientsPage() {
   const { data, isLoading } = usePatients()
@@ -165,15 +156,7 @@ export function PatientsPage() {
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {p.age} anos · {genderLabel(p.gender)}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    <ArrowsClockwiseIcon
-                      weight="fill"
-                      className="mr-1 inline size-3 text-primary"
-                    />
-                    {recurrenceLabel[p.recurrence]} ·{" "}
-                    {weekdayLabel[p.defaultWeekday]}
+                    {ageFromBirthdate(p.birthdate)} anos · {genderLabel(p.gender)}
                   </p>
                 </div>
                 <div className="flex flex-col gap-1">

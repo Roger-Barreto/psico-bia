@@ -1,5 +1,5 @@
 export type Gender = "male" | "female" | "other"
-export type Recurrence = "once" | "weekly" | "biweekly" | "monthly"
+export type Frequency = "weekly" | "biweekly" | "monthly"
 export type AppointmentStatus =
   | "scheduled"
   | "attended"
@@ -7,34 +7,29 @@ export type AppointmentStatus =
   | "rescheduled"
   | "cancelled"
 
-export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6
-
-export interface RecurrenceSegment {
-  activeFrom: string
-  recurrence: Recurrence
-  defaultWeekday: Weekday
-  anchorDate: string
-  defaultTime: string
-}
-
 export interface Patient {
   id: string
   name: string
   gender: Gender
+  birthdate: string
   avatarId: number
-  age: number
-  defaultWeekday: Weekday
-  recurrence: Recurrence
-  anchorDate: string
-  defaultTime: string
-  recurrenceHistory: RecurrenceSegment[]
-  individualChecklistItemIds: string[]
   active: boolean
   createdAt: string
   consultationValue: number
   insuranceId: string | null
+  individualChecklistItemIds: string[]
   dischargedAt: string | null
   dischargeReasonId: string | null
+}
+
+export interface AppointmentSeries {
+  id: string
+  patientId: string
+  startDate: string
+  time: string
+  frequency: Frequency | null
+  endDate: string | null
+  createdAt: string
 }
 
 export interface Insurance {
@@ -71,6 +66,7 @@ export interface IndividualChecklistItem extends SharedChecklistItem {
 
 export interface Appointment {
   id: string
+  seriesId: string
   patientId: string
   date: string
   originDate: string
@@ -87,6 +83,7 @@ export interface Appointment {
 }
 
 export interface Occurrence {
+  seriesId: string
   patientId: string
   originDate: string
   date: string

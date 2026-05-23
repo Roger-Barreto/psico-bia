@@ -7,6 +7,7 @@ import {
 import { api } from "./client"
 import type {
   Appointment,
+  AppointmentSeries,
   DischargeReason,
   IndividualChecklistItem,
   Insurance,
@@ -23,6 +24,7 @@ export const qk = {
     ["individual-checklist", patientId ?? "all"] as const,
   appointments: (from: string, to: string) =>
     ["appointments", from, to] as const,
+  series: (patientId?: string) => ["series", patientId ?? "all"] as const,
   insurances: ["insurances"] as const,
   documents: (patientId: string) => ["documents", patientId] as const,
   dischargeReasons: ["discharge-reasons"] as const,
@@ -64,6 +66,113 @@ export function useArchivePatient() {
   return useMutation({
     mutationFn: (id: string) => api.delete<Patient>(`/api/patients/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.patients }),
+  })
+}
+
+export function useDischargePatient() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      id,
+      dischargedAt,
+      dischargeReasonId,
+    }: {
+      id: string
+      dischargedAt: string
+      dischargeReasonId: string
+    }) =>
+      api.post<Patient>(`/api/patients/${id}/discharge`, {
+        dischargedAt,
+        dischargeReasonId,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.patients })
+      qc.invalidateQueries({ queryKey: ["series"] })
+      qc.invalidateQueries({ queryKey: ["appointments"] })
+    },
+  })
+}
+
+export function useReopenPatient() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<Patient>(`/api/patients/${id}/reopen`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.patients }),
+  })
+}
+
+export function useDeletePatientPermanently() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.delete<{ ok: boolean }>(`/api/patients/${id}/permanent`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.patients })
+      qc.invalidateQueries({ queryKey: ["series"] })
+      qc.invalidateQueries({ queryKey: ["appointments"] })
+      qc.invalidateQueries({ queryKey: ["annotations"] })
+      qc.invalidateQueries({ queryKey: ["individual-checklist"] })
+    },
+  })
+}
+
+// ─── APPOINTMENT SERIES ──────────────────────────────────
+export function useAppointmentSeries(patientId?: string) {
+  return useQuery({
+    queryKey: qk.series(patientId),
+    queryFn: () =>
+      api.get<AppointmentSeries[]>(
+        "/api/appointment-series",
+        patientId ? { patientId } : undefined,
+      ),
+    staleTime: 30_000,
+  })
+}
+
+export function useCreateAppointmentSeries() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: {
+      patientId: string
+      startDate: string
+      time: string
+      frequency: AppointmentSeries["frequency"]
+      endDate?: string | null
+    }) => api.post<AppointmentSeries>("/api/appointment-series", input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["series"] })
+      qc.invalidateQueries({ queryKey: ["appointments"] })
+    },
+  })
+}
+
+export function useUpdateAppointmentSeries() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      id,
+      patch,
+    }: {
+      id: string
+      patch: Partial<Omit<AppointmentSeries, "id" | "patientId" | "createdAt">>
+    }) => api.patch<AppointmentSeries>(`/api/appointment-series/${id}`, patch),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["series"] })
+      qc.invalidateQueries({ queryKey: ["appointments"] })
+    },
+  })
+}
+
+export function useDeleteAppointmentSeries() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.delete<AppointmentSeries>(`/api/appointment-series/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["series"] })
+      qc.invalidateQueries({ queryKey: ["appointments"] })
+    },
   })
 }
 
@@ -176,6 +285,7 @@ export function useUpsertAppointment() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (input: {
+      seriesId: string
       patientId: string
       originDate: string
       date?: string
@@ -185,6 +295,9 @@ export function useUpsertAppointment() {
       checkedItemIds?: string[]
       snapshotItemIds?: string[]
       notes?: string | null
+      paid?: boolean
+      paidValue?: number | null
+      paidAt?: string | null
     }) => api.post<Appointment>("/api/appointments", input),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ["appointments"] }),

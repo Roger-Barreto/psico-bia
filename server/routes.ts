@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { createReadStream, createWriteStream, existsSync } from "node:fs"
-import { mkdir, readdir, rename as renameFs, stat, unlink } from "node:fs/promises"
+import { mkdir, readdir, rename as renameFs, rm, stat, unlink } from "node:fs/promises"
 import { basename, join, resolve } from "node:path"
 import { exec } from "node:child_process"
 import { pipeline } from "node:stream/promises"
@@ -9,11 +9,14 @@ import { nanoid } from "nanoid"
 import { dataDir, load, slugifyName, update } from "./db"
 import {
   appointmentPatchSchema,
+  appointmentSeriesCreateSchema,
+  appointmentSeriesPatchSchema,
   appointmentUpsertSchema,
   checklistItemCreateSchema,
   checklistItemPatchSchema,
   dischargeReasonCreateSchema,
   dischargeReasonPatchSchema,
+  dischargeSchema,
   individualChecklistItemCreateSchema,
   individualChecklistItemPatchSchema,
   insuranceCreateSchema,
@@ -40,25 +43,12 @@ import {
 
 type Json = unknown
 
-interface RecurrenceSegment {
-  activeFrom: string
-  recurrence: "once" | "weekly" | "biweekly" | "monthly"
-  defaultWeekday: number
-  anchorDate: string
-  defaultTime: string
-}
-
 interface Patient {
   id: string
   name: string
   gender: "male" | "female" | "other"
   avatarId: number
-  age: number
-  defaultWeekday: number
-  recurrence: "once" | "weekly" | "biweekly" | "monthly"
-  anchorDate: string
-  defaultTime: string
-  recurrenceHistory: RecurrenceSegment[]
+  birthdate: string
   individualChecklistItemIds: string[]
   active: boolean
   createdAt: string
@@ -66,6 +56,16 @@ interface Patient {
   insuranceId: string | null
   dischargedAt: string | null
   dischargeReasonId: string | null
+}
+
+interface AppointmentSeries {
+  id: string
+  patientId: string
+  startDate: string
+  time: string
+  frequency: "weekly" | "biweekly" | "monthly" | null
+  endDate: string | null
+  createdAt: string
 }
 
 interface Insurance {
@@ -96,6 +96,7 @@ interface IndividualItem extends SharedItem {
 
 interface Appointment {
   id: string
+  seriesId: string
   patientId: string
   date: string
   originDate: string
@@ -126,28 +127,14 @@ function normalizeInsurance(i: Insurance): Insurance {
 }
 
 function normalizePatient(p: Patient): Patient {
-  const defaultTime = p.defaultTime ?? "08:00"
-  const history: RecurrenceSegment[] =
-    p.recurrenceHistory && p.recurrenceHistory.length > 0
-      ? p.recurrenceHistory
-      : [
-          {
-            activeFrom: p.anchorDate,
-            recurrence: p.recurrence,
-            defaultWeekday: p.defaultWeekday,
-            anchorDate: p.anchorDate,
-            defaultTime,
-          },
-        ]
   return {
     ...p,
-    defaultTime,
-    recurrenceHistory: history,
     consultationValue: p.consultationValue ?? 0,
     insuranceId: p.insuranceId ?? null,
     dischargedAt: p.dischargedAt ?? null,
     dischargeReasonId: p.dischargeReasonId ?? null,
     avatarId: p.avatarId ?? stableMonsterAvatarId(p.id),
+    individualChecklistItemIds: p.individualChecklistItemIds ?? [],
   }
 }
 
@@ -161,29 +148,15 @@ function normalizeAppointment(a: Appointment): Appointment {
   }
 }
 
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10)
+function normalizeSeries(s: AppointmentSeries): AppointmentSeries {
+  return {
+    ...s,
+    endDate: s.endDate ?? null,
+  }
 }
 
-function recurrenceFieldsChanged(
-  prev: Patient,
-  patch: Partial<Patient>,
-): boolean {
-  if (patch.recurrence !== undefined && patch.recurrence !== prev.recurrence)
-    return true
-  if (
-    patch.defaultWeekday !== undefined &&
-    patch.defaultWeekday !== prev.defaultWeekday
-  )
-    return true
-  if (patch.anchorDate !== undefined && patch.anchorDate !== prev.anchorDate)
-    return true
-  if (
-    patch.defaultTime !== undefined &&
-    patch.defaultTime !== prev.defaultTime
-  )
-    return true
-  return false
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10)
 }
 
 function send(res: ServerResponse, status: number, body: Json) {
@@ -230,6 +203,7 @@ const PATIENTS = "patients"
 const SHARED = "shared-checklist"
 const INDIV = "individual-checklist"
 const APPTS = "appointments"
+const SERIES = "appointment-series"
 const INSURANCES = "insurances"
 const DISCHARGE_REASONS = "discharge-reasons"
 const ANNOTATIONS = "patient-annotations"
@@ -387,21 +361,10 @@ export async function handleApi(
       const body = await readBody(req)
       const r = parse(patientCreateSchema, body)
       if (!r.ok) return bad(res, "invalid payload", r.details)
-      const initialSegment: RecurrenceSegment = {
-        activeFrom: r.data.anchorDate,
-        recurrence: r.data.recurrence,
-        defaultWeekday: r.data.defaultWeekday,
-        anchorDate: r.data.anchorDate,
-        defaultTime: r.data.defaultTime,
-      }
       const created: Patient = {
         id: id("p"),
         ...r.data,
         avatarId: r.data.avatarId ?? randomMonsterAvatarId(),
-        recurrenceHistory:
-          r.data.recurrenceHistory && r.data.recurrenceHistory.length > 0
-            ? r.data.recurrenceHistory
-            : [initialSegment],
         createdAt: new Date().toISOString(),
       }
       await update<Patient[]>(PATIENTS, [], (list) => [...list, created])
@@ -514,6 +477,105 @@ export async function handleApi(
     return send(res, 200, { ok: true, path: dir })
   }
 
+  // ─── DISCHARGE ───────────────────────────────────────────
+  const dischargeMatch = path.match(/^\/api\/patients\/([^/]+)\/discharge$/)
+  if (dischargeMatch && method === "POST") {
+    const pid = dischargeMatch[1]
+    const body = await readBody(req)
+    const r = parse(dischargeSchema, body)
+    if (!r.ok) return bad(res, "invalid payload", r.details)
+    const { dischargedAt, dischargeReasonId } = r.data
+    const now = new Date().toISOString()
+    let updated: Patient | null = null
+    await update<Patient[]>(PATIENTS, [], (list) =>
+      list.map((p) => {
+        if (p.id !== pid) return p
+        updated = { ...p, dischargedAt, dischargeReasonId }
+        return updated
+      }),
+    )
+    if (!updated) return notFound(res)
+    await update<AppointmentSeries[]>(SERIES, [], (list) =>
+      list.map((s) => {
+        if (s.patientId !== pid) return s
+        if (s.endDate === null || s.endDate > dischargedAt) {
+          return { ...s, endDate: dischargedAt }
+        }
+        return s
+      }),
+    )
+    await update<Appointment[]>(APPTS, [], (list) =>
+      list.map((a) => {
+        if (a.patientId !== pid) return a
+        if (a.date <= dischargedAt) return a
+        if (a.status === "scheduled" || a.status === "rescheduled") {
+          return { ...a, status: "cancelled", updatedAt: now }
+        }
+        return a
+      }),
+    )
+    return send(res, 200, updated)
+  }
+
+  const reopenMatch = path.match(/^\/api\/patients\/([^/]+)\/reopen$/)
+  if (reopenMatch && method === "POST") {
+    const pid = reopenMatch[1]
+    let updated: Patient | null = null
+    await update<Patient[]>(PATIENTS, [], (list) =>
+      list.map((p) => {
+        if (p.id !== pid) return p
+        updated = { ...p, dischargedAt: null, dischargeReasonId: null }
+        return updated
+      }),
+    )
+    if (!updated) return notFound(res)
+    return send(res, 200, updated)
+  }
+
+  // ─── HARD DELETE ─────────────────────────────────────────
+  const permanentMatch = path.match(/^\/api\/patients\/([^/]+)\/permanent$/)
+  if (permanentMatch && method === "DELETE") {
+    const pid = permanentMatch[1]
+    let removed: Patient | null = null
+    let patientName: string | undefined
+    await update<Patient[]>(PATIENTS, [], (list) =>
+      list.filter((p) => {
+        if (p.id === pid) {
+          removed = p
+          patientName = p.name
+          return false
+        }
+        return true
+      }),
+    )
+    if (!removed) return notFound(res)
+    await update<AppointmentSeries[]>(SERIES, [], (list) =>
+      list.filter((s) => s.patientId !== pid),
+    )
+    await update<Appointment[]>(APPTS, [], (list) =>
+      list.filter((a) => a.patientId !== pid),
+    )
+    await update<PatientAnnotation[]>(ANNOTATIONS, [], (list) =>
+      list.filter((n) => n.patientId !== pid),
+    )
+    await update<IndividualItem[]>(INDIV, [], (list) =>
+      list.filter((it) => it.patientId !== pid),
+    )
+    const docsDir = join(
+      dataDir(),
+      DOCS_ROOT,
+      patientFolderName(pid, patientName),
+    )
+    if (existsSync(docsDir)) {
+      try {
+        await rm(docsDir, { recursive: true, force: true })
+      } catch (err) {
+        console.error(`[patient-docs] failed to remove ${docsDir}:`, err)
+      }
+    }
+    return send(res, 200, { ok: true })
+  }
+
   const patientIdMatch = path.match(/^\/api\/patients\/([^/]+)$/)
   if (patientIdMatch) {
     const pid = patientIdMatch[1]
@@ -529,20 +591,6 @@ export async function handleApi(
           const prev = normalizePatient(p)
           prevName = prev.name
           const merged: Patient = { ...prev, ...r.data }
-          if (recurrenceFieldsChanged(prev, r.data)) {
-            const cutoff = todayISO()
-            const trimmed = prev.recurrenceHistory.filter(
-              (seg) => seg.activeFrom < cutoff,
-            )
-            const newSegment: RecurrenceSegment = {
-              activeFrom: cutoff,
-              recurrence: merged.recurrence,
-              defaultWeekday: merged.defaultWeekday as RecurrenceSegment["defaultWeekday"],
-              anchorDate: merged.anchorDate,
-              defaultTime: merged.defaultTime,
-            }
-            merged.recurrenceHistory = [...trimmed, newSegment]
-          }
           updated = merged
           return updated
         }),
@@ -678,6 +726,73 @@ export async function handleApi(
     }
   }
 
+  // ─── APPOINTMENT SERIES ──────────────────────────────────
+  if (path === "/api/appointment-series") {
+    if (method === "GET") {
+      const patientId = url.searchParams.get("patientId")
+      const list = await load<AppointmentSeries[]>(SERIES, [])
+      const out = list.map(normalizeSeries)
+      return send(
+        res,
+        200,
+        patientId ? out.filter((s) => s.patientId === patientId) : out,
+      )
+    }
+    if (method === "POST") {
+      const body = await readBody(req)
+      const r = parse(appointmentSeriesCreateSchema, body)
+      if (!r.ok) return bad(res, "invalid payload", r.details)
+      const created: AppointmentSeries = {
+        id: id("as"),
+        patientId: r.data.patientId,
+        startDate: r.data.startDate,
+        time: r.data.time,
+        frequency: r.data.frequency,
+        endDate: r.data.endDate ?? null,
+        createdAt: new Date().toISOString(),
+      }
+      await update<AppointmentSeries[]>(SERIES, [], (list) => [...list, created])
+      return send(res, 201, created)
+    }
+  }
+
+  const seriesIdMatch = path.match(/^\/api\/appointment-series\/([^/]+)$/)
+  if (seriesIdMatch) {
+    const sid = seriesIdMatch[1]
+    if (method === "PATCH") {
+      const body = await readBody(req)
+      const r = parse(appointmentSeriesPatchSchema, body)
+      if (!r.ok) return bad(res, "invalid payload", r.details)
+      let updated: AppointmentSeries | null = null
+      await update<AppointmentSeries[]>(SERIES, [], (list) =>
+        list.map((s) => {
+          if (s.id !== sid) return s
+          updated = { ...s, ...r.data }
+          return updated
+        }),
+      )
+      if (!updated) return notFound(res)
+      return send(res, 200, updated)
+    }
+    if (method === "DELETE") {
+      let removed: AppointmentSeries | null = null
+      await update<AppointmentSeries[]>(SERIES, [], (list) =>
+        list.filter((s) => {
+          if (s.id === sid) {
+            removed = s
+            return false
+          }
+          return true
+        }),
+      )
+      if (!removed) return notFound(res)
+      await update<Appointment[]>(APPTS, [], (list) =>
+        list.filter((a) => a.seriesId !== sid),
+      )
+      return send(res, 200, removed)
+    }
+  }
+
   // ─── APPOINTMENTS ────────────────────────────────────────
   if (path === "/api/appointments") {
     if (method === "GET") {
@@ -701,12 +816,13 @@ export async function handleApi(
       await update<Appointment[]>(APPTS, [], (list) => {
         const idx = list.findIndex(
           (a) =>
-            a.patientId === input.patientId &&
+            a.seriesId === input.seriesId &&
             a.originDate === input.originDate,
         )
         if (idx === -1) {
           const created: Appointment = {
             id: id("ap"),
+            seriesId: input.seriesId,
             patientId: input.patientId,
             originDate: input.originDate,
             date: input.date ?? input.originDate,
