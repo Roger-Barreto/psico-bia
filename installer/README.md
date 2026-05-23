@@ -11,7 +11,11 @@ Scripts `.bat` de duplo-clique para uso por leigos no Windows 10/11.
    - Abre `http://localhost:5173` no navegador padrão.
    - Executar de novo atualiza o repositório (`git pull`) antes de subir.
 
-2. **Stop-PsicoBia.bat** — duplo-clique para encerrar o servidor.
+2. **Start-PsicoBia.bat** — duplo-clique para iniciar depois de ja instalado.
+   - Sobe o servidor em `%USERPROFILE%\PsicoBia` sem reinstalar dependencias.
+   - Se ja estiver rodando, apenas abre o navegador.
+
+3. **Stop-PsicoBia.bat** — duplo-clique para encerrar o servidor.
 
 ## Requisitos
 - Windows 10 1809+ ou Windows 11 (com **App Installer** / `winget`).
