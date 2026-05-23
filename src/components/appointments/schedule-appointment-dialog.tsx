@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
-import { CaretDownIcon, MagnifyingGlassIcon } from "@phosphor-icons/react"
-import type { Frequency } from "@/db/types"
+import { CheckIcon, MagnifyingGlassIcon, XIcon } from "@phosphor-icons/react"
+import type { Frequency, Patient } from "@/db/types"
 import {
   useCreateAppointmentSeries,
   usePatients,
@@ -18,11 +18,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -35,7 +30,6 @@ import { TimePicker } from "@/components/ui/time-picker"
 import { PatientAvatar } from "@/components/patient/patient-avatar"
 import { todayISO } from "@/domain/dates"
 import { cn } from "@/lib/utils"
-import type { Patient } from "@/db/types"
 
 type Tipo = "single" | "recurring"
 
@@ -208,7 +202,6 @@ interface ComboProps {
 }
 
 function PatientCombobox({ patients, value, onChange }: ComboProps) {
-  const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const [activeIdx, setActiveIdx] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -226,20 +219,12 @@ function PatientCombobox({ patients, value, onChange }: ComboProps) {
   const selected = patients.find((p) => p.id === value) ?? null
 
   useEffect(() => {
-    if (!open) return
-    setQuery("")
-    setActiveIdx(0)
-    const t = setTimeout(() => inputRef.current?.focus(), 30)
-    return () => clearTimeout(t)
-  }, [open])
-
-  useEffect(() => {
     if (activeIdx >= filtered.length) setActiveIdx(0)
   }, [filtered, activeIdx])
 
   function pick(id: string) {
     onChange(id)
-    setOpen(false)
+    setQuery("")
   }
 
   function onKeyDown(e: React.KeyboardEvent) {
@@ -253,87 +238,75 @@ function PatientCombobox({ patients, value, onChange }: ComboProps) {
       e.preventDefault()
       const p = filtered[activeIdx]
       if (p) pick(p.id)
-    } else if (e.key === "Escape") {
-      e.preventDefault()
-      setOpen(false)
     }
   }
 
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
+  if (selected) {
+    return (
+      <div className="flex items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2">
+        <span className="flex min-w-0 items-center gap-2">
+          <PatientAvatar
+            avatarId={selected.avatarId}
+            name={selected.name}
+            size="sm"
+          />
+          <span className="truncate text-sm">{selected.name}</span>
+        </span>
         <button
           type="button"
-          className={cn(
-            "flex w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          )}
+          onClick={() => onChange("")}
+          className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+          aria-label="Trocar paciente"
         >
-          {selected ? (
-            <span className="flex min-w-0 items-center gap-2">
-              <PatientAvatar
-                avatarId={selected.avatarId}
-                name={selected.name}
-                size="sm"
-              />
-              <span className="truncate">{selected.name}</span>
-            </span>
-          ) : (
-            <span className="text-muted-foreground">
-              Selecione o paciente
-            </span>
-          )}
-          <CaretDownIcon weight="bold" className="size-4 shrink-0 opacity-60" />
+          <XIcon weight="bold" className="size-4" />
         </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className="w-[--radix-popover-trigger-width] min-w-[280px] p-0"
-      >
-        <div className="border-b border-border/60 p-2">
-          <div className="relative">
-            <MagnifyingGlassIcon
-              weight="fill"
-              className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              ref={inputRef}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={onKeyDown}
-              placeholder="Buscar paciente..."
-              className="pl-8"
-            />
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-md border border-input bg-background">
+      <div className="relative border-b border-border/60">
+        <MagnifyingGlassIcon
+          weight="fill"
+          className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+        />
+        <Input
+          ref={inputRef}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="Buscar por nome..."
+          className="border-0 bg-transparent pl-9 focus-visible:ring-0"
+        />
+      </div>
+      <div className="max-h-56 overflow-y-auto py-1">
+        {filtered.length === 0 && (
+          <div className="px-3 py-4 text-center text-sm text-muted-foreground">
+            {patients.length === 0
+              ? "Nenhum paciente ativo"
+              : "Nenhum resultado"}
           </div>
-        </div>
-        <div className="max-h-64 overflow-y-auto py-1">
-          {filtered.length === 0 && (
-            <div className="px-3 py-4 text-center text-sm text-muted-foreground">
-              {patients.length === 0
-                ? "Nenhum paciente ativo"
-                : "Nenhum resultado"}
-            </div>
-          )}
-          {filtered.map((p, i) => (
-            <button
-              key={p.id}
-              type="button"
-              onMouseEnter={() => setActiveIdx(i)}
-              onClick={() => pick(p.id)}
-              className={cn(
-                "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors",
-                i === activeIdx
-                  ? "bg-accent/30"
-                  : "hover:bg-accent/20",
-                p.id === value && "font-medium",
-              )}
-            >
-              <PatientAvatar avatarId={p.avatarId} name={p.name} size="sm" />
-              <span className="truncate">{p.name}</span>
-            </button>
-          ))}
-        </div>
-      </PopoverContent>
-    </Popover>
+        )}
+        {filtered.map((p, i) => (
+          <button
+            key={p.id}
+            type="button"
+            onMouseEnter={() => setActiveIdx(i)}
+            onClick={() => pick(p.id)}
+            className={cn(
+              "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors",
+              i === activeIdx ? "bg-accent/30" : "hover:bg-accent/20",
+            )}
+          >
+            <PatientAvatar avatarId={p.avatarId} name={p.name} size="sm" />
+            <span className="truncate flex-1">{p.name}</span>
+            {p.id === value && (
+              <CheckIcon weight="bold" className="size-4 text-primary" />
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }
