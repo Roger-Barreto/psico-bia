@@ -48,6 +48,10 @@ export const DatePicker = React.forwardRef<HTMLButtonElement, DatePickerProps>(
     const selected = parseISO(value)
     const minDate = parseISO(min)
     const maxDate = parseISO(max)
+    const today = new Date()
+    const startMonth = minDate ?? new Date(today.getFullYear() - 100, 0, 1)
+    const endMonth =
+      maxDate ?? new Date(today.getFullYear() + 5, 11, 31)
 
     return (
       <Popover open={open} onOpenChange={setOpen}>
@@ -94,6 +98,8 @@ export const DatePicker = React.forwardRef<HTMLButtonElement, DatePickerProps>(
             mode="single"
             selected={selected}
             defaultMonth={selected}
+            startMonth={startMonth}
+            endMonth={endMonth}
             disabled={
               minDate || maxDate
                 ? { before: minDate as Date, after: maxDate as Date }
@@ -105,7 +111,7 @@ export const DatePicker = React.forwardRef<HTMLButtonElement, DatePickerProps>(
                 setOpen(false)
               }
             }}
-            captionLayout="label"
+            captionLayout="dropdown"
           />
         </PopoverContent>
       </Popover>
