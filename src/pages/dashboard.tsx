@@ -23,7 +23,7 @@ import {
   toISO,
   todayISO,
 } from "@/domain/dates"
-import { effectiveValue, formatBRL } from "@/domain/finance"
+import { effectiveValue } from "@/domain/finance"
 import { occurrencesForPatient } from "@/domain/recurrence"
 import { MonthSelector } from "@/components/dashboard/month-selector"
 import { PendencyBlock } from "@/components/dashboard/pendency-block"
@@ -39,14 +39,13 @@ import {
   PendencyList,
   type PendencyBreakdown,
 } from "@/components/dashboard/pendency-list"
-import { UnpaidSummary } from "@/components/dashboard/unpaid-summary"
+import { FinancialGauge } from "@/components/dashboard/financial-gauge"
 import {
   UnpaidPatientsDialog,
   type UnpaidPatientEntry,
 } from "@/components/dashboard/unpaid-patients-dialog"
 import { Breadcrumbs } from "@/components/breadcrumbs"
 import { DashboardSkeleton } from "@/components/dashboard/skeletons"
-import { cn } from "@/lib/utils"
 
 function monthRangeISO(year: number, month: number): { from: string; to: string } {
   const d = new Date(year, month - 1, 1)
@@ -544,7 +543,9 @@ export function DashboardPage() {
         >
       {isLoading ? (
         <DashboardSkeleton />
-      ) : pendencyByPatient.length > 0 ? (
+      ) : (
+      <>
+      {pendencyByPatient.length > 0 ? (
         <div className="grid gap-3 lg:grid-cols-2">
           <PendencyBlock
             totalCount={pendencyStats.total}
@@ -565,69 +566,25 @@ export function DashboardPage() {
           />
         </div>
       ) : (
-        <div className="grid gap-3 lg:grid-cols-2">
-          <PendencyBlock
-            totalCount={pendencyStats.total}
-            overdueCount={pendencyStats.overdue}
-            todayCount={pendencyStats.today}
-          />
-          <UnpaidSummary
-            count={unpaidStats.count}
-            totalValue={unpaidStats.totalValue}
-            onClick={
-              unpaidStats.count > 0 ? () => setUnpaidOpen(true) : undefined
-            }
-          />
-        </div>
+        <PendencyBlock
+          totalCount={pendencyStats.total}
+          overdueCount={pendencyStats.overdue}
+          todayCount={pendencyStats.today}
+        />
       )}
 
-      {!isLoading && pendencyByPatient.length > 0 && unpaidStats.count > 0 && (
-        <div>
-          <UnpaidSummary
-            count={unpaidStats.count}
-            totalValue={unpaidStats.totalValue}
-            onClick={() => setUnpaidOpen(true)}
-          />
-        </div>
-      )}
+      <FinancialGauge
+        estimated={estimatedBilling}
+        revenue={revenue}
+        pending={pendingValue}
+        unpaidCount={unpaidStats.count}
+        unpaidValue={unpaidStats.totalValue}
+        onClickUnpaid={() => setUnpaidOpen(true)}
+      />
 
-      {!isLoading && (
-      <>
-      {pendencyByPatient.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <KpiCard
-            label="Estimado no mês"
-            value={formatBRL(estimatedBilling)}
-            tone="primary"
-            hint="Sessões agendadas restantes"
-          />
-          <KpiCard
-            label="Faturado no mês"
-            value={formatBRL(revenue)}
-            tone="success"
-          />
-          <KpiCard
-            label="Pendente no mês"
-            value={formatBRL(pendingValue)}
-            tone="warning"
-            hint="Não pago + sessões vencidas"
-          />
-          <KpiCard label="Atendidos" value={attendedCount} tone="primary" />
-          <KpiCard label="Faltas" value={missedCount} tone="muted" />
-        </div>
-      )}
-
-      <div
-        className={cn(
-          "grid gap-3 sm:grid-cols-2",
-          pendencyByPatient.length === 0
-            ? "lg:grid-cols-5"
-            : "lg:grid-cols-4",
-        )}
-      >
-        {pendencyByPatient.length === 0 && (
-          <KpiCard label="Faltas" value={missedCount} tone="muted" />
-        )}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+        <KpiCard label="Atendidos" value={attendedCount} tone="primary" />
+        <KpiCard label="Faltas" value={missedCount} tone="muted" />
         <KpiCard
           label="Em tratamento"
           value={ongoingPatients}
