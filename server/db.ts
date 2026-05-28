@@ -1,6 +1,6 @@
-import { mkdir, readFile, rename, writeFile, copyFile, readdir, stat } from "node:fs/promises"
+import { mkdir, open, readFile, rename, copyFile, readdir, stat } from "node:fs/promises"
 import { existsSync } from "node:fs"
-import { join, dirname } from "node:path"
+import { join } from "node:path"
 
 const DATA_DIR = join(process.cwd(), "data")
 const BACKUP_DIR = join(DATA_DIR, ".backups")
@@ -20,23 +20,52 @@ export async function load<T>(name: string, fallback: T): Promise<T> {
   if (cache.has(name)) return cache.get(name) as T
   await ensureDir(DATA_DIR)
   const fp = filePath(name)
+  // Arquivo inexistente = primeira execução legítima → semeia fallback.
   if (!existsSync(fp)) {
     cache.set(name, fallback)
     await persist(name, fallback)
     return fallback
   }
+  const raw = await readFile(fp, "utf8")
+  // Arquivo existente porém vazio/só espaços = sintoma de truncamento
+  // (ex.: crash/queda de energia sem fsync). NUNCA sobrescrever com fallback:
+  // preserva uma cópia e falha alto para o operador restaurar do backup.
+  if (raw.trim() === "") {
+    await preserveSuspect(name, fp)
+    throw new Error(
+      `[db] ${name}.json está vazio (possível truncamento). ` +
+        `Carregamento recusado para não destruir dados. ` +
+        `Restaure de data/.backups/ com o servidor parado.`,
+    )
+  }
   try {
-    const raw = await readFile(fp, "utf8")
     const parsed = JSON.parse(raw) as T
     cache.set(name, parsed)
     return parsed
   } catch (err) {
-    const corrupt = join(DATA_DIR, `${name}.${Date.now()}.corrupt.json`)
-    await rename(fp, corrupt).catch(() => {})
-    console.error(`[db] corrupt ${name}.json moved to ${corrupt}`, err)
-    cache.set(name, fallback)
-    await persist(name, fallback)
-    return fallback
+    // JSON inválido: preserva cópia (sem renomear/remover o original) e aborta.
+    await preserveSuspect(name, fp)
+    console.error(`[db] ${name}.json ilegível; abortando para proteger dados`, err)
+    throw new Error(
+      `[db] ${name}.json contém JSON inválido. ` +
+        `Carregamento recusado para não destruir dados. ` +
+        `Restaure de data/.backups/ com o servidor parado.`,
+    )
+  }
+}
+
+/**
+ * Salva uma cópia de um arquivo suspeito (vazio/ilegível) como
+ * `<name>.<timestamp>.corrupt.json` SEM tocar no original. Usa copyFile
+ * (não rename) para que uma falha aqui jamais remova o arquivo de dados.
+ */
+async function preserveSuspect(name: string, fp: string): Promise<void> {
+  const corrupt = join(DATA_DIR, `${name}.${Date.now()}.corrupt.json`)
+  try {
+    await copyFile(fp, corrupt)
+    console.error(`[db] cópia do suspeito salva em ${corrupt}`)
+  } catch (e) {
+    console.error(`[db] falha ao preservar cópia de ${name}.json:`, e)
   }
 }
 
@@ -45,8 +74,35 @@ async function persist<T>(name: string, value: T): Promise<void> {
   await backupOncePerDay(name)
   const fp = filePath(name)
   const tmp = `${fp}.${process.pid}.tmp`
-  await writeFile(tmp, JSON.stringify(value, null, 2), "utf8")
+  const serialized = JSON.stringify(value, null, 2)
+  // Salvaguarda: nunca gravar conteúdo vazio sobre o arquivo de dados.
+  if (serialized === undefined || serialized.trim() === "") {
+    throw new Error(`[db] recusando persistir conteúdo vazio em ${name}.json`)
+  }
+  // Escrita durável: grava no tmp, faz fsync do arquivo (garante que os
+  // bytes chegaram ao disco ANTES do rename) e depois renomeia atomicamente.
+  // Sem o fsync, em NTFS o rename pode persistir antes dos dados após um
+  // crash/queda de energia, deixando o arquivo final com 0 bytes.
+  const fh = await open(tmp, "w")
+  try {
+    await fh.writeFile(serialized, "utf8")
+    await fh.sync()
+  } finally {
+    await fh.close()
+  }
   await rename(tmp, fp)
+  // fsync do diretório torna a própria entrada do rename durável.
+  // Nem todo sistema de arquivos/SO suporta — ignorar falha.
+  try {
+    const dh = await open(DATA_DIR, "r")
+    try {
+      await dh.sync()
+    } finally {
+      await dh.close()
+    }
+  } catch {
+    /* fsync de diretório não suportado nesta plataforma */
+  }
 }
 
 async function backupOncePerDay(name: string) {

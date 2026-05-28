@@ -49,13 +49,21 @@ if errorlevel 1 (
 REM ---- Stop running server if any ----
 powershell -NoProfile -Command "try { (Invoke-WebRequest -UseBasicParsing -Uri '%URL%' -TimeoutSec 2).StatusCode } catch { exit 1 }" >nul 2>&1
 if not errorlevel 1 (
-    echo [1/3] Encerrando servidor em execucao...
+    echo [1/3] Encerrando servidor em execucao (gracioso)...
+    REM Gracioso primeiro (sem /F) para o servidor gravar os dados em disco.
+    taskkill /FI "WINDOWTITLE eq PsicoBia Server*" /T >nul 2>&1
+    taskkill /FI "WINDOWTITLE eq Administrator: PsicoBia Server*" /T >nul 2>&1
+    for /f "tokens=5" %%P in ('netstat -ano ^| findstr ":%PORT% " ^| findstr LISTENING') do (
+        taskkill /PID %%P >nul 2>&1
+    )
+    echo Aguardando gravacao em disco...
+    timeout /t 5 /nobreak >nul
+    REM Forcar o que restar.
     taskkill /F /FI "WINDOWTITLE eq PsicoBia Server*" /T >nul 2>&1
     taskkill /F /FI "WINDOWTITLE eq Administrator: PsicoBia Server*" /T >nul 2>&1
     for /f "tokens=5" %%P in ('netstat -ano ^| findstr ":%PORT% " ^| findstr LISTENING') do (
         taskkill /F /PID %%P >nul 2>&1
     )
-    timeout /t 2 /nobreak >nul
 ) else (
     echo [1/3] Servidor nao estava em execucao.
 )
