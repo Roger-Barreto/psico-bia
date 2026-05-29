@@ -39,15 +39,34 @@ export const checklistItemCreateSchema = z.object({
   archived: z.boolean().default(false),
 })
 
-export const checklistItemPatchSchema = checklistItemCreateSchema.partial()
+// NOTE: not `.partial()` — in Zod 4 `.partial()` keeps the inner `.default()`,
+// so a patch missing `order`/`archived` would still resolve them to 0/false and
+// clobber the stored value. Explicit `.optional()` fields avoid that.
+export const checklistItemPatchSchema = z.object({
+  label: z.string().min(1).max(200).optional(),
+  order: z.number().int().nonnegative().optional(),
+  archived: z.boolean().optional(),
+})
+
+export const checklistReorderSchema = z.object({
+  ids: z.array(z.string()),
+})
 
 export const individualChecklistItemCreateSchema =
   checklistItemCreateSchema.extend({
     patientId: z.string().min(1),
   })
 
-export const individualChecklistItemPatchSchema =
-  individualChecklistItemCreateSchema.partial()
+export const individualChecklistItemPatchSchema = checklistItemPatchSchema.extend(
+  {
+    patientId: z.string().min(1).optional(),
+  },
+)
+
+export const individualChecklistReorderSchema = z.object({
+  patientId: z.string().min(1),
+  ids: z.array(z.string()),
+})
 
 export const appointmentSeriesCreateSchema = z.object({
   patientId: z.string().min(1),

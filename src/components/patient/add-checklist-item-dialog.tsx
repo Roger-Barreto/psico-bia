@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { nextOrder } from "@/lib/checklist"
 import { cn } from "@/lib/utils"
 
 type Scope = "shared" | "individual"
@@ -48,15 +49,16 @@ export function AddChecklistItemDialog({ patientId, open, onOpenChange }: Props)
     if (!trimmed) return
     try {
       if (scope === "shared") {
-        const order = (sharedQ.data?.length ?? 0) + 1
+        const order = nextOrder(sharedQ.data ?? [])
         await createShared.mutateAsync({
           label: trimmed,
           order,
           archived: false,
         })
       } else {
-        const order =
-          (indivQ.data?.filter((i) => i.patientId === patientId).length ?? 0) + 1
+        const order = nextOrder(
+          (indivQ.data ?? []).filter((i) => i.patientId === patientId),
+        )
         await createIndividual.mutateAsync({
           patientId,
           label: trimmed,

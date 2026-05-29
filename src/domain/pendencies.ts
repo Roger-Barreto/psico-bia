@@ -13,46 +13,41 @@ export interface ChecklistEntry {
 }
 
 /**
- * Compute pendency count for a single occurrence.
- * Pendency = ações que o psicólogo precisa tomar:
- *   - Itens de checklist não marcados em sessões passadas (attended/missed)
- *   - Itens de checklist abertos quando ocorrência scheduled passou da data
- *   - Ocorrência scheduled com data passada (precisa confirmar atendido/falta)
+ * Pendência só existe APÓS o atendimento. Decomposta em duas naturezas:
+ *   - checklist: itens do snapshot não marcados numa sessão atendida.
+ *   - overdue: sessão passada não confirmada (precisa atender/faltar/reagendar)
+ *     — é o estado "Pendente".
+ * Regras: attended → checklist incompleto; missed/cancelled → 0;
+ * scheduled (ou sem linha) → overdue 1 se passou da data; futuro → 0.
  *
  * Sessões atendidas não pagas NÃO entram aqui — são tratadas separadamente
  * via {@link isUnpaidAttended} / {@link unpaidIndex}.
  */
-export function pendencyCount(
+export function pendencyBreakdown(
   occ: Occurrence,
-  sharedItems: SharedChecklistItem[],
-  individualItems: IndividualChecklistItem[],
   today: string = todayISO(),
-): number {
-  if (occ.date > today) return 0
+): { checklist: number; overdue: number } {
+  if (occ.date > today) return { checklist: 0, overdue: 0 }
   const appt = occ.appointment
-  if (appt && (appt.status === "cancelled" || appt.status === "rescheduled"))
-    return 0
-
-  let count = 0
-
-  if (appt && (appt.status === "attended" || appt.status === "missed")) {
+  if (appt && appt.status === "attended") {
     const unchecked = appt.snapshotItemIds.filter(
       (id) => !appt.checkedItemIds.includes(id),
-    )
-    count += unchecked.length
-  } else {
-    const sharedActive = sharedItems.filter((s) => !s.archived).length
-    const individualActive = individualItems.filter(
-      (i) => i.patientId === occ.patientId && !i.archived,
     ).length
-    count += sharedActive + individualActive
+    return { checklist: unchecked, overdue: 0 }
   }
-
-  if (occ.date < today && (!appt || appt.status === "scheduled")) {
-    count += 1
+  if (appt && (appt.status === "missed" || appt.status === "cancelled")) {
+    return { checklist: 0, overdue: 0 }
   }
+  // scheduled / rescheduled-legado / sem linha
+  return { checklist: 0, overdue: occ.date < today ? 1 : 0 }
+}
 
-  return count
+export function pendencyCount(
+  occ: Occurrence,
+  today: string = todayISO(),
+): number {
+  const b = pendencyBreakdown(occ, today)
+  return b.checklist + b.overdue
 }
 
 /**
@@ -98,14 +93,37 @@ export function checklistFor(
     (i) => i.patientId === occ.patientId && !i.archived,
   )
 
-  const itemMap = new Map<string, { label: string; source: "shared" | "individual" }>()
-  for (const s of sharedItems) itemMap.set(s.id, { label: s.label, source: "shared" })
+  const itemMap = new Map<
+    string,
+    { label: string; source: "shared" | "individual"; order: number }
+  >()
+  for (const s of sharedItems)
+    itemMap.set(s.id, { label: s.label, source: "shared", order: s.order })
   for (const i of individualItems)
-    itemMap.set(i.id, { label: i.label, source: "individual" })
+    itemMap.set(i.id, { label: i.label, source: "individual", order: i.order })
 
-  const ids = useSnapshot
-    ? appt!.snapshotItemIds
-    : [...allShared.map((s) => s.id), ...allInd.map((i) => i.id)]
+  const byOrder = <T extends { order: number }>(arr: T[]) =>
+    arr.slice().sort((a, b) => a.order - b.order)
+
+  let ids: string[]
+  if (useSnapshot) {
+    // Preserve the historical set, but display shared-then-individual, each
+    // ordered by the item's current order.
+    const sharedIds: string[] = []
+    const indIds: string[] = []
+    for (const itemId of appt!.snapshotItemIds) {
+      if (itemMap.get(itemId)?.source === "individual") indIds.push(itemId)
+      else sharedIds.push(itemId)
+    }
+    const byCurrentOrder = (a: string, b: string) =>
+      (itemMap.get(a)?.order ?? Infinity) - (itemMap.get(b)?.order ?? Infinity)
+    ids = [...sharedIds.sort(byCurrentOrder), ...indIds.sort(byCurrentOrder)]
+  } else {
+    ids = [
+      ...byOrder(allShared).map((s) => s.id),
+      ...byOrder(allInd).map((i) => i.id),
+    ]
+  }
 
   const checked = new Set(appt?.checkedItemIds ?? [])
 
@@ -126,15 +144,13 @@ export function checklistFor(
  */
 export function pendencyIndex(
   occurrences: Occurrence[],
-  sharedItems: SharedChecklistItem[],
-  individualItems: IndividualChecklistItem[],
   today: string = todayISO(),
 ): Map<string, { count: number; pendencies: number }> {
   const map = new Map<string, { count: number; pendencies: number }>()
   for (const o of occurrences) {
     const cur = map.get(o.date) ?? { count: 0, pendencies: 0 }
     cur.count++
-    cur.pendencies += pendencyCount(o, sharedItems, individualItems, today)
+    cur.pendencies += pendencyCount(o, today)
     map.set(o.date, cur)
   }
   return map
@@ -146,9 +162,15 @@ export function buildSnapshotIds(
   individualItems: IndividualChecklistItem[],
 ): string[] {
   return [
-    ...sharedItems.filter((s) => !s.archived).map((s) => s.id),
+    ...sharedItems
+      .filter((s) => !s.archived)
+      .slice()
+      .sort((a, b) => a.order - b.order)
+      .map((s) => s.id),
     ...individualItems
       .filter((i) => i.patientId === patientId && !i.archived)
+      .slice()
+      .sort((a, b) => a.order - b.order)
       .map((i) => i.id),
   ]
 }

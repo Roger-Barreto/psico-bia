@@ -9,10 +9,8 @@ import {
 import {
   useAppointmentSeries,
   useAppointmentsInRange,
-  useIndividualChecklist,
   useInsurances,
   usePatients,
-  useSharedChecklist,
 } from "@/api/queries"
 import {
   MiniCalendar,
@@ -58,6 +56,7 @@ export function HomePage() {
   const [newPatientOpen, setNewPatientOpen] = useState(false)
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [activeKey, setActiveKey] = useState<{
+    seriesId: string
     patientId: string
     originDate: string
   } | null>(null)
@@ -66,15 +65,11 @@ export function HomePage() {
   const patientsQ = usePatients()
   const apptQ = useAppointmentsInRange(range.fromISO, range.toISO)
   const seriesQ = useAppointmentSeries()
-  const sharedQ = useSharedChecklist()
-  const indivQ = useIndividualChecklist()
   const insurancesQ = useInsurances()
 
   const patients = patientsQ.data ?? []
   const appointments = apptQ.data ?? []
   const series = seriesQ.data ?? []
-  const shared = sharedQ.data ?? []
-  const individual = indivQ.data ?? []
   const insurances = insurancesQ.data ?? []
 
   const insuranceById = useMemo(() => {
@@ -96,15 +91,15 @@ export function HomePage() {
       if (!p.active) continue
       const occs = occurrencesForPatient(p, series, range, appointments)
       for (const o of occs) {
-        o.pendencyCount = pendencyCount(o, shared, individual)
+        o.pendencyCount = pendencyCount(o)
         out.push(o)
       }
     }
     return out
-  }, [patients, series, appointments, range, shared, individual])
+  }, [patients, series, appointments, range])
 
   const byDate = useMemo(() => {
-    const pend = pendencyIndex(monthOccurrences, shared, individual)
+    const pend = pendencyIndex(monthOccurrences)
     const unpaid = unpaidIndex(monthOccurrences, (o) =>
       o.appointment
         ? effectiveValue(o.appointment, patientById.get(o.patientId))
@@ -123,7 +118,7 @@ export function HomePage() {
       out.set(iso, { count: 0, pendencies: 0, unpaid: u.count })
     }
     return out
-  }, [monthOccurrences, shared, individual, patientById])
+  }, [monthOccurrences, patientById])
 
   const dayOccurrences = useMemo(
     () => monthOccurrences.filter((o) => o.date === selectedISO),
@@ -150,6 +145,7 @@ export function HomePage() {
     return (
       monthOccurrences.find(
         (o) =>
+          o.seriesId === activeKey.seriesId &&
           o.patientId === activeKey.patientId &&
           o.originDate === activeKey.originDate,
       ) ?? null
@@ -250,9 +246,10 @@ export function HomePage() {
                 : p!.consultationValue ?? 0
               return (
                 <button
-                  key={`${o.patientId}-${o.originDate}`}
+                  key={`${o.seriesId}-${o.originDate}`}
                   onClick={() => {
                     setActiveKey({
+                      seriesId: o.seriesId,
                       patientId: o.patientId,
                       originDate: o.originDate,
                     })
@@ -286,7 +283,7 @@ export function HomePage() {
                     </p>
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    <StatusBadge occurrence={o} selectedISO={selectedISO} />
+                    <StatusBadge occurrence={o} />
                     {isUnpaidAttended(o) && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-300">
                         <CurrencyDollarIcon weight="fill" className="size-3" />
@@ -333,10 +330,6 @@ export function HomePage() {
   )
 }
 
-function isFuture(iso: string): boolean {
-  return iso > todayISO()
-}
-
 function cardClassFor(o: Occurrence, _selectedISO: string): string {
   const status = o.appointment?.status
   if (status === "attended" && o.pendencyCount > 0) {
@@ -351,11 +344,9 @@ function cardClassFor(o: Occurrence, _selectedISO: string): string {
   if (status === "missed") {
     return "border-border/60 bg-muted/30 hover:border-border opacity-80"
   }
-  if (status === "rescheduled") {
-    return "border-secondary/40 bg-secondary/10 hover:border-secondary/60"
-  }
+  // scheduled / sem linha: passado não confirmado = "pendente" (tom âmbar, calmo)
   if (o.pendencyCount > 0) {
-    return "border-destructive/40 bg-destructive/10 hover:border-destructive/60"
+    return "border-amber-500/40 bg-amber-500/10 hover:border-amber-500/60"
   }
   return "border-border/60 bg-card/70 hover:border-primary/40 hover:bg-card"
 }
@@ -368,16 +359,11 @@ function statusTextClass(o: Occurrence): string {
   return "text-muted-foreground"
 }
 
-function StatusBadge({
-  occurrence,
-  selectedISO,
-}: {
-  occurrence: Occurrence
-  selectedISO: string
-}) {
+function StatusBadge({ occurrence }: { occurrence: Occurrence }) {
   const o = occurrence
-  const future = isFuture(selectedISO)
-  if (o.pendencyCount > 0) {
+  const status = o.appointment?.status
+  // Só atendido exibe pendências de checklist.
+  if (status === "attended" && o.pendencyCount > 0) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-destructive/20 px-2.5 py-1 text-xs font-medium text-destructive">
         <WarningIcon weight="fill" className="size-3" />
@@ -386,53 +372,58 @@ function StatusBadge({
       </span>
     )
   }
-  if (o.appointment?.status === "attended") {
+  if (status === "attended") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs font-medium text-emerald-400">
         Concluído
       </span>
     )
   }
-  if (o.appointment?.status === "missed") {
+  if (status === "missed") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
         Falta
       </span>
     )
   }
-  if (o.appointment?.status === "rescheduled") {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-secondary/25 px-2.5 py-1 text-xs font-medium text-secondary">
-        Reagendado
-      </span>
-    )
-  }
-  if (future) {
+  // scheduled / sem linha
+  if (o.date > todayISO()) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary">
         A atender
       </span>
     )
   }
-  return null
+  if (o.date < todayISO()) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2.5 py-1 text-xs font-medium text-amber-300">
+        <WarningIcon weight="fill" className="size-3" />
+        Pendente
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary">
+      A atender
+    </span>
+  )
 }
 
 function statusLabel(o: Occurrence): string {
-  if (!o.appointment) {
-    return o.date > todayISO() ? "Aguardando atendimento" : "Pendente"
+  const a = o.appointment
+  if (a?.status === "attended") {
+    return o.pendencyCount > 0 ? "Atendido · checklist incompleto" : "Atendido"
   }
-  switch (o.appointment.status) {
-    case "attended":
-      return o.pendencyCount > 0
-        ? "Atendido · checklist incompleto"
-        : "Atendido"
-    case "missed":
-      return "Faltou"
-    case "rescheduled":
-      return `Reagendado de ${formatLongDateBR(o.originDate)}`
-    case "cancelled":
-      return "Cancelado"
-    default:
-      return "Agendado"
-  }
+  if (a?.status === "missed") return "Faltou"
+  if (a?.status === "cancelled") return "Cancelado"
+  // scheduled / sem linha
+  const base =
+    o.date > todayISO()
+      ? "Aguardando atendimento"
+      : o.date < todayISO()
+        ? "Pendente"
+        : "Agendado hoje"
+  return a?.rescheduledTo
+    ? `${base} · reagendado de ${formatLongDateBR(o.originDate)}`
+    : base
 }

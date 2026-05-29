@@ -218,6 +218,29 @@ export function useArchiveSharedItem() {
   })
 }
 
+export function useReorderSharedItems() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (ids: string[]) =>
+      api.patch<SharedChecklistItem[]>("/api/shared-checklist/reorder", {
+        ids,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.shared }),
+  })
+}
+
+export function useDeleteSharedItemPermanent() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.delete<{ ok: true }>(`/api/shared-checklist/${id}/permanent`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.shared })
+      qc.invalidateQueries({ queryKey: ["appointments"] })
+    },
+  })
+}
+
 // ─── INDIVIDUAL CHECKLIST ────────────────────────────────
 export function useIndividualChecklist(patientId?: string) {
   return useQuery({
@@ -267,6 +290,30 @@ export function useArchiveIndividualItem() {
     mutationFn: (id: string) =>
       api.delete<IndividualChecklistItem>(`/api/individual-checklist/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["individual-checklist"] }),
+  })
+}
+
+export function useReorderIndividualItems() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ patientId, ids }: { patientId: string; ids: string[] }) =>
+      api.patch<IndividualChecklistItem[]>(
+        "/api/individual-checklist/reorder",
+        { patientId, ids },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["individual-checklist"] }),
+  })
+}
+
+export function useDeleteIndividualItemPermanent() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.delete<{ ok: true }>(`/api/individual-checklist/${id}/permanent`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["individual-checklist"] })
+      qc.invalidateQueries({ queryKey: ["appointments"] })
+    },
   })
 }
 

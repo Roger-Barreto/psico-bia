@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { Reorder, useDragControls } from "framer-motion"
 import { toast } from "sonner"
 import {
+  ArchiveIcon,
   ArrowCounterClockwiseIcon,
+  DotsSixVerticalIcon,
   IdentificationCardIcon,
   ListChecksIcon,
   PaperclipIcon,
@@ -11,13 +14,14 @@ import {
   UserCircleIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react"
-import type { Gender, Patient } from "@/db/types"
+import type { Gender, IndividualChecklistItem, Patient } from "@/db/types"
 import {
   useAppointmentSeries,
   useAppointmentsInRange,
   useArchiveIndividualItem,
   useCreateIndividualItem,
   useCreatePatient,
+  useDeleteIndividualItemPermanent,
   useDeletePatientPermanently,
   useDischargePatient,
   useDischargeReasons,
@@ -25,8 +29,10 @@ import {
   useInsurances,
   usePatients,
   useReopenPatient,
+  useReorderIndividualItems,
   useUpdatePatient,
 } from "@/api/queries"
+import { nextOrder } from "@/lib/checklist"
 import { occurrencesForPatient } from "@/domain/recurrence"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -81,6 +87,56 @@ function SectionBlock({
   )
 }
 
+function SortableIndivRow({
+  item,
+  onDragEnd,
+  onArchive,
+  onDeletePermanent,
+}: {
+  item: IndividualChecklistItem
+  onDragEnd: () => void
+  onArchive: () => void
+  onDeletePermanent: () => void
+}) {
+  const controls = useDragControls()
+  return (
+    <Reorder.Item
+      value={item}
+      dragListener={false}
+      dragControls={controls}
+      onDragEnd={onDragEnd}
+      as="div"
+      className="flex items-center gap-2 rounded-lg border border-border/60 bg-background/40 px-3 py-2"
+    >
+      <button
+        type="button"
+        aria-label="Arrastar para reordenar"
+        onPointerDown={(e) => controls.start(e)}
+        className="grid size-7 shrink-0 cursor-grab place-items-center rounded-md text-muted-foreground hover:bg-muted/40 active:cursor-grabbing"
+      >
+        <DotsSixVerticalIcon weight="bold" className="size-4" />
+      </button>
+      <span className="flex-1 text-sm">{item.label}</span>
+      <button
+        type="button"
+        onClick={onArchive}
+        aria-label="Arquivar"
+        className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-amber-500/15 hover:text-amber-500"
+      >
+        <ArchiveIcon weight="fill" className="size-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={onDeletePermanent}
+        aria-label="Excluir permanentemente"
+        className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+      >
+        <TrashIcon weight="fill" className="size-3.5" />
+      </button>
+    </Reorder.Item>
+  )
+}
+
 export function PatientForm({ patient: patientProp, onDone }: Props) {
   const patientsQ = usePatients({ enabled: !!patientProp })
   const patient = patientProp
@@ -113,6 +169,8 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
   const indivQ = useIndividualChecklist(patient?.id)
   const addItemMut = useCreateIndividualItem()
   const archiveItemMut = useArchiveIndividualItem()
+  const reorderItemMut = useReorderIndividualItems()
+  const deleteItemPermanentMut = useDeleteIndividualItemPermanent()
   const insurancesQ = useInsurances()
   const reasonsQ = useDischargeReasons()
 
@@ -326,13 +384,11 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
 
   async function addIndividualItem() {
     if (!patient || !newItem.trim()) return
-    const order =
-      (indivQ.data?.filter((i) => !i.archived).length ?? 0) + 1
     try {
       await addItemMut.mutateAsync({
         patientId: patient.id,
         label: newItem.trim(),
-        order,
+        order: nextOrder(indivQ.data ?? []),
         archived: false,
       })
       setNewItem("")
@@ -341,8 +397,49 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
     }
   }
 
+  async function onDeleteItemPermanent(item: IndividualChecklistItem) {
+    const ok = await confirmDialog({
+      title: "Excluir permanentemente",
+      description: `Excluir "${item.label}" para sempre? Todo registro deste item será removido do sistema, inclusive de atendimentos passados, como se nunca tivesse existido. Para manter o histórico, use Arquivar.`,
+      destructive: true,
+      confirmLabel: "Excluir definitivamente",
+    })
+    if (!ok) return
+    deleteItemPermanentMut.mutate(item.id, {
+      onSuccess: () => toast.success("Item excluído permanentemente"),
+      onError: (err) =>
+        toast.error(err instanceof Error ? err.message : "Erro"),
+    })
+  }
+
   const saving = createMut.isPending || updateMut.isPending
-  const activeItems = indivQ.data?.filter((i) => !i.archived) ?? []
+  const activeItems = (indivQ.data ?? [])
+    .filter((i) => !i.archived)
+    .slice()
+    .sort((a, b) => a.order - b.order)
+
+  // Local order for drag; re-synced from server whenever data changes.
+  const [orderedItems, setOrderedItems] = useState<IndividualChecklistItem[]>(
+    [],
+  )
+  const orderedItemsRef = useRef<IndividualChecklistItem[]>([])
+  orderedItemsRef.current = orderedItems
+  useEffect(() => {
+    setOrderedItems(
+      (indivQ.data ?? [])
+        .filter((i) => !i.archived)
+        .slice()
+        .sort((a, b) => a.order - b.order),
+    )
+  }, [indivQ.data])
+
+  function persistItemOrder() {
+    if (!patient) return
+    reorderItemMut.mutate({
+      patientId: patient.id,
+      ids: orderedItemsRef.current.map((i) => i.id),
+    })
+  }
 
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4 p-6">
@@ -612,26 +709,28 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
       {isEdit && tab === "checklist" && (
         <SectionBlock title="Checklist individual" icon={ListChecksIcon}>
           <div className="space-y-1.5">
-            {activeItems.length === 0 && (
+            {orderedItems.length === 0 && (
               <p className="text-xs text-muted-foreground">
                 Sem itens individuais (default vazio).
               </p>
             )}
-            {activeItems.map((it) => (
-              <div
-                key={it.id}
-                className="flex items-center gap-2 rounded-lg border border-border/60 bg-background/40 px-3 py-2"
-              >
-                <span className="flex-1 text-sm">{it.label}</span>
-                <button
-                  type="button"
-                  onClick={() => archiveItemMut.mutate(it.id)}
-                  className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
-                >
-                  <TrashIcon weight="fill" className="size-3.5" />
-                </button>
-              </div>
-            ))}
+            <Reorder.Group
+              axis="y"
+              values={orderedItems}
+              onReorder={setOrderedItems}
+              as="div"
+              className="space-y-1.5"
+            >
+              {orderedItems.map((it) => (
+                <SortableIndivRow
+                  key={it.id}
+                  item={it}
+                  onDragEnd={persistItemOrder}
+                  onArchive={() => archiveItemMut.mutate(it.id)}
+                  onDeletePermanent={() => onDeleteItemPermanent(it)}
+                />
+              ))}
+            </Reorder.Group>
           </div>
           <div className="flex gap-2 pt-1">
             <Input

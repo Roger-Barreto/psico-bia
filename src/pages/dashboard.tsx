@@ -12,11 +12,10 @@ import {
   useAppointmentSeries,
   useAppointmentsInRange,
   useDischargeReasons,
-  useIndividualChecklist,
   useInsurances,
   usePatients,
-  useSharedChecklist,
 } from "@/api/queries"
+import { pendencyBreakdown } from "@/domain/pendencies"
 import {
   endOfMonth,
   startOfMonth,
@@ -99,8 +98,6 @@ export function DashboardPage() {
   const seriesQ = useAppointmentSeries()
   const insurancesQ = useInsurances()
   const reasonsQ = useDischargeReasons()
-  const sharedQ = useSharedChecklist()
-  const indivQ = useIndividualChecklist()
 
   const sixMonthStart = useMemo(() => {
     let m = month - 5
@@ -122,8 +119,6 @@ export function DashboardPage() {
   const reasons = reasonsQ.data ?? []
   const allAppts = apptsQ.data ?? []
   const allSeries = seriesQ.data ?? []
-  const shared = sharedQ.data ?? []
-  const individual = indivQ.data ?? []
 
   const seriesById = useMemo(() => {
     const m = new Map<string, AppointmentSeries>()
@@ -148,96 +143,58 @@ export function DashboardPage() {
     [allAppts, patientsById],
   )
 
-  const sharedActiveCount = shared.filter((s) => !s.archived).length
-  const individualByPatient = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const it of individual) {
-      if (it.archived) continue
-      m.set(it.patientId, (m.get(it.patientId) ?? 0) + 1)
+  // Ocorrências do mês (mesma fonte da agenda) → pendências unificadas.
+  const monthOccurrences = useMemo(() => {
+    const range = { fromISO: from, toISO: to }
+    const out: Occurrence[] = []
+    for (const p of patients) {
+      for (const o of occurrencesForPatient(p, allSeries, range, appts)) {
+        const b = pendencyBreakdown(o, today)
+        o.pendencyCount = b.checklist + b.overdue
+        out.push(o)
+      }
     }
-    return m
-  }, [individual])
-
-  function countPendencyItems(
-    appt: (typeof appts)[number],
-    _patient: Patient | undefined,
-  ): {
-    checklist: number
-    overdue: number
-  } {
-    void _patient
-    if (appt.status === "cancelled" || appt.status === "rescheduled") {
-      return { checklist: 0, overdue: 0 }
-    }
-    if (appt.date > today) {
-      return { checklist: 0, overdue: 0 }
-    }
-    let checklist = 0
-    if (appt.status === "attended" || appt.status === "missed") {
-      checklist = appt.snapshotItemIds.filter(
-        (id) => !appt.checkedItemIds.includes(id),
-      ).length
-    } else {
-      checklist =
-        sharedActiveCount + (individualByPatient.get(appt.patientId) ?? 0)
-    }
-    const overdue =
-      appt.status === "scheduled" && appt.date < today ? 1 : 0
-    return { checklist, overdue }
-  }
+    return out
+  }, [patients, allSeries, appts, from, to, today])
 
   // ── Pendency totals (item-level) ─────────────────────────
   const pendencyStats = useMemo(() => {
     let total = 0
     let overdue = 0
     let todayN = 0
-    for (const a of appts) {
-      const c = countPendencyItems(a, patientsById.get(a.patientId))
-      const sum = c.checklist + c.overdue
+    for (const o of monthOccurrences) {
+      const sum = o.pendencyCount
       if (sum === 0) continue
       total += sum
-      if (a.date < today) overdue += sum
+      if (o.date < today) overdue += sum
       else todayN += sum
     }
     return { total, overdue, today: todayN }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appts, patientsById, sharedActiveCount, individualByPatient, today])
+  }, [monthOccurrences, today])
 
   // ── Pendency by patient (cards) ──────────────────────────
   const pendencyByPatient = useMemo<PendencyBreakdown[]>(() => {
     const map = new Map<string, PendencyBreakdown>()
-    for (const a of appts) {
-      const patient = patientsById.get(a.patientId)
+    for (const o of monthOccurrences) {
+      if (o.pendencyCount === 0) continue
+      const patient = patientsById.get(o.patientId)
       if (!patient) continue
-      const c = countPendencyItems(a, patient)
-      const pendSum = c.checklist + c.overdue
-      if (pendSum === 0) continue
+      const b = pendencyBreakdown(o, today)
       const insuranceName =
         insurances.find((i) => i.id === patient.insuranceId)?.name ?? null
-      const occ: Occurrence = {
-        seriesId: a.seriesId,
-        patientId: patient.id,
-        originDate: a.originDate,
-        date: a.status === "rescheduled" && a.rescheduledTo ? a.rescheduledTo : a.date,
-        time: a.time ?? seriesById.get(a.seriesId)?.time ?? "08:00",
-        appointment: a,
-        pendencyCount: pendSum,
-      }
       const existing = map.get(patient.id)
       if (existing) {
-        existing.checklistCount += c.checklist
-        existing.overdueCount += c.overdue
-        if (occ.date < existing.occurrence.date) {
-          existing.occurrence = occ
-        }
+        existing.checklistCount += b.checklist
+        existing.overdueCount += b.overdue
+        if (o.date < existing.occurrence.date) existing.occurrence = o
       } else {
         map.set(patient.id, {
           patient,
           insuranceName,
-          checklistCount: c.checklist,
-          overdueCount: c.overdue,
+          checklistCount: b.checklist,
+          overdueCount: b.overdue,
           nextDate: null,
-          occurrence: occ,
+          occurrence: o,
         })
       }
     }
@@ -246,8 +203,7 @@ export function DashboardPage() {
         b.checklistCount + b.overdueCount -
         (a.checklistCount + a.overdueCount),
     )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appts, patientsById, sharedActiveCount, individualByPatient, today, insurances])
+  }, [monthOccurrences, patientsById, today, insurances])
 
   // ── Unpaid (atendido & !paid) ────────────────────────────
   const unpaidStats = useMemo(() => {
@@ -480,27 +436,14 @@ export function DashboardPage() {
 
   const activeOcc = useMemo<Occurrence | null>(() => {
     if (!activeKey) return null
-    const a = appts.find(
-      (x) =>
-        x.seriesId === activeKey.seriesId &&
-        x.originDate === activeKey.originDate,
+    return (
+      monthOccurrences.find(
+        (o) =>
+          o.seriesId === activeKey.seriesId &&
+          o.originDate === activeKey.originDate,
+      ) ?? null
     )
-    if (!a) return null
-    const c = countPendencyItems(a, patientsById.get(a.patientId))
-    return {
-      seriesId: a.seriesId,
-      patientId: a.patientId,
-      originDate: a.originDate,
-      date:
-        a.status === "rescheduled" && a.rescheduledTo
-          ? a.rescheduledTo
-          : a.date,
-      time: a.time ?? seriesById.get(a.seriesId)?.time ?? "08:00",
-      appointment: a,
-      pendencyCount: c.checklist + c.overdue,
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeKey, appts, patientsById, seriesById, sharedActiveCount, individualByPatient, today])
+  }, [activeKey, monthOccurrences])
 
   const activePatient = activeKey
     ? patientsById.get(activeKey.patientId) ?? null

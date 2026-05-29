@@ -20,12 +20,15 @@ import type {
 } from "@/db/types"
 import {
   qk,
+  useAppointmentSeries,
+  useAppointmentsInRange,
   useDeletePatientAnnotation,
   useIndividualChecklist,
   useInsurances,
   usePatchAppointment,
   usePatientAnnotations,
   useSharedChecklist,
+  useUndoAppointment,
   useUpsertAppointment,
   useUpdatePatient,
 } from "@/api/queries"
@@ -48,10 +51,12 @@ import { PatientForm } from "./patient-form"
 import { AddAnnotationDialog } from "./add-annotation-dialog"
 import { AddChecklistItemDialog } from "./add-checklist-item-dialog"
 import { buildSnapshotIds, checklistFor } from "@/domain/pendencies"
+import { occurrencesForPatient } from "@/domain/recurrence"
 import { todayISO, formatLongDateBR } from "@/domain/dates"
 import { cn } from "@/lib/utils"
 import { ageFromBirthdate } from "@/domain/age"
 import { UndoAppointmentDialog } from "@/components/appointments/undo-appointment-dialog"
+import { RescheduleConflictDialog } from "@/components/appointments/reschedule-conflict-dialog"
 
 interface Props {
   occurrence: Occurrence | null
@@ -69,10 +74,12 @@ export function PatientDrawer({
   const qc = useQueryClient()
   const upsert = useUpsertAppointment()
   const patch = usePatchAppointment()
+  const undo = useUndoAppointment()
   const updatePatient = useUpdatePatient()
   const sharedQ = useSharedChecklist()
   const indivQ = useIndividualChecklist(patient?.id)
   const insurancesQ = useInsurances()
+  const seriesQ = useAppointmentSeries()
   const annotationsQ = usePatientAnnotations(patient?.id)
   const deleteAnnotation = useDeletePatientAnnotation()
   const [reschedDate, setReschedDate] = useState("")
@@ -82,11 +89,28 @@ export function PatientDrawer({
   const [addChecklistOpen, setAddChecklistOpen] = useState(false)
   const [addAnnotationOpen, setAddAnnotationOpen] = useState(false)
   const [undoOpen, setUndoOpen] = useState(false)
+  const [conflictOpen, setConflictOpen] = useState(false)
+  const [conflictTarget, setConflictTarget] = useState<Occurrence | null>(null)
 
   const shared = sharedQ.data ?? []
   const individual = indivQ.data ?? []
   const insurances = insurancesQ.data ?? []
+  const allSeries = seriesQ.data ?? []
   const annotations = annotationsQ.data ?? []
+
+  // Ocorrências do paciente na data-alvo do reagendamento (para detectar conflito).
+  const targetDayAppts =
+    useAppointmentsInRange(reschedDate || todayISO(), reschedDate || todayISO())
+      .data ?? []
+  const targetOccurrences = useMemo(() => {
+    if (!patient || !reschedDate) return []
+    return occurrencesForPatient(
+      patient,
+      allSeries,
+      { fromISO: reschedDate, toISO: reschedDate },
+      targetDayAppts,
+    )
+  }, [patient, allSeries, reschedDate, targetDayAppts])
 
   useEffect(() => {
     if (!open) {
@@ -96,6 +120,8 @@ export function PatientDrawer({
       setEditPatientOpen(false)
       setAddChecklistOpen(false)
       setAddAnnotationOpen(false)
+      setConflictOpen(false)
+      setConflictTarget(null)
     }
   }, [open])
 
@@ -124,10 +150,11 @@ export function PatientDrawer({
   const status = appt?.status ?? null
   const isAttended = status === "attended"
   const isMissed = status === "missed"
-  const isResched = status === "rescheduled"
   const isFuture = o.date > todayISO()
-  const hasFinalStatus = isAttended || isMissed || isResched
+  const isPast = o.date < todayISO()
+  const hasFinalStatus = isAttended || isMissed
   const canAct = !isFuture && !hasFinalStatus
+  const wasRescheduled = !!appt?.rescheduledTo
 
   async function markAttended() {
     const snapshot = buildSnapshotIds(p.id, shared, individual)
@@ -159,7 +186,6 @@ export function PatientDrawer({
       }))
     )
       return
-    const snapshot = buildSnapshotIds(p.id, shared, individual)
     try {
       await upsert.mutateAsync({
         seriesId: o.seriesId,
@@ -167,10 +193,8 @@ export function PatientDrawer({
         originDate: o.originDate,
         date: o.date,
         status: "missed",
-        snapshotItemIds: appt?.snapshotItemIds.length
-          ? appt.snapshotItemIds
-          : snapshot,
-        checkedItemIds: appt?.checkedItemIds ?? [],
+        snapshotItemIds: [],
+        checkedItemIds: [],
       })
       celebrate("sad")
       toast.success("Falta registrada")
@@ -179,9 +203,28 @@ export function PatientDrawer({
     }
   }
 
-  async function reschedule() {
-    if (!reschedDate) return toast.error("Selecione uma data")
-    if (!reschedTime) return toast.error("Selecione um horário")
+  function findConflict(): Occurrence | null {
+    return (
+      targetOccurrences.find(
+        (t) =>
+          t.time === reschedTime &&
+          !(t.seriesId === o.seriesId && t.originDate === o.originDate),
+      ) ?? null
+    )
+  }
+
+  function closeResched() {
+    setReschedOpen(false)
+    setReschedDate("")
+    setReschedTime("")
+    setConflictOpen(false)
+    setConflictTarget(null)
+    onOpenChange(false)
+  }
+
+  // Move a mesma linha para a nova data: status volta a "scheduled" (acionável),
+  // rescheduledTo guarda a proveniência ("Reagendado de ...").
+  async function doReschedule() {
     try {
       await upsert.mutateAsync({
         seriesId: o.seriesId,
@@ -189,15 +232,53 @@ export function PatientDrawer({
         originDate: o.originDate,
         date: reschedDate,
         rescheduledTo: reschedDate,
-        status: "rescheduled",
+        status: "scheduled",
         time: reschedTime,
       })
-      celebrate("sad")
       toast.success("Reagendado")
-      setReschedOpen(false)
-      setReschedDate("")
-      setReschedTime("")
-      onOpenChange(false)
+      closeResched()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro")
+    }
+  }
+
+  async function reschedule() {
+    if (!reschedDate) return toast.error("Selecione uma data")
+    if (!reschedTime) return toast.error("Selecione um horário")
+    const conflict = findConflict()
+    if (conflict) {
+      setConflictTarget(conflict)
+      setConflictOpen(true)
+      return
+    }
+    await doReschedule()
+  }
+
+  // Conflito: manter o atendimento já existente e descartar o que seria movido.
+  async function keepExisting() {
+    try {
+      await undo.mutateAsync({
+        seriesId: o.seriesId,
+        scope: "one",
+        originDate: o.originDate,
+      })
+      toast.success("Atendimento desfeito")
+      closeResched()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro")
+    }
+  }
+
+  // Conflito: remover o atendimento já existente e concluir o reagendamento.
+  async function replaceExisting() {
+    if (!conflictTarget) return
+    try {
+      await undo.mutateAsync({
+        seriesId: conflictTarget.seriesId,
+        scope: "one",
+        originDate: conflictTarget.originDate,
+      })
+      await doReschedule()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro")
     }
@@ -314,7 +395,7 @@ export function PatientDrawer({
                     </span>
                   )}
                 </p>
-                {isResched && (
+                {wasRescheduled && (
                   <p className="mt-1 text-xs text-secondary">
                     Reagendado de {formatLongDateBR(occurrence.originDate)}
                   </p>
@@ -323,7 +404,7 @@ export function PatientDrawer({
               <div className="flex flex-col items-end gap-1">
                 <StatusPill
                   status={status}
-                  isFuture={isFuture}
+                  isPast={isPast}
                   pendencyCount={occurrence.pendencyCount}
                   isUnpaid={isAttended && !!appt && !appt.paid}
                 />
@@ -398,8 +479,6 @@ export function PatientDrawer({
                 isAttended &&
                   "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
                 isMissed && "border-border/60 bg-muted/30 text-muted-foreground",
-                isResched &&
-                  "border-secondary/40 bg-secondary/10 text-secondary",
               )}
             >
               {isAttended && (
@@ -414,19 +493,10 @@ export function PatientDrawer({
                   className="mt-0.5 size-4 shrink-0"
                 />
               )}
-              {isResched && (
-                <CalendarBlankIcon
-                  weight="fill"
-                  className="mt-0.5 size-4 shrink-0"
-                />
-              )}
               <span>
                 {isAttended &&
                   "Atendimento concluído. Preencha o checklist abaixo."}
-                {isMissed &&
-                  "Paciente faltou neste atendimento. Itens não cumpridos do checklist contam como pendência."}
-                {isResched &&
-                  `Reagendado para ${formatLongDateBR(occurrence.date)}.`}
+                {isMissed && "Paciente faltou neste atendimento."}
               </span>
             </div>
           )}
@@ -462,8 +532,8 @@ export function PatientDrawer({
             <PaymentControl appointment={appt} patient={patient} />
           )}
 
-          {/* CHECKLIST — só quando atendido ou falta */}
-          {(isAttended || isMissed) && (
+          {/* CHECKLIST — só quando atendido (falta não preenche checklist) */}
+          {isAttended && (
           <div className="space-y-2">
             <div className="flex items-baseline justify-between gap-2">
               <p className="text-sm font-semibold">Checklist do dia</p>
@@ -622,6 +692,16 @@ export function PatientDrawer({
         hasOverride={!!appt}
         onDone={() => onOpenChange(false)}
       />
+      <RescheduleConflictDialog
+        open={conflictOpen}
+        onOpenChange={setConflictOpen}
+        patientName={p.name}
+        targetDate={reschedDate}
+        targetTime={reschedTime}
+        pending={upsert.isPending || undo.isPending}
+        onKeepExisting={keepExisting}
+        onReplaceExisting={replaceExisting}
+      />
     </Sheet>
   )
 }
@@ -638,15 +718,16 @@ function formatAnnotationDate(iso: string): string {
 
 function StatusPill({
   status,
-  isFuture,
+  isPast,
   pendencyCount,
   isUnpaid,
 }: {
   status: Appointment["status"] | null
-  isFuture: boolean
+  isPast: boolean
   pendencyCount: number
   isUnpaid: boolean
 }) {
+  // Só atendido exibe pendências de checklist.
   if (status === "attended" && pendencyCount > 0) {
     return (
       <div className="flex flex-col items-end gap-1">
@@ -687,33 +768,19 @@ function StatusPill({
       </span>
     )
   }
-  if (status === "rescheduled") {
+  // scheduled / sem linha
+  if (isPast) {
     return (
-      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-secondary/25 px-2.5 py-1 text-xs font-medium text-secondary">
-        <CalendarBlankIcon weight="fill" className="size-3" />
-        Reagendado
-      </span>
-    )
-  }
-  if (isFuture) {
-    return (
-      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary">
-        <ClockIcon weight="fill" className="size-3" />
-        A atender
-      </span>
-    )
-  }
-  if (pendencyCount > 0) {
-    return (
-      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-destructive/20 px-2.5 py-1 text-xs font-medium text-destructive">
+      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/20 px-2.5 py-1 text-xs font-medium text-amber-300">
         <WarningIcon weight="fill" className="size-3" />
-        {pendencyCount} pendência{pendencyCount === 1 ? "" : "s"}
+        Pendente
       </span>
     )
   }
   return (
-    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-      Pendente
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary">
+      <ClockIcon weight="fill" className="size-3" />
+      A atender
     </span>
   )
 }
