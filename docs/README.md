@@ -21,6 +21,7 @@ pessoa (ou agente) que precise entender, manter ou evoluir o sistema.
 | [`06-convencoes/`](06-convencoes/) | Convenções de código, nomenclatura, padrões adotados. |
 | [`07-operacao/`](07-operacao/) | Instalação (Windows), execução, dados/backup, segurança, [incidente de perda de dados](07-operacao/incidente-perda-dados.md). |
 | [`08-capacidades.md`](08-capacidades.md) | Inventário exaustivo de tudo que o sistema faz. |
+| [`evolucao/`](evolucao/) | **Migração local → nuvem (Supabase):** plano, passo a passo e tracker de progresso. |
 
 ---
 

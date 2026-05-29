@@ -15,11 +15,13 @@ import {
   appointmentUpsertSchema,
   checklistItemCreateSchema,
   checklistItemPatchSchema,
+  checklistReorderSchema,
   dischargeReasonCreateSchema,
   dischargeReasonPatchSchema,
   dischargeSchema,
   individualChecklistItemCreateSchema,
   individualChecklistItemPatchSchema,
+  individualChecklistReorderSchema,
   insuranceCreateSchema,
   insurancePatchSchema,
   loginSchema,
@@ -142,6 +144,10 @@ function normalizePatient(p: Patient): Patient {
 function normalizeAppointment(a: Appointment): Appointment {
   return {
     ...a,
+    // Legado: reagendamento antigo gravava status "rescheduled" com date já =
+    // rescheduledTo. Coage para "scheduled" (preservando date/rescheduledTo) para
+    // a sessão fluir pelo caminho normal e ser acionável na nova data.
+    status: a.status === "rescheduled" ? "scheduled" : a.status,
     time: a.time ?? null,
     paid: a.paid ?? false,
     paidValue: a.paidValue ?? null,
@@ -203,6 +209,23 @@ function parse<T>(schema: ZodSchema<T>, body: unknown):
 
 function id(prefix: string) {
   return `${prefix}_${nanoid(10)}`
+}
+
+// Permanent checklist deletion: erase every trace of an item id from past
+// appointments so it reads as if it never existed (archive keeps history).
+async function scrubItemFromAppointments(itemId: string) {
+  await update<Appointment[]>(APPTS, [], (list) =>
+    list.map((a) => {
+      const checkedItemIds = a.checkedItemIds.filter((x) => x !== itemId)
+      const snapshotItemIds = a.snapshotItemIds.filter((x) => x !== itemId)
+      if (
+        checkedItemIds.length === a.checkedItemIds.length &&
+        snapshotItemIds.length === a.snapshotItemIds.length
+      )
+        return a
+      return { ...a, checkedItemIds, snapshotItemIds }
+    }),
+  )
 }
 
 const USER = "user"
@@ -649,6 +672,39 @@ export async function handleApi(
     }
   }
 
+  if (path === "/api/shared-checklist/reorder" && method === "PATCH") {
+    const body = await readBody(req)
+    const r = parse(checklistReorderSchema, body)
+    if (!r.ok) return bad(res, "invalid payload", r.details)
+    const orderById = new Map(r.data.ids.map((itemId, i) => [itemId, i]))
+    const out = await update<SharedItem[]>(SHARED, [], (list) =>
+      list.map((it) =>
+        orderById.has(it.id) ? { ...it, order: orderById.get(it.id)! } : it,
+      ),
+    )
+    return send(res, 200, out)
+  }
+
+  const sharedPermMatch = path.match(
+    /^\/api\/shared-checklist\/([^/]+)\/permanent$/,
+  )
+  if (sharedPermMatch && method === "DELETE") {
+    const sid = sharedPermMatch[1]
+    let found = false
+    await update<SharedItem[]>(SHARED, [], (list) =>
+      list.filter((it) => {
+        if (it.id === sid) {
+          found = true
+          return false
+        }
+        return true
+      }),
+    )
+    if (!found) return notFound(res)
+    await scrubItemFromAppointments(sid)
+    return send(res, 200, { ok: true })
+  }
+
   const sharedIdMatch = path.match(/^\/api\/shared-checklist\/([^/]+)$/)
   if (sharedIdMatch) {
     const sid = sharedIdMatch[1]
@@ -700,6 +756,57 @@ export async function handleApi(
       await update<IndividualItem[]>(INDIV, [], (list) => [...list, item])
       return send(res, 201, item)
     }
+  }
+
+  if (path === "/api/individual-checklist/reorder" && method === "PATCH") {
+    const body = await readBody(req)
+    const r = parse(individualChecklistReorderSchema, body)
+    if (!r.ok) return bad(res, "invalid payload", r.details)
+    const orderById = new Map(r.data.ids.map((itemId, i) => [itemId, i]))
+    const out = await update<IndividualItem[]>(INDIV, [], (list) =>
+      list.map((it) =>
+        it.patientId === r.data.patientId && orderById.has(it.id)
+          ? { ...it, order: orderById.get(it.id)! }
+          : it,
+      ),
+    )
+    return send(
+      res,
+      200,
+      out.filter((it) => it.patientId === r.data.patientId),
+    )
+  }
+
+  const indivPermMatch = path.match(
+    /^\/api\/individual-checklist\/([^/]+)\/permanent$/,
+  )
+  if (indivPermMatch && method === "DELETE") {
+    const iid = indivPermMatch[1]
+    let found = false
+    await update<IndividualItem[]>(INDIV, [], (list) =>
+      list.filter((it) => {
+        if (it.id === iid) {
+          found = true
+          return false
+        }
+        return true
+      }),
+    )
+    if (!found) return notFound(res)
+    await scrubItemFromAppointments(iid)
+    await update<Patient[]>(PATIENTS, [], (list) =>
+      list.map((p) =>
+        p.individualChecklistItemIds?.includes(iid)
+          ? {
+              ...p,
+              individualChecklistItemIds: p.individualChecklistItemIds.filter(
+                (x) => x !== iid,
+              ),
+            }
+          : p,
+      ),
+    )
+    return send(res, 200, { ok: true })
   }
 
   const indivIdMatch = path.match(/^\/api\/individual-checklist\/([^/]+)$/)
