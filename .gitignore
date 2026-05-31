@@ -26,3 +26,18 @@ dist-ssr
 # Local data (PII)
 data/
 proj-bia/
+
+docs/evolucao/supabase-info*
+
+# Env files (NEVER commit secrets)
+.env
+.env.*
+!.env.example
+!.env.migration.example
+
+# Claude Code / agents (local config)
+.claude/settings.local.json
+.claude/skills/
+.agents/
+.mcp.json
+skills-lock.json

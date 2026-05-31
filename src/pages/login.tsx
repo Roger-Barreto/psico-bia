@@ -141,16 +141,17 @@ export function LoginPage() {
 
             <form onSubmit={onSubmit} className="space-y-5">
               <div className="space-y-2">
-                <Label htmlFor="username">Usuário</Label>
+                <Label htmlFor="email">E-mail</Label>
                 <div className="relative">
                   <UserIcon
                     weight="fill"
                     className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
                   />
                   <Input
-                    id="username"
-                    autoComplete="username"
-                    placeholder="admin"
+                    id="email"
+                    type="email"
+                    autoComplete="email"
+                    placeholder="voce@exemplo.com"
                     className="pl-9"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}

@@ -12,7 +12,6 @@ import {
   FileVideoIcon,
   FileXlsIcon,
   FileZipIcon,
-  FolderOpenIcon,
   ImageIcon,
   PaperclipIcon,
   TrashIcon,
@@ -20,7 +19,7 @@ import {
 } from "@phosphor-icons/react"
 import {
   useDeleteDocument,
-  useOpenPatientFolder,
+  useDocumentSignedUrl,
   usePatientDocuments,
   useUploadDocument,
 } from "@/api/queries"
@@ -71,7 +70,7 @@ export function PatientDocuments({ patientId }: Props) {
   const docsQ = usePatientDocuments(patientId)
   const uploadMut = useUploadDocument(patientId)
   const deleteMut = useDeleteDocument(patientId)
-  const openMut = useOpenPatientFolder()
+  const signedUrlMut = useDocumentSignedUrl()
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false)
 
@@ -108,11 +107,12 @@ export function PatientDocuments({ patientId }: Props) {
     }
   }
 
-  async function openFolder() {
+  async function downloadDocument(filename: string) {
     try {
-      await openMut.mutateAsync(patientId)
+      const url = await signedUrlMut.mutateAsync({ patientId, filename })
+      window.open(url, "_blank", "noopener,noreferrer")
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erro")
+      toast.error(err instanceof Error ? err.message : "Erro ao baixar")
     }
   }
 
@@ -120,14 +120,6 @@ export function PatientDocuments({ patientId }: Props) {
     <div className="space-y-2">
       <div className="flex items-baseline justify-between">
         <p className="text-sm font-semibold">Documentos</p>
-        <button
-          type="button"
-          onClick={openFolder}
-          className="inline-flex items-center gap-1 text-xs text-secondary hover:underline"
-        >
-          <FolderOpenIcon weight="fill" className="size-3.5" />
-          Abrir pasta no Explorer
-        </button>
       </div>
 
       <div
@@ -204,14 +196,14 @@ export function PatientDocuments({ patientId }: Props) {
                 {new Date(d.modifiedAt).toLocaleDateString("pt-BR")}
               </p>
             </div>
-            <a
-              href={`/api/patients/${patientId}/documents/${encodeURIComponent(d.filename)}`}
-              download={d.filename}
+            <button
+              type="button"
+              onClick={() => downloadDocument(d.filename)}
               className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-primary/15 hover:text-primary"
               title="Baixar"
             >
               <DownloadSimpleIcon weight="fill" className="size-3.5" />
-            </a>
+            </button>
             <button
               type="button"
               onClick={() => onDelete(d.filename)}

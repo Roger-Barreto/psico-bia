@@ -4,7 +4,7 @@
 > Legenda: ✅ feito · 🟡 em andamento · ⬜ não iniciado.
 > Detalhes de cada fase em [`passo-a-passo.md`](passo-a-passo.md).
 
-**Início:** 2026-05-29 · **Última atualização:** 2026-05-29
+**Início:** 2026-05-29 · **Última atualização:** 2026-05-30
 
 ---
 
@@ -12,17 +12,17 @@
 
 | Fase | Descrição | Quem | Status |
 |---|---|---|---|
-| 0 | Pré-requisitos (e-mail, GitHub) | VOCÊ | ⬜ |
-| 1 | Criar conta + projeto Supabase, pegar chaves | VOCÊ | ⬜ |
-| 2 | Configurar Auth (signup off, criar usuário) | VOCÊ | ⬜ |
-| 3 | Schema do banco (tabelas) | VOCÊ (SQL pronto) | ⬜ |
-| 4 | RLS + políticas | VOCÊ (SQL pronto) | ⬜ |
-| 5 | RPCs (discharge, bulk-delete, scrub) | VOCÊ (SQL) / refinar no código | ⬜ |
-| 6 | Storage (bucket privado + política) | VOCÊ (SQL pronto) | ⬜ |
-| 7 | Código frontend (supabase-js, auth, queries) | CÓDIGO | ⬜ |
-| 8 | Migrar dados existentes | CÓDIGO + VOCÊ | ⬜ |
-| 9 | Deploy (Cloudflare Pages / Vercel) | VOCÊ | ⬜ |
-| 10 | Checklist de segurança | JUNTOS | ⬜ |
+| 0 | Pré-requisitos (e-mail, GitHub) | VOCÊ | ✅ |
+| 1 | Criar conta + projeto Supabase, pegar chaves | VOCÊ | ✅ |
+| 2 | Configurar Auth (signup off, criar usuário) | VOCÊ | ✅ |
+| 3 | Schema do banco (tabelas) | MCP (001_initial_schema) | ✅ |
+| 4 | RLS + políticas | MCP (002_rls_policies) | ✅ |
+| 5 | RPCs (discharge, bulk-delete, scrub × 2) | MCP (003_rpcs) | ✅ |
+| 6 | Storage (bucket privado + política) | MCP (004_storage_bucket_and_policy) | ✅ |
+| 7 | Código frontend (supabase-js, auth, queries) | CÓDIGO | ✅ |
+| 8 | Migrar dados existentes | CÓDIGO + VOCÊ | ✅ |
+| 9 | Deploy (Vercel) | VOCÊ | ⬜ |
+| 10 | Checklist de segurança | JUNTOS | 🟡 (pendente: HTTPS + teste incognito pós-deploy) |
 
 ---
 
@@ -96,4 +96,17 @@
 
 > Anote aqui qualquer desvio do plano, erro encontrado, ou decisão tomada.
 
-- _(vazio)_
+### 2026-05-30 — Execução automatizada via MCP Supabase
+
+- **Project ref:** `yhnbqjscewaiwemlllwl` (psicobia, sa-east-1).
+- **Auth user único:** `roger.barreto58@gmail.com` (UUID `8cd3b788-d806-48dd-a61f-a5a62e420c7f`).
+- **Migrations aplicadas via MCP:**
+  - `001_initial_schema` — 9 tabelas + 7 índices secundários (acrescentados para listagens por paciente/data).
+  - `002_rls_policies` — RLS + policy `authenticated_*` para cada tabela.
+  - `003_rpcs` — 4 RPCs: `discharge_patient`, `bulk_delete_appointments` (com `p_new_appointment_id` recebido do frontend), `scrub_shared_item`, `scrub_individual_item`. **Reconciliação com docs:** docs listavam 3 RPCs, mas `server/routes.ts` tinha 5 cascatas. Decisão: 4 RPCs + delete-paciente-permanente client-side (FK cascade + storage.remove).
+  - `004_storage_bucket_and_policy` — bucket `patient-documents` privado + policy `authenticated`.
+  - `005_lockdown_rls_auto_enable` — revoke EXECUTE de `public.rls_auto_enable()` (função do template Supabase, era warn no advisor).
+- **Frontend rewrite:** `src/lib/supabase.ts` novo; `src/api/queries.ts` reescrito completamente com mappers snake_case ↔ camelCase; `src/context/auth-context.tsx` reescrito pra `supabase.auth`; `src/pages/login.tsx` username → email; `src/components/patient/patient-documents.tsx` perdeu botão "Abrir pasta" e usa signed URL no download; `src/components/profile/profile-drawer.tsx` adaptado pra `updateUser` async + `supabase.auth.updateUser({password})` pra troca de senha (com re-auth pra validar senha atual). `tsc -b` e `npm run build` passam clean.
+- **Migração de dados** (`scripts/migrate-to-supabase.mjs`): roda com secret key local. 1 appointment órfão descartado (referenciava série inexistente). Final: 10 patients, 21 series, 33 appointments, 4 shared, 2 individual, 1 profile.
+- **Pendente:** Fase 9 (deploy Vercel — manual via dashboard) + final do checklist (HTTPS confirmado + teste incognito + Site URL no Supabase Auth).
+- **Pré-existentes ignoráveis:** `rls_policy_always_true` (by design para app de 1 usuário com signup off), `auth_leaked_password_protection` (HIBP opcional via dashboard).

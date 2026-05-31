@@ -9,6 +9,7 @@ import {
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react"
 import { useAuth } from "@/context/auth-context"
+import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -85,7 +86,7 @@ function ProfileSection({
     username: string
     displayName: string
     avatarId: number | null
-  }) => void
+  }) => Promise<void>
 }) {
   const [displayName, setDisplayName] = useState(user.displayName)
   const [avatarId, setAvatarId] = useState<number | null>(user.avatarId)
@@ -105,14 +106,12 @@ function ProfileSection({
     if (!trimmed) return toast.error("Nome de exibição é obrigatório")
     setSaving(true)
     try {
-      const res = await fetch("/api/me", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ displayName: trimmed, avatarId }),
-      })
-      if (!res.ok) throw new Error("Falha ao salvar")
-      const next = await res.json()
-      onSaved(next)
+      const next = {
+        username: user.username,
+        displayName: trimmed,
+        avatarId,
+      }
+      await onSaved(next)
       toast.success("Perfil atualizado")
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao salvar")
@@ -174,6 +173,7 @@ function ProfileSection({
 }
 
 function PasswordSection({ drawerOpen }: { drawerOpen: boolean }) {
+  const { user } = useAuth()
   const [current, setCurrent] = useState("")
   const [next, setNext] = useState("")
   const [confirm, setConfirm] = useState("")
@@ -201,27 +201,25 @@ function PasswordSection({ drawerOpen }: { drawerOpen: boolean }) {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setCurrentError(null)
-    if (next.length < 8) return toast.error("Nova senha deve ter pelo menos 8 caracteres")
+    if (!user) return
+    if (next.length < 8)
+      return toast.error("Nova senha deve ter pelo menos 8 caracteres")
     if (next !== confirm) return toast.error("Confirmação não confere")
     setSaving(true)
     try {
-      const res = await fetch("/api/me/password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          currentPassword: current,
-          newPassword: next,
-        }),
+      // Re-autentica com a senha atual pra validar
+      const { error: signErr } = await supabase.auth.signInWithPassword({
+        email: user.username,
+        password: current,
       })
-      if (res.status === 400) {
-        const data = await res.json().catch(() => ({}))
-        if (data?.error === "current_password_invalid") {
-          setCurrentError("Senha atual incorreta")
-          return
-        }
-        throw new Error(data?.error ?? "Falha ao alterar senha")
+      if (signErr) {
+        setCurrentError("Senha atual incorreta")
+        return
       }
-      if (!res.ok) throw new Error("Falha ao alterar senha")
+      const { error: updErr } = await supabase.auth.updateUser({
+        password: next,
+      })
+      if (updErr) throw new Error(updErr.message)
       setCurrent("")
       setNext("")
       setConfirm("")
