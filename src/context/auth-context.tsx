@@ -8,6 +8,7 @@ import {
   useState,
 } from "react"
 import type { Session } from "@supabase/supabase-js"
+import { useQueryClient } from "@tanstack/react-query"
 import { supabase } from "@/lib/supabase"
 
 type User = {
@@ -43,12 +44,25 @@ async function loadProfile(session: Session): Promise<User> {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient()
   const [user, setUser] = useState<User | null>(null)
   const [ready, setReady] = useState(false)
   const sessionRef = useRef<Session | null>(null)
+  const lastUserIdRef = useRef<string | null>(null)
 
   const hydrateFromSession = useCallback(async (session: Session | null) => {
+    const prevUserId = lastUserIdRef.current
+    const nextUserId = session?.user.id ?? null
     sessionRef.current = session
+    lastUserIdRef.current = nextUserId
+
+    // Drop cross-account cache when the authenticated identity changes
+    // (logout, login as different user). Prevents stale data from one
+    // account briefly rendering for another on the same browser.
+    if (prevUserId !== nextUserId) {
+      queryClient.clear()
+    }
+
     if (!session) {
       setUser(null)
       return
@@ -63,7 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         avatarId: null,
       })
     }
-  }, [])
+  }, [queryClient])
 
   useEffect(() => {
     let mounted = true

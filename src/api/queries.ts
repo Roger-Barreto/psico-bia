@@ -5,7 +5,7 @@ import {
   type UseQueryOptions,
 } from "@tanstack/react-query"
 import { nanoid } from "nanoid"
-import { supabase, DOCS_BUCKET } from "@/lib/supabase"
+import { supabase, DOCS_BUCKET, requireUserId } from "@/lib/supabase"
 import type {
   Appointment,
   AppointmentSeries,
@@ -456,12 +456,14 @@ export function useReopenPatient() {
 }
 
 async function listAllStoragePaths(patientId: string): Promise<string[]> {
-  // bucket-flat: tudo em {patientId}/
+  // Path layout: {userId}/{patientId}/{filename}
+  const userId = await requireUserId()
+  const prefix = `${userId}/${patientId}`
   const { data, error } = await supabase.storage
     .from(DOCS_BUCKET)
-    .list(patientId, { limit: 1000 })
+    .list(prefix, { limit: 1000 })
   if (error) return []
-  return (data ?? []).map((f) => `${patientId}/${f.name}`)
+  return (data ?? []).map((f) => `${prefix}/${f.name}`)
 }
 
 export function useDeletePatientPermanently() {
@@ -1168,9 +1170,10 @@ export function usePatientDocuments(patientId?: string) {
     queryKey: patientId ? qk.documents(patientId) : ["documents", "none"],
     queryFn: async (): Promise<PatientDocument[]> => {
       if (!patientId) return []
+      const userId = await requireUserId()
       const { data, error } = await supabase.storage
         .from(DOCS_BUCKET)
-        .list(patientId, { limit: 1000 })
+        .list(`${userId}/${patientId}`, { limit: 1000 })
       if (error) throw error
       return (data ?? [])
         .filter((f) => f.name && !f.name.endsWith("/"))
@@ -1193,7 +1196,8 @@ export function useUploadDocument(patientId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (file: File) => {
-      const path = `${patientId}/${file.name}`
+      const userId = await requireUserId()
+      const path = `${userId}/${patientId}/${file.name}`
       const { error } = await supabase.storage
         .from(DOCS_BUCKET)
         .upload(path, file, {
@@ -1216,7 +1220,8 @@ export function useDeleteDocument(patientId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (filename: string) => {
-      const path = `${patientId}/${filename}`
+      const userId = await requireUserId()
+      const path = `${userId}/${patientId}/${filename}`
       const { error } = await supabase.storage
         .from(DOCS_BUCKET)
         .remove([path])
@@ -1237,7 +1242,8 @@ export function useDocumentSignedUrl() {
       patientId: string
       filename: string
     }) => {
-      const path = `${patientId}/${filename}`
+      const userId = await requireUserId()
+      const path = `${userId}/${patientId}/${filename}`
       const { data, error } = await supabase.storage
         .from(DOCS_BUCKET)
         .createSignedUrl(path, 3600, { download: filename })
