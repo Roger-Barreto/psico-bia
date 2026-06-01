@@ -96,10 +96,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [hydrateFromSession])
 
-  const login = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) throw new Error(error.message ?? "Credenciais inválidas")
-  }, [])
+  const login = useCallback(
+    async (email: string, password: string) => {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+      if (error) throw new Error(error.message ?? "Credenciais inválidas")
+      // Hydrate user state synchronously with the caller. Without this,
+      // signInWithPassword resolves before the onAuthStateChange listener
+      // finishes loading the profile — the LoginPage navigates to "/", the
+      // ProtectedRoute sees user === null, and bounces back to /login.
+      // The listener still fires, but its hydrate is idempotent.
+      if (data.session) await hydrateFromSession(data.session)
+    },
+    [hydrateFromSession],
+  )
 
   const logout = useCallback(async () => {
     await supabase.auth.signOut()
