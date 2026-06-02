@@ -26,6 +26,7 @@ import { effectiveValue } from "@/domain/finance"
 import { occurrencesForPatient } from "@/domain/recurrence"
 import { MonthSelector } from "@/components/dashboard/month-selector"
 import { PendencyBlock } from "@/components/dashboard/pendency-block"
+import { PriorPendenciesBanner } from "@/components/dashboard/prior-pendencies-banner"
 import { KpiCard } from "@/components/dashboard/kpi-card"
 import {
   CategoryPie,
@@ -99,8 +100,8 @@ export function DashboardPage() {
   const insurancesQ = useInsurances()
   const reasonsQ = useDischargeReasons()
 
-  const sixMonthStart = useMemo(() => {
-    let m = month - 5
+  const longRangeStart = useMemo(() => {
+    let m = month - 11
     let y = year
     while (m < 1) {
       m += 12
@@ -108,11 +109,11 @@ export function DashboardPage() {
     }
     return toISO(startOfMonth(new Date(y, m - 1, 1)))
   }, [year, month])
-  const sixMonthEnd = useMemo(
+  const longRangeEnd = useMemo(
     () => toISO(endOfMonth(new Date(year, month - 1, 1))),
     [year, month],
   )
-  const longRangeApptsQ = useAppointmentsInRange(sixMonthStart, sixMonthEnd)
+  const longRangeApptsQ = useAppointmentsInRange(longRangeStart, longRangeEnd)
 
   const allPatients = patientsQ.data ?? []
   const insurances = insurancesQ.data ?? []
@@ -204,6 +205,61 @@ export function DashboardPage() {
         (a.checklistCount + a.overdueCount),
     )
   }, [monthOccurrences, patientsById, today, insurances])
+
+  // ── Pendências de meses anteriores ───────────────────────
+  const priorPendencyStats = useMemo(() => {
+    const longAppts = (longRangeApptsQ.data ?? []).filter((a) =>
+      patientsById.has(a.patientId),
+    )
+    let total = 0
+    let overdueTotal = 0
+    const monthsWithPendencies = new Set<string>()
+    let oldestKey: string | null = null
+
+    for (let i = 12; i >= 1; i--) {
+      let m = month - i
+      let y = year
+      while (m < 1) {
+        m += 12
+        y -= 1
+      }
+      const range = monthRangeISO(y, m)
+      let monthTotal = 0
+      let monthOverdue = 0
+      for (const p of patients) {
+        const occs = occurrencesForPatient(
+          p,
+          allSeries,
+          { fromISO: range.from, toISO: range.to },
+          longAppts,
+        )
+        for (const o of occs) {
+          const b = pendencyBreakdown(o, today)
+          const sum = b.checklist + b.overdue
+          if (sum === 0) continue
+          monthTotal += sum
+          if (o.date < today) monthOverdue += sum
+        }
+      }
+      if (monthTotal > 0) {
+        const key = `${y}-${String(m).padStart(2, "0")}`
+        monthsWithPendencies.add(key)
+        total += monthTotal
+        overdueTotal += monthOverdue
+        if (oldestKey === null || key < oldestKey) oldestKey = key
+      }
+    }
+
+    if (total === 0 || !oldestKey) return null
+    const [oldYStr, oldMStr] = oldestKey.split("-")
+    return {
+      total,
+      overdue: overdueTotal,
+      oldestYear: Number(oldYStr),
+      oldestMonth: Number(oldMStr),
+      monthsWithPendencies: monthsWithPendencies.size,
+    }
+  }, [longRangeApptsQ.data, patientsById, patients, allSeries, year, month, today])
 
   // ── Unpaid (atendido & !paid) ────────────────────────────
   const unpaidStats = useMemo(() => {
@@ -459,19 +515,35 @@ export function DashboardPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
+        <div className="shrink-0">
           <Breadcrumbs items={[{ label: "Dashboard" }]} />
           <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">Visão geral</p>
         </div>
-        <MonthSelector
-          year={year}
-          month={month}
-          onChange={(y, m) => {
-            setYear(y)
-            setMonth(m)
-          }}
-        />
+        <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap">
+          {priorPendencyStats && (
+            <PriorPendenciesBanner
+              total={priorPendencyStats.total}
+              overdue={priorPendencyStats.overdue}
+              oldestYear={priorPendencyStats.oldestYear}
+              oldestMonth={priorPendencyStats.oldestMonth}
+              monthsWithPendencies={priorPendencyStats.monthsWithPendencies}
+              selectedYear={year}
+              onJump={(y, m) => {
+                setYear(y)
+                setMonth(m)
+              }}
+            />
+          )}
+          <MonthSelector
+            year={year}
+            month={month}
+            onChange={(y, m) => {
+              setYear(y)
+              setMonth(m)
+            }}
+          />
+        </div>
       </div>
 
       <AnimatePresence mode="wait" custom={slideDir} initial={false}>
