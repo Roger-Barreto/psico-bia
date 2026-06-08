@@ -280,7 +280,7 @@ function PatientCombobox({ patients, value, onChange }: ComboProps) {
           className="border-0 bg-transparent pl-9 focus-visible:ring-0"
         />
       </div>
-      <div className="max-h-56 overflow-y-auto py-1">
+      <div className="max-h-56 touch-pan-y overflow-y-auto overscroll-contain py-1 [-webkit-overflow-scrolling:touch]">
         {filtered.length === 0 && (
           <div className="px-3 py-4 text-center text-sm text-muted-foreground">
             {patients.length === 0

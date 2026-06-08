@@ -520,7 +520,7 @@ export function DashboardPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">Visão geral</p>
         </div>
-        <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap">
+        <div className="flex flex-wrap items-center gap-3">
           {priorPendencyStats && (
             <PriorPendenciesBanner
               total={priorPendencyStats.total}
@@ -561,7 +561,7 @@ export function DashboardPage() {
       ) : (
       <>
       {pendencyByPatient.length > 0 ? (
-        <div className="grid gap-3 lg:grid-cols-2">
+        <div className="grid gap-3 @4xl:grid-cols-2 [&>*]:min-w-0">
           <PendencyBlock
             totalCount={pendencyStats.total}
             overdueCount={pendencyStats.overdue}
@@ -597,7 +597,7 @@ export function DashboardPage() {
         onClickUnpaid={() => setUnpaidOpen(true)}
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+      <div className="grid gap-3 grid-cols-2 @2xl:grid-cols-3 @5xl:grid-cols-6">
         <KpiCard label="Atendidos" value={attendedCount} tone="primary" />
         <KpiCard label="Faltas" value={missedCount} tone="muted" />
         <KpiCard
@@ -622,7 +622,7 @@ export function DashboardPage() {
         />
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-3 @3xl:grid-cols-2 [&>*]:min-w-0">
         <ChartCard
           title="Faturamento por dia"
           subtitle="Sessões pagas no mês"
@@ -637,7 +637,7 @@ export function DashboardPage() {
         </ChartCard>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-3 @3xl:grid-cols-2 [&>*]:min-w-0">
         <ChartCard
           title="Top pacientes do mês"
           subtitle="Sessões atendidas"
@@ -653,7 +653,7 @@ export function DashboardPage() {
         </ChartCard>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-3">
+      <div className="grid gap-3 @2xl:grid-cols-2 @5xl:grid-cols-3 [&>*]:min-w-0">
         <ChartCard title="Pacientes por gênero" subtitle="Em tratamento">
           <CategoryPie data={genderPie} />
         </ChartCard>

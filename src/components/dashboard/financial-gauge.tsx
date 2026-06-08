@@ -72,7 +72,7 @@ export function FinancialGauge({
           )}
         </div>
 
-        <div className="mt-4 grid items-center gap-5 lg:grid-cols-[340px_1fr]">
+        <div className="mt-4 grid items-center gap-5 @3xl:grid-cols-[300px_1fr] @5xl:grid-cols-[340px_1fr] [&>*]:min-w-0">
           {/* Gauge */}
           <div className="relative mx-auto h-[210px] w-full max-w-[340px]">
             <ResponsiveContainer width="100%" height="100%">
