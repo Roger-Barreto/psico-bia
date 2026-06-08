@@ -33,7 +33,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { PatientAvatar, genderLabel } from "@/components/patient/patient-avatar"
 import { effectiveValue, formatBRL } from "@/domain/finance"
 import { PatientDrawer } from "@/components/patient/patient-drawer"
-import { todayISO, formatLongDateBR } from "@/domain/dates"
+import { todayISO, formatLongDateBR, fromISO, startOfMonth } from "@/domain/dates"
 import { cn } from "@/lib/utils"
 import { Breadcrumbs } from "@/components/breadcrumbs"
 import { Button } from "@/components/ui/button"
@@ -177,7 +177,7 @@ export function HomePage() {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
+      <div className="grid gap-4 @4xl:grid-cols-[320px_1fr] @6xl:grid-cols-[360px_1fr]">
         <div className="space-y-4">
           <MiniCalendar
             visibleMonth={visibleMonth}
@@ -186,12 +186,12 @@ export function HomePage() {
             onChangeMonth={setVisibleMonth}
             onSelect={(iso) => {
               setSelectedISO(iso)
-              const d = new Date(iso)
+              const d = fromISO(iso)
               if (
                 d.getMonth() !== visibleMonth.getMonth() ||
                 d.getFullYear() !== visibleMonth.getFullYear()
               ) {
-                setVisibleMonth(new Date(d.getFullYear(), d.getMonth(), 1))
+                setVisibleMonth(startOfMonth(d))
               }
             }}
           />

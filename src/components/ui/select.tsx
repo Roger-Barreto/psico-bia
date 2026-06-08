@@ -2,6 +2,7 @@ import * as React from "react"
 import * as SelectPrimitive from "@radix-ui/react-select"
 import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
+import { useDialogBody } from "@/components/ui/dialog"
 
 const Select = SelectPrimitive.Root
 const SelectGroup = SelectPrimitive.Group
@@ -33,13 +34,15 @@ SelectTrigger.displayName = SelectPrimitive.Trigger.displayName
 const SelectContent = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
->(({ className, children, position = "popper", ...props }, ref) => (
-  <SelectPrimitive.Portal>
+>(({ className, children, position = "popper", ...props }, ref) => {
+  const dialogBody = useDialogBody()
+  return (
+  <SelectPrimitive.Portal container={dialogBody ?? undefined}>
     <SelectPrimitive.Content
       ref={ref}
       position={position}
       className={cn(
-        "relative z-50 max-h-72 min-w-[8rem] overflow-hidden rounded-xl border border-border/70 bg-popover/95 text-popover-foreground shadow-xl backdrop-blur",
+        "relative z-50 max-h-72 min-w-[8rem] overflow-hidden overscroll-contain rounded-xl border border-border/70 bg-popover/95 text-popover-foreground shadow-xl backdrop-blur",
         "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
         position === "popper" &&
           "data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1",
@@ -52,7 +55,8 @@ const SelectContent = React.forwardRef<
       </SelectPrimitive.Viewport>
     </SelectPrimitive.Content>
   </SelectPrimitive.Portal>
-))
+  )
+})
 SelectContent.displayName = SelectPrimitive.Content.displayName
 
 const SelectItem = React.forwardRef<

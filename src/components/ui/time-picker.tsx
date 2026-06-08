@@ -113,7 +113,7 @@ export const TimePicker = React.forwardRef<HTMLButtonElement, TimePickerProps>(
               </span>
               <div
                 ref={hourListRef}
-                className="h-52 w-14 overflow-y-auto rounded-md border border-border/60 bg-background/30 p-1"
+                className="h-52 w-14 touch-pan-y overflow-y-auto overscroll-contain rounded-md border border-border/60 bg-background/30 p-1 [-webkit-overflow-scrolling:touch]"
               >
                 {hours.map((h) => {
                   const active = parsed?.h === h
@@ -142,7 +142,7 @@ export const TimePicker = React.forwardRef<HTMLButtonElement, TimePickerProps>(
               </span>
               <div
                 ref={minListRef}
-                className="h-52 w-14 overflow-y-auto rounded-md border border-border/60 bg-background/30 p-1"
+                className="h-52 w-14 touch-pan-y overflow-y-auto overscroll-contain rounded-md border border-border/60 bg-background/30 p-1 [-webkit-overflow-scrolling:touch]"
               >
                 {minutes.map((m) => {
                   const active = parsed?.m === m

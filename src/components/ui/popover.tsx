@@ -1,6 +1,7 @@
 import * as React from "react"
 import * as PopoverPrimitive from "@radix-ui/react-popover"
 import { cn } from "@/lib/utils"
+import { useDialogBody } from "@/components/ui/dialog"
 
 const Popover = PopoverPrimitive.Root
 const PopoverTrigger = PopoverPrimitive.Trigger
@@ -9,8 +10,12 @@ const PopoverAnchor = PopoverPrimitive.Anchor
 const PopoverContent = React.forwardRef<
   React.ElementRef<typeof PopoverPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
->(({ className, align = "start", sideOffset = 6, ...props }, ref) => (
-  <PopoverPrimitive.Portal>
+>(({ className, align = "start", sideOffset = 6, ...props }, ref) => {
+  // Inside a modal Dialog, portal into the dialog node so the popover's scroll
+  // areas live within the scroll-lock and remain touch-scrollable on iOS.
+  const dialogBody = useDialogBody()
+  return (
+  <PopoverPrimitive.Portal container={dialogBody ?? undefined}>
     <PopoverPrimitive.Content
       ref={ref}
       align={align}
@@ -24,7 +29,8 @@ const PopoverContent = React.forwardRef<
       {...props}
     />
   </PopoverPrimitive.Portal>
-))
+  )
+})
 PopoverContent.displayName = PopoverPrimitive.Content.displayName
 
 export { Popover, PopoverTrigger, PopoverContent, PopoverAnchor }

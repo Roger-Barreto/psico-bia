@@ -96,7 +96,7 @@ export function DischargeReasonsPage() {
 
       <Card>
         <CardContent className="p-4">
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <Input
               placeholder="Novo motivo (ex: Alta terapêutica)..."
               value={newName}
@@ -107,6 +107,7 @@ export function DischargeReasonsPage() {
                   onAdd()
                 }
               }}
+              className="flex-1"
             />
             <Button
               onClick={onAdd}
