@@ -73,6 +73,7 @@ detalhada.
 ## Pagamentos
 
 - [x] Marcar sessão atendida como paga (valor padrão ou customizado).
+- [x] **Escolher a forma de pagamento ao marcar paga** (obrigatório; alimenta o módulo financeiro).
 - [x] Desmarcar pagamento.
 - [x] Registro de `paidAt`.
 - [x] Alertas de "não pago" na agenda, no calendário e no dashboard.
@@ -98,6 +99,22 @@ detalhada.
   distribuição por gênero, por convênio, por motivo de encerramento.
 - [x] Skeletons de carregamento.
 - → [paginas](05-frontend/paginas.md), [financeiro](02-regras-de-negocio/financeiro.md)
+
+## Gestão financeira (PF + PJ)
+
+- [x] Módulo `/financeiro` separado: receitas/despesas pessoais (PF) e da clínica (PJ).
+- [x] Lançar receita ou despesa com categoria, forma de pagamento, data de competência e escopo.
+- [x] Criar categoria/forma/pessoa **inline** no formulário.
+- [x] Marcar pago/recebido por lançamento.
+- [x] **Recorrente** (mensal infinito) com edição/exclusão por escopo (este / futuros / todos).
+- [x] **Parcelado** em N meses (parcelas iguais; última absorve a sobra).
+- [x] **Empréstimos** vinculados a uma pessoa; "emprestei pra alguém" gera saída + a-receber ligados.
+- [x] **Extrato por pessoa** com saldo em aberto `(me devem) − (eu devo)`.
+- [x] **Faturamento da clínica automático** (derivado das sessões atendidas, read-only).
+- [x] **Dashboard financeiro**: receitas×despesas, fluxo acumulado, por categoria, por forma,
+  PJ×PF, saldo por pessoa; período selecionável (mês/3/6/12 meses).
+- [x] CRUD de categorias, formas de pagamento e pessoas (arquivar/restaurar).
+- → [financeiro-pessoal](02-regras-de-negocio/financeiro-pessoal.md)
 
 ## Cadastros auxiliares
 

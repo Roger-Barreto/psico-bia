@@ -1,5 +1,11 @@
 # Arquitetura — Visão Geral
 
+> ⚠️ **Atualização (2026-06):** o app migrou de backend local (JSON + plugin Vite) para
+> **Supabase-direct**. O frontend fala direto com o Supabase (Postgres + RLS + Storage + Auth) via
+> `@supabase/supabase-js`; **não há mais API própria nem `server/`**. As seções abaixo que descrevem
+> o "backend dentro do Vite", `server/routes.ts`, engine JSON e `data/*.json` são **históricas** —
+> ver o diagrama atual logo abaixo e [backend.md](backend.md).
+
 ## Stack
 
 | Camada | Tecnologia |
@@ -22,47 +28,47 @@
 | Upload | busboy (multipart no backend) |
 | Variantes de classe | class-variance-authority + clsx + tailwind-merge |
 
-## Diagrama de camadas
+## Diagrama de camadas (atual — Supabase-direct)
 
 ```
 ┌──────────────────────────── Navegador ────────────────────────────┐
 │  React (src/)                                                       │
-│    pages/ ──► components/ ──► api/queries (TanStack Query hooks)    │
+│    pages/ ──► components/ ──► api/queries.ts (TanStack Query hooks) │
 │                                     │                               │
 │    domain/ (puro: recurrence,       │ usa                          │
 │      pendencies, finance, dates) ◄──┘                              │
 │                                     │                               │
-│                              api/client.ts (fetch wrapper)         │
+│                          lib/supabase.ts (supabase-js client)      │
 └─────────────────────────────────────┬──────────────────────────────┘
-                                       │ HTTP /api/*
+                                       │ HTTPS (PostgREST / RPC / Storage / Auth)
 ┌──────────────────────────────────────▼─────────────────────────────┐
-│  Vite Dev Server                                                    │
-│    vite-plugin-json-db.ts  (middleware: intercepta /api/*)          │
-│        └─► server/routes.ts  (roteador + handlers REST)             │
-│               ├─► server/schemas.ts  (validação Zod)               │
-│               ├─► server/auth.ts     (scrypt, usuário)             │
-│               └─► server/db.ts       (engine JSON: cache, lock,    │
-│                                        escrita atômica, backup)     │
-└──────────────────────────────────────┬─────────────────────────────┘
-                                        │ fs
-┌──────────────────────────────────────▼─────────────────────────────┐
-│  data/                                                              │
-│    *.json (coleções)   .backups/<data>/   patient-documents/<p>/   │
+│  Supabase (projeto `psicobia`, região sa-east-1)                    │
+│    Postgres 17  ── RLS por user_id = auth.uid()  (multi-tenant)     │
+│      tabelas + views (finance_ledger, finance_clinic_income)        │
+│      RPCs plpgsql (discharge_patient, bulk_delete_appointments,     │
+│                    seed_finance_defaults, ensure_recurring_… etc.)  │
+│    Auth (e-mail/senha)   Storage (bucket patient-documents)         │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-## Decisão central: backend dentro do Vite
+## Decisão central: Supabase-direct (sem API própria)
 
-Não há processo de servidor separado. A persistência é viabilizada por um **plugin Vite**
-(`jsonDbPlugin`) que registra um middleware no dev-server. Toda requisição a `/api/*` é roteada para
-`server/routes.ts` via `server.ssrLoadModule` (carregamento SSR sob demanda, com HMR do código de
-servidor durante o dev).
+O frontend acessa o Supabase **diretamente** via `@supabase/supabase-js`
+([`src/lib/supabase.ts`](../../src/lib/supabase.ts)). Não há servidor próprio, rota `/api/*`, nem
+processo Node — o "backend" é o Supabase:
 
-**Consequência:** a aplicação só tem backend rodando sob `npm run dev`. Um build estático não inclui
-a API. Esta foi uma escolha consciente para um app local single-user (ver
-[`/PLANNING.md`](../../PLANNING.md) seção 3 — "Opção A").
+- **Persistência:** Postgres; cada tabela tem `user_id` com default `auth.uid()` e **RLS** que isola
+  os dados por usuário (multi-tenant). Hooks em `api/queries.ts` traduzem `snake_case ↔ camelCase`.
+- **Operações compostas/atômicas:** **RPCs** plpgsql (`SET search_path TO 'public'`, scoped por
+  `auth.uid()`), p.ex. encerramento de paciente, desfazer série, materialização de recorrência
+  financeira.
+- **Auth:** Supabase Auth (e-mail/senha) — ver [`auth-context`](../../src/context/auth-context.tsx).
+- **Storage:** bucket `patient-documents`, caminhos `{userId}/{patientId}/{arquivo}` (RLS por
+  prefixo).
+- **Build estático** (Vite) é deployável (Vercel) — não depende de dev-server.
 
-Detalhes em [backend.md](backend.md).
+A decisão original "Opção A" (app local single-user, [`/PLANNING.md`](../../PLANNING.md)) foi
+**substituída** por esta arquitetura pública multi-dispositivo.
 
 ## Separação de responsabilidades
 

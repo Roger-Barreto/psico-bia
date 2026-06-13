@@ -1,7 +1,30 @@
-# Backend — Plugin Vite + Engine JSON
+# Backend — (histórico) Plugin Vite + Engine JSON
 
-O "backend" é um conjunto de módulos Node carregados pelo dev-server do Vite. Não há Express nem
-processo separado.
+> ⚠️ **OBSOLETO (2026-06).** Este documento descreve o backend **legado** (plugin Vite + arquivos
+> JSON em `data/`), que **não existe mais**. O backend atual é o **Supabase** (Postgres + RLS +
+> RPCs + Auth + Storage), acessado direto do browser via `@supabase/supabase-js`. Para a arquitetura
+> vigente ver [arquitetura.md](arquitetura.md) e a camada de dados em
+> [`src/api/queries.ts`](../../src/api/queries.ts). O conteúdo abaixo é mantido apenas como
+> referência histórica do design anterior.
+
+## Resumo do backend atual (Supabase)
+
+- **Tabelas** `public.*` com `user_id default auth.uid()` + **RLS** (`{tabela}_select/insert/update/
+  delete`, `user_id = auth.uid()`).
+- **RPCs** plpgsql `SET search_path TO 'public'`, scoped por `auth.uid()`, erros via
+  `raise exception … using errcode = 'P0001'`. Ex.: `discharge_patient`,
+  `bulk_delete_appointments`, `scrub_*`, `seed_finance_defaults`,
+  `ensure_recurring_materialized`, `edit_recurring`, `delete_recurring`.
+- **Views** `security_invoker = true` (respeitam RLS): `finance_clinic_income`, `finance_ledger`.
+- **Storage** bucket `patient-documents`, RLS por prefixo `{userId}/…`.
+- **Migrations** versionadas no Supabase (`001_…` a `016_finance_rpcs`).
+
+---
+
+## (Histórico) Plugin Vite + Engine JSON
+
+O "backend" antigo era um conjunto de módulos Node carregados pelo dev-server do Vite. Não havia
+Express nem processo separado.
 
 ## Plugin Vite — `vite-plugin-json-db.ts`
 
