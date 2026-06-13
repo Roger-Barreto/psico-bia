@@ -341,6 +341,8 @@ export function TransactionDialog({ open, onOpenChange, viewPeriod }: Props) {
               value={methodId}
               onChange={(id) => {
                 setMethodId(id)
+                // a loan starts outstanding (not yet paid back/received)
+                if (methods.find((m) => m.id === id)?.isLoan) setSettled(false)
               }}
               options={methods}
               placeholder="Selecionar forma"
