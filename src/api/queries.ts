@@ -11,14 +11,23 @@ import type {
   AppointmentSeries,
   AppointmentStatus,
   DischargeReason,
+  FinanceCategory,
+  FinanceScope,
   Frequency,
   Gender,
   IndividualChecklistItem,
   Insurance,
+  LedgerEntry,
   Patient,
   PatientAnnotation,
   PatientDocument,
+  PaymentMethod,
+  Person,
+  RecurringRule,
+  RecurringScope,
   SharedChecklistItem,
+  Transaction,
+  TransactionKind,
 } from "@/db/types"
 
 // ════════════════════════════════════════════════════════════════
@@ -145,6 +154,7 @@ interface AppointmentRow {
   paid: boolean
   paid_value: number | null
   paid_at: string | null
+  payment_method_id: string | null
 }
 
 function rowToAppointment(r: AppointmentRow): Appointment {
@@ -164,6 +174,7 @@ function rowToAppointment(r: AppointmentRow): Appointment {
     paid: r.paid,
     paidValue: r.paid_value === null ? null : Number(r.paid_value),
     paidAt: r.paid_at,
+    paymentMethodId: r.payment_method_id ?? null,
   }
 }
 
@@ -186,6 +197,8 @@ function appointmentToRow(
   if (a.paid !== undefined) row.paid = a.paid
   if (a.paidValue !== undefined) row.paid_value = a.paidValue
   if (a.paidAt !== undefined) row.paid_at = a.paidAt
+  if (a.paymentMethodId !== undefined)
+    row.payment_method_id = a.paymentMethodId
   return row
 }
 
@@ -901,6 +914,7 @@ export function useUpsertAppointment() {
       paid?: boolean
       paidValue?: number | null
       paidAt?: string | null
+      paymentMethodId?: string | null
     }) => {
       // Tenta detectar linha existente por (series_id, origin_date) pra preservar id
       const { data: existing } = await supabase
@@ -926,6 +940,7 @@ export function useUpsertAppointment() {
         paid: input.paid ?? false,
         paid_value: input.paidValue ?? null,
         paid_at: input.paidAt ?? null,
+        payment_method_id: input.paymentMethodId ?? null,
       }
       const { data, error } = await supabase
         .from("appointments")
@@ -935,7 +950,11 @@ export function useUpsertAppointment() {
       if (error) throw error
       return rowToAppointment(data as AppointmentRow)
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["appointments"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["appointments"] })
+      // attended/paid sessions feed the derived clinic income in the ledger
+      qc.invalidateQueries({ queryKey: ["finance-ledger"] })
+    },
   })
 }
 
@@ -991,7 +1010,10 @@ export function usePatchAppointment() {
       if (error) throw error
       return rowToAppointment(data as AppointmentRow)
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["appointments"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["appointments"] })
+      qc.invalidateQueries({ queryKey: ["finance-ledger"] })
+    },
   })
 }
 
@@ -1312,5 +1334,790 @@ export function useDeletePatientAnnotation() {
       return rowToAnnotation(data as PatientAnnotationRow)
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["annotations"] }),
+  })
+}
+
+// ════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
+// FINANCE MODULE
+// ════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
+
+// ─── Mappers ─────────────────────────────────────────────
+interface PersonRow {
+  id: string
+  name: string
+  notes: string | null
+  active: boolean
+  created_at: string
+}
+function rowToPerson(r: PersonRow): Person {
+  return {
+    id: r.id,
+    name: r.name,
+    notes: r.notes,
+    active: r.active,
+    createdAt: r.created_at,
+  }
+}
+
+interface FinanceCategoryRow {
+  id: string
+  name: string
+  color: string | null
+  active: boolean
+  created_at: string
+}
+function rowToCategory(r: FinanceCategoryRow): FinanceCategory {
+  return {
+    id: r.id,
+    name: r.name,
+    color: r.color,
+    active: r.active,
+    createdAt: r.created_at,
+  }
+}
+
+interface PaymentMethodRow {
+  id: string
+  name: string
+  is_loan: boolean
+  active: boolean
+  created_at: string
+}
+function rowToPaymentMethod(r: PaymentMethodRow): PaymentMethod {
+  return {
+    id: r.id,
+    name: r.name,
+    isLoan: r.is_loan,
+    active: r.active,
+    createdAt: r.created_at,
+  }
+}
+
+interface RecurringRuleRow {
+  id: string
+  kind: TransactionKind
+  scope: FinanceScope
+  description: string
+  amount: number
+  category_id: string | null
+  payment_method_id: string | null
+  person_id: string | null
+  day_of_month: number
+  start_period: string
+  active: boolean
+  created_at: string
+}
+function rowToRule(r: RecurringRuleRow): RecurringRule {
+  return {
+    id: r.id,
+    kind: r.kind,
+    scope: r.scope,
+    description: r.description,
+    amount: Number(r.amount),
+    categoryId: r.category_id,
+    paymentMethodId: r.payment_method_id,
+    personId: r.person_id,
+    dayOfMonth: r.day_of_month,
+    startPeriod: r.start_period,
+    active: r.active,
+    createdAt: r.created_at,
+  }
+}
+
+interface LedgerRow {
+  id: string
+  kind: TransactionKind
+  scope: FinanceScope
+  description: string
+  amount: number
+  date: string
+  period: string
+  category_id: string | null
+  category_name: string | null
+  payment_method_id: string | null
+  person_id: string | null
+  settled: boolean
+  settled_at: string | null
+  recurring_rule_id: string | null
+  installment_group: string | null
+  installment_no: number | null
+  installment_total: number | null
+  link_id: string | null
+  source: "manual" | "clinic"
+  editable: boolean
+  patient_id: string | null
+}
+function rowToLedgerEntry(r: LedgerRow): LedgerEntry {
+  return {
+    id: r.id,
+    kind: r.kind,
+    scope: r.scope,
+    description: r.description,
+    amount: Number(r.amount),
+    date: r.date,
+    period: r.period,
+    categoryId: r.category_id,
+    categoryName: r.category_name,
+    paymentMethodId: r.payment_method_id,
+    personId: r.person_id,
+    settled: r.settled,
+    settledAt: r.settled_at,
+    recurringRuleId: r.recurring_rule_id,
+    installmentGroup: r.installment_group,
+    installmentNo: r.installment_no,
+    installmentTotal: r.installment_total,
+    linkId: r.link_id,
+    source: r.source,
+    editable: r.editable,
+    patientId: r.patient_id,
+  }
+}
+
+// ─── Query keys ──────────────────────────────────────────
+export const fqk = {
+  people: ["finance-people"] as const,
+  categories: ["finance-categories"] as const,
+  paymentMethods: ["finance-payment-methods"] as const,
+  rules: ["finance-rules"] as const,
+  ledgerMonth: (period: string) =>
+    ["finance-ledger", "month", period] as const,
+  ledgerRange: (from: string, to: string) =>
+    ["finance-ledger", "range", from, to] as const,
+  personLedger: (personId: string) =>
+    ["finance-ledger", "person", personId] as const,
+}
+
+function invalidateLedger(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ["finance-ledger"] })
+}
+
+// ─── PEOPLE ──────────────────────────────────────────────
+export function usePeople() {
+  return useQuery({
+    queryKey: fqk.people,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("people")
+        .select("*")
+        .order("name", { ascending: true })
+      if (error) throw error
+      return (data ?? []).map((r) => rowToPerson(r as PersonRow))
+    },
+    staleTime: 60_000,
+  })
+}
+
+export function useCreatePerson() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { name: string; notes?: string | null }) => {
+      const row: PersonRow = {
+        id: newId("per"),
+        name: input.name,
+        notes: input.notes ?? null,
+        active: true,
+        created_at: nowIso(),
+      }
+      const { data, error } = await supabase
+        .from("people")
+        .insert(row)
+        .select()
+        .single()
+      if (error) throw error
+      return rowToPerson(data as PersonRow)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: fqk.people }),
+  })
+}
+
+export function useUpdatePerson() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      id,
+      patch,
+    }: {
+      id: string
+      patch: Partial<Pick<Person, "name" | "notes" | "active">>
+    }) => {
+      const row: Partial<PersonRow> = {}
+      if (patch.name !== undefined) row.name = patch.name
+      if (patch.notes !== undefined) row.notes = patch.notes
+      if (patch.active !== undefined) row.active = patch.active
+      const { data, error } = await supabase
+        .from("people")
+        .update(row)
+        .eq("id", id)
+        .select()
+        .single()
+      if (error) throw error
+      return rowToPerson(data as PersonRow)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: fqk.people })
+      invalidateLedger(qc)
+    },
+  })
+}
+
+// ─── CATEGORIES ──────────────────────────────────────────
+export function useFinanceCategories() {
+  return useQuery({
+    queryKey: fqk.categories,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("finance_categories")
+        .select("*")
+        .order("name", { ascending: true })
+      if (error) throw error
+      return (data ?? []).map((r) => rowToCategory(r as FinanceCategoryRow))
+    },
+    staleTime: 60_000,
+  })
+}
+
+export function useCreateFinanceCategory() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { name: string; color?: string | null }) => {
+      const row: FinanceCategoryRow = {
+        id: newId("cat"),
+        name: input.name,
+        color: input.color ?? null,
+        active: true,
+        created_at: nowIso(),
+      }
+      const { data, error } = await supabase
+        .from("finance_categories")
+        .insert(row)
+        .select()
+        .single()
+      if (error) throw error
+      return rowToCategory(data as FinanceCategoryRow)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: fqk.categories }),
+  })
+}
+
+export function useUpdateFinanceCategory() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      id,
+      patch,
+    }: {
+      id: string
+      patch: Partial<Pick<FinanceCategory, "name" | "color" | "active">>
+    }) => {
+      const row: Partial<FinanceCategoryRow> = {}
+      if (patch.name !== undefined) row.name = patch.name
+      if (patch.color !== undefined) row.color = patch.color
+      if (patch.active !== undefined) row.active = patch.active
+      const { data, error } = await supabase
+        .from("finance_categories")
+        .update(row)
+        .eq("id", id)
+        .select()
+        .single()
+      if (error) throw error
+      return rowToCategory(data as FinanceCategoryRow)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: fqk.categories })
+      invalidateLedger(qc)
+    },
+  })
+}
+
+// ─── PAYMENT METHODS ─────────────────────────────────────
+export function usePaymentMethods() {
+  return useQuery({
+    queryKey: fqk.paymentMethods,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("payment_methods")
+        .select("*")
+        .order("name", { ascending: true })
+      if (error) throw error
+      return (data ?? []).map((r) => rowToPaymentMethod(r as PaymentMethodRow))
+    },
+    staleTime: 60_000,
+  })
+}
+
+export function useCreatePaymentMethod() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { name: string; isLoan?: boolean }) => {
+      const row: PaymentMethodRow = {
+        id: newId("pm"),
+        name: input.name,
+        is_loan: input.isLoan ?? false,
+        active: true,
+        created_at: nowIso(),
+      }
+      const { data, error } = await supabase
+        .from("payment_methods")
+        .insert(row)
+        .select()
+        .single()
+      if (error) throw error
+      return rowToPaymentMethod(data as PaymentMethodRow)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: fqk.paymentMethods }),
+  })
+}
+
+export function useUpdatePaymentMethod() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      id,
+      patch,
+    }: {
+      id: string
+      patch: Partial<Pick<PaymentMethod, "name" | "active">>
+    }) => {
+      const row: Partial<PaymentMethodRow> = {}
+      if (patch.name !== undefined) row.name = patch.name
+      if (patch.active !== undefined) row.active = patch.active
+      const { data, error } = await supabase
+        .from("payment_methods")
+        .update(row)
+        .eq("id", id)
+        .select()
+        .single()
+      if (error) throw error
+      return rowToPaymentMethod(data as PaymentMethodRow)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: fqk.paymentMethods })
+      invalidateLedger(qc)
+    },
+  })
+}
+
+export function useSeedFinanceDefaults() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.rpc("seed_finance_defaults")
+      if (error) throw error
+      return data as { categories: number; paymentMethods: number }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: fqk.categories })
+      qc.invalidateQueries({ queryKey: fqk.paymentMethods })
+    },
+  })
+}
+
+// ─── LEDGER (read) ───────────────────────────────────────
+export function useLedgerMonth(period: string) {
+  return useQuery({
+    queryKey: fqk.ledgerMonth(period),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("finance_ledger")
+        .select("*")
+        .eq("period", period)
+        .order("date", { ascending: true })
+      if (error) throw error
+      return (data ?? []).map((r) => rowToLedgerEntry(r as LedgerRow))
+    },
+    staleTime: 15_000,
+    gcTime: 5 * 60_000,
+  })
+}
+
+export function useLedgerRange(fromPeriod: string, toPeriod: string) {
+  return useQuery({
+    queryKey: fqk.ledgerRange(fromPeriod, toPeriod),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("finance_ledger")
+        .select("*")
+        .gte("period", fromPeriod)
+        .lte("period", toPeriod)
+        .order("date", { ascending: true })
+      if (error) throw error
+      return (data ?? []).map((r) => rowToLedgerEntry(r as LedgerRow))
+    },
+    staleTime: 15_000,
+    gcTime: 5 * 60_000,
+  })
+}
+
+export function usePersonLedger(personId?: string) {
+  return useQuery({
+    queryKey: fqk.personLedger(personId ?? "none"),
+    queryFn: async () => {
+      if (!personId) return []
+      const { data, error } = await supabase
+        .from("finance_ledger")
+        .select("*")
+        .eq("person_id", personId)
+        .order("date", { ascending: false })
+      if (error) throw error
+      return (data ?? []).map((r) => rowToLedgerEntry(r as LedgerRow))
+    },
+    enabled: !!personId,
+    staleTime: 15_000,
+  })
+}
+
+// ─── TRANSACTIONS (write) ────────────────────────────────
+export interface NewTransactionInput {
+  kind: TransactionKind
+  scope: FinanceScope
+  description: string
+  amount: number
+  date: string
+  categoryId?: string | null
+  paymentMethodId?: string | null
+  personId?: string | null
+  settled?: boolean
+  settledAt?: string | null
+}
+
+function buildTxRow(input: NewTransactionInput, now: string) {
+  return {
+    id: newId("tx"),
+    kind: input.kind,
+    scope: input.scope,
+    description: input.description,
+    amount: input.amount,
+    date: input.date,
+    category_id: input.categoryId ?? null,
+    payment_method_id: input.paymentMethodId ?? null,
+    person_id: input.personId ?? null,
+    settled: input.settled ?? false,
+    settled_at: input.settled ? (input.settledAt ?? now) : null,
+    created_at: now,
+    updated_at: now,
+  }
+}
+
+export function useCreateTransaction() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: NewTransactionInput) => {
+      const { error } = await supabase
+        .from("finance_transactions")
+        .insert(buildTxRow(input, nowIso()))
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => invalidateLedger(qc),
+  })
+}
+
+/**
+ * Installment plan: N equal rows across N months (last absorbs remainder),
+ * sharing an installment_group. Amounts are pre-split by the caller.
+ */
+export function useCreateInstallments() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      base: Omit<NewTransactionInput, "amount" | "date" | "settled">
+      amounts: number[]
+      dates: string[]
+    }) => {
+      const now = nowIso()
+      const group = newId("ins")
+      const total = input.amounts.length
+      const rows = input.amounts.map((amount, i) => ({
+        ...buildTxRow(
+          { ...input.base, amount, date: input.dates[i], settled: false },
+          now,
+        ),
+        installment_group: group,
+        installment_no: i + 1,
+        installment_total: total,
+      }))
+      const { error } = await supabase
+        .from("finance_transactions")
+        .insert(rows)
+      if (error) throw error
+      return { ok: true as const, group }
+    },
+    onSuccess: () => invalidateLedger(qc),
+  })
+}
+
+/**
+ * Loan granted (case 3b): a real cash outflow (expense) linked to a
+ * receivable income on the same person, both sharing a link_id.
+ */
+export function useCreateLoanGranted() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      personId: string
+      amount: number
+      date: string
+      description: string
+      scope: FinanceScope
+      outflowCategoryId?: string | null
+      outflowPaymentMethodId?: string | null // the real method used to pay (PIX, cash…)
+      receivablePaymentMethodId: string // the loan method (isLoan)
+      outflowSettled?: boolean
+    }) => {
+      const now = nowIso()
+      const link = newId("lnk")
+      const expense = {
+        ...buildTxRow(
+          {
+            kind: "expense",
+            scope: input.scope,
+            description: input.description,
+            amount: input.amount,
+            date: input.date,
+            categoryId: input.outflowCategoryId ?? null,
+            paymentMethodId: input.outflowPaymentMethodId ?? null,
+            settled: input.outflowSettled ?? true,
+          },
+          now,
+        ),
+        link_id: link,
+      }
+      const receivable = {
+        ...buildTxRow(
+          {
+            kind: "income",
+            scope: input.scope,
+            description: input.description,
+            amount: input.amount,
+            date: input.date,
+            paymentMethodId: input.receivablePaymentMethodId,
+            personId: input.personId,
+            settled: false,
+          },
+          now,
+        ),
+        link_id: link,
+      }
+      const { error } = await supabase
+        .from("finance_transactions")
+        .insert([expense, receivable])
+      if (error) throw error
+      return { ok: true as const, link }
+    },
+    onSuccess: () => invalidateLedger(qc),
+  })
+}
+
+export function useUpdateTransaction() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      id,
+      patch,
+    }: {
+      id: string
+      patch: Partial<Transaction>
+    }) => {
+      const row: Record<string, unknown> = { updated_at: nowIso() }
+      if (patch.kind !== undefined) row.kind = patch.kind
+      if (patch.scope !== undefined) row.scope = patch.scope
+      if (patch.description !== undefined) row.description = patch.description
+      if (patch.amount !== undefined) row.amount = patch.amount
+      if (patch.date !== undefined) row.date = patch.date
+      if (patch.categoryId !== undefined) row.category_id = patch.categoryId
+      if (patch.paymentMethodId !== undefined)
+        row.payment_method_id = patch.paymentMethodId
+      if (patch.personId !== undefined) row.person_id = patch.personId
+      if (patch.settled !== undefined) row.settled = patch.settled
+      if (patch.settledAt !== undefined) row.settled_at = patch.settledAt
+      const { error } = await supabase
+        .from("finance_transactions")
+        .update(row)
+        .eq("id", id)
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => invalidateLedger(qc),
+  })
+}
+
+/** Toggle pago/recebido on a manual transaction. */
+export function useSetTransactionSettled() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, settled }: { id: string; settled: boolean }) => {
+      const { error } = await supabase
+        .from("finance_transactions")
+        .update({
+          settled,
+          settled_at: settled ? nowIso() : null,
+          updated_at: nowIso(),
+        })
+        .eq("id", id)
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => invalidateLedger(qc),
+  })
+}
+
+export function useDeleteTransaction() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("finance_transactions")
+        .delete()
+        .eq("id", id)
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => invalidateLedger(qc),
+  })
+}
+
+export function useDeleteInstallmentGroup() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (group: string) => {
+      const { error } = await supabase
+        .from("finance_transactions")
+        .delete()
+        .eq("installment_group", group)
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => invalidateLedger(qc),
+  })
+}
+
+// ─── RECURRING RULES ─────────────────────────────────────
+export function useRecurringRules() {
+  return useQuery({
+    queryKey: fqk.rules,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("finance_recurring_rules")
+        .select("*")
+        .order("created_at", { ascending: false })
+      if (error) throw error
+      return (data ?? []).map((r) => rowToRule(r as RecurringRuleRow))
+    },
+    staleTime: 60_000,
+  })
+}
+
+/** Generate missing monthly rows for all active rules up to a period. */
+export function useEnsureRecurring() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (untilPeriod: string) => {
+      const { data, error } = await supabase.rpc(
+        "ensure_recurring_materialized",
+        { p_until_period: untilPeriod },
+      )
+      if (error) throw error
+      return data as { inserted: number }
+    },
+    onSuccess: (r) => {
+      if (r.inserted > 0) invalidateLedger(qc)
+    },
+  })
+}
+
+export function useCreateRecurringRule() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      kind: TransactionKind
+      scope: FinanceScope
+      description: string
+      amount: number
+      categoryId?: string | null
+      paymentMethodId?: string | null
+      personId?: string | null
+      dayOfMonth: number
+      startPeriod: string
+      untilPeriod: string // materialize up to here on creation
+    }) => {
+      const row: RecurringRuleRow = {
+        id: newId("rec"),
+        kind: input.kind,
+        scope: input.scope,
+        description: input.description,
+        amount: input.amount,
+        category_id: input.categoryId ?? null,
+        payment_method_id: input.paymentMethodId ?? null,
+        person_id: input.personId ?? null,
+        day_of_month: input.dayOfMonth,
+        start_period: input.startPeriod,
+        active: true,
+        created_at: nowIso(),
+      }
+      const { error } = await supabase
+        .from("finance_recurring_rules")
+        .insert(row)
+      if (error) throw error
+      const { error: e2 } = await supabase.rpc(
+        "ensure_recurring_materialized",
+        { p_until_period: input.untilPeriod },
+      )
+      if (e2) throw e2
+      return { ok: true as const }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: fqk.rules })
+      invalidateLedger(qc)
+    },
+  })
+}
+
+export function useEditRecurring() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      ruleId: string
+      scope: RecurringScope
+      patch: Record<string, unknown>
+      fromPeriod: string
+    }) => {
+      const { error } = await supabase.rpc("edit_recurring", {
+        p_rule_id: input.ruleId,
+        p_scope: input.scope,
+        p_patch: input.patch,
+        p_from_period: input.fromPeriod,
+      })
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: fqk.rules })
+      invalidateLedger(qc)
+    },
+  })
+}
+
+export function useDeleteRecurring() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      ruleId: string
+      scope: RecurringScope
+      fromPeriod: string
+    }) => {
+      const { error } = await supabase.rpc("delete_recurring", {
+        p_rule_id: input.ruleId,
+        p_scope: input.scope,
+        p_from_period: input.fromPeriod,
+      })
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: fqk.rules })
+      invalidateLedger(qc)
+    },
   })
 }

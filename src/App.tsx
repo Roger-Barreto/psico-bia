@@ -9,6 +9,7 @@ import { SharedChecklistPage } from "@/pages/checklist"
 import { DashboardPage } from "@/pages/dashboard"
 import { InsurancesPage } from "@/pages/insurances"
 import { DischargeReasonsPage } from "@/pages/discharge-reasons"
+import { FinancePage } from "@/pages/finance"
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
         >
           <Route path="/" element={<DashboardPage />} />
           <Route path="/agenda" element={<HomePage />} />
+          <Route path="/financeiro" element={<FinancePage />} />
           <Route path="/patients" element={<PatientsPage />} />
           <Route path="/insurances" element={<InsurancesPage />} />
           <Route

@@ -6,9 +6,14 @@ import {
   XCircleIcon,
 } from "@phosphor-icons/react"
 import type { Appointment, Patient } from "@/db/types"
-import { usePatchAppointment } from "@/api/queries"
+import {
+  useCreatePaymentMethod,
+  usePatchAppointment,
+  usePaymentMethods,
+} from "@/api/queries"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { AddableSelect } from "@/components/finance/addable-select"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
 import { celebrate } from "@/lib/celebrate"
 import { formatDateTimeBR } from "@/domain/dates"
@@ -27,18 +32,29 @@ function formatBRL(n: number): string {
 
 export function PaymentControl({ appointment, patient }: Props) {
   const patch = usePatchAppointment()
+  const methodsQ = usePaymentMethods()
+  const createMethod = useCreatePaymentMethod()
   const [editing, setEditing] = useState(false)
   const [customValue, setCustomValue] = useState<string>(
     String(patient.consultationValue ?? 0),
   )
   const [useCustom, setUseCustom] = useState(false)
+  const [methodId, setMethodId] = useState<string | null>(
+    appointment.paymentMethodId,
+  )
+
+  const methods = (methodsQ.data ?? []).filter((m) => m.active && !m.isLoan)
+  const methodName = appointment.paymentMethodId
+    ? methodsQ.data?.find((m) => m.id === appointment.paymentMethodId)?.name
+    : undefined
 
   useEffect(() => {
     if (!editing) {
       setCustomValue(String(patient.consultationValue ?? 0))
       setUseCustom(false)
+      setMethodId(appointment.paymentMethodId)
     }
-  }, [editing, patient.consultationValue])
+  }, [editing, patient.consultationValue, appointment.paymentMethodId])
 
   async function confirmPaid() {
     const value = useCustom
@@ -47,6 +63,9 @@ export function PaymentControl({ appointment, patient }: Props) {
     if (!Number.isFinite(value) || value < 0) {
       return toast.error("Valor inválido")
     }
+    if (!methodId) {
+      return toast.error("Selecione a forma de pagamento")
+    }
     try {
       await patch.mutateAsync({
         id: appointment.id,
@@ -54,6 +73,7 @@ export function PaymentControl({ appointment, patient }: Props) {
           paid: true,
           paidValue: value,
           paidAt: new Date().toISOString(),
+          paymentMethodId: methodId,
         },
       })
       celebrate("happy")
@@ -76,7 +96,12 @@ export function PaymentControl({ appointment, patient }: Props) {
     try {
       await patch.mutateAsync({
         id: appointment.id,
-        patch: { paid: false, paidValue: null, paidAt: null },
+        patch: {
+          paid: false,
+          paidValue: null,
+          paidAt: null,
+          paymentMethodId: null,
+        },
       })
       toast.success("Pagamento desmarcado")
     } catch (err) {
@@ -87,9 +112,14 @@ export function PaymentControl({ appointment, patient }: Props) {
   if (appointment.paid) {
     return (
       <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5 text-sm text-emerald-300">
-        <span className="flex items-center gap-2">
+        <span className="flex flex-wrap items-center gap-2">
           <CheckCircleIcon weight="fill" className="size-4" />
           Pago {formatBRL(appointment.paidValue ?? 0)}
+          {methodName && (
+            <span className="rounded bg-emerald-500/20 px-1.5 text-xs">
+              {methodName}
+            </span>
+          )}
           {appointment.paidAt && (
             <span className="text-xs opacity-80">
               em {formatDateTimeBR(appointment.paidAt)}
@@ -158,6 +188,23 @@ export function PaymentControl({ appointment, patient }: Props) {
           />
         </div>
       )}
+
+      <div className="space-y-1">
+        <label className="text-xs text-muted-foreground">
+          Forma de pagamento
+        </label>
+        <AddableSelect
+          value={methodId}
+          onChange={setMethodId}
+          options={methods}
+          placeholder="Como o paciente pagou?"
+          addLabel="Nova forma…"
+          onCreate={async (name) => {
+            const m = await createMethod.mutateAsync({ name })
+            return { id: m.id, name: m.name }
+          }}
+        />
+      </div>
 
       <div className="flex gap-2">
         <Button

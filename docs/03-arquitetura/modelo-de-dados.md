@@ -1,8 +1,13 @@
 # Modelo de Dados
 
-Tipos canônicos em [`src/db/types.ts`](../../src/db/types.ts) (frontend) e espelhados nas interfaces
-de [`server/routes.ts`](../../server/routes.ts) (backend). Persistência: um arquivo JSON por coleção
-em `data/`.
+> ⚠️ **Atualização (2026-06):** a persistência **não é mais JSON em `data/`** — é **Supabase
+> Postgres** (uma tabela por coleção, `snake_case`, RLS por `user_id`). Os mappers
+> `snake_case ↔ camelCase` vivem em [`src/api/queries.ts`](../../src/api/queries.ts). Os **tipos
+> canônicos** continuam em [`src/db/types.ts`](../../src/db/types.ts). As menções a `server/` e
+> `data/*.json` abaixo são históricas. O esquema financeiro está na seção [Finance](#finance).
+
+Tipos canônicos em [`src/db/types.ts`](../../src/db/types.ts) (frontend). Persistência: Supabase
+Postgres (tabelas `public.*`). *(Histórico: antes, um arquivo JSON por coleção em `data/`.)*
 
 ## Coleções (arquivos)
 
@@ -176,6 +181,36 @@ Calculados sob demanda a partir das coleções base.
 
 ## Evolução de schema
 
-Não há número de versão nem migração formal de JSON. Campos novos são tratados por funções
-`normalize*` no backend (defaults para ausentes). Pastas de documentos têm uma migração de
-nomenclatura idempotente. Ver [backend](backend.md#normalização-defensiva).
+Migrations versionadas no Supabase (`001_…` a `016_finance_rpcs`). Campos novos entram por migração
+(coluna nullable + backfill quando necessário). *(Histórico: antes não havia versão; defaults eram
+aplicados por funções `normalize*` no backend JSON.)*
+
+## Finance
+
+Módulo de gestão financeira (regras em
+[financeiro-pessoal.md](../02-regras-de-negocio/financeiro-pessoal.md)). Tipos em
+[`src/db/types.ts`](../../src/db/types.ts) (`Transaction`, `RecurringRule`, `Person`,
+`FinanceCategory`, `PaymentMethod`, `LedgerEntry`).
+
+| Tabela | Conteúdo | Chave |
+|---|---|---|
+| `people` | contrapartes de empréstimo (`per_…`) | `id` |
+| `finance_categories` | categorias (`cat_…`) | `id` |
+| `payment_methods` | formas de pagamento; `is_loan` marca empréstimo (`pm_…`) | `id` |
+| `finance_recurring_rules` | templates mensais (`rec_…`) | `id` |
+| `finance_transactions` | lançamentos manuais/materializados (`tx_…`) | `id` |
+
+Colunas-chave de `finance_transactions`: `kind` (`income`/`expense`), `scope` (`clinic`/`personal`),
+`amount` (numeric), `date` (`YYYY-MM-DD`), `period` (gerada = `substr(date,1,7)`), `category_id`,
+`payment_method_id`, `person_id`, `settled`/`settled_at`, `recurring_rule_id`,
+`installment_group`/`installment_no`/`installment_total`, `link_id`. Unicidade
+`(recurring_rule_id, period)` garante materialização idempotente. **Trigger**
+`finance_require_person_for_loan` exige `person_id` quando a forma tem `is_loan`.
+
+Coluna nova em `appointments`: **`payment_method_id`** (escolhida ao marcar a sessão paga).
+
+**Views** (`security_invoker = true`):
+- `finance_clinic_income` — receita derivada de `appointments` (sessões `attended`, paciente ativo);
+  read-only.
+- `finance_ledger` — UNION de `finance_transactions` (`source='manual'`) + `finance_clinic_income`
+  (`source='clinic'`); superfície única de leitura para o módulo.

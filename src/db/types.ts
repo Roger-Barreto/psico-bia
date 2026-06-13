@@ -80,6 +80,7 @@ export interface Appointment {
   paid: boolean
   paidValue: number | null
   paidAt: string | null
+  paymentMethodId: string | null
 }
 
 export interface Occurrence {
@@ -97,4 +98,101 @@ export interface PatientAnnotation {
   patientId: string
   text: string
   createdAt: string
+}
+
+// ════════════════════════════════════════════════════════════════
+// Finance module
+// ════════════════════════════════════════════════════════════════
+export type TransactionKind = "income" | "expense"
+export type FinanceScope = "clinic" | "personal"
+export type LedgerSource = "manual" | "clinic"
+/** Edit/delete scope for recurring rules (mirrors appointment "undo" scopes). */
+export type RecurringScope = "one" | "future" | "all"
+
+export interface Person {
+  id: string
+  name: string
+  notes: string | null
+  active: boolean
+  createdAt: string
+}
+
+export interface FinanceCategory {
+  id: string
+  name: string
+  color: string | null
+  active: boolean
+  createdAt: string
+}
+
+export interface PaymentMethod {
+  id: string
+  name: string
+  isLoan: boolean
+  active: boolean
+  createdAt: string
+}
+
+export interface RecurringRule {
+  id: string
+  kind: TransactionKind
+  scope: FinanceScope
+  description: string
+  amount: number
+  categoryId: string | null
+  paymentMethodId: string | null
+  personId: string | null
+  dayOfMonth: number
+  startPeriod: string // YYYY-MM
+  active: boolean
+  createdAt: string
+}
+
+export interface Transaction {
+  id: string
+  kind: TransactionKind
+  scope: FinanceScope
+  description: string
+  amount: number
+  date: string // YYYY-MM-DD (competência)
+  categoryId: string | null
+  paymentMethodId: string | null
+  personId: string | null
+  settled: boolean
+  settledAt: string | null
+  recurringRuleId: string | null
+  installmentGroup: string | null
+  installmentNo: number | null
+  installmentTotal: number | null
+  linkId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+/**
+ * Unified ledger row: manual transactions + derived (read-only) clinic income.
+ * Backed by the `finance_ledger` Postgres view.
+ */
+export interface LedgerEntry {
+  id: string
+  kind: TransactionKind
+  scope: FinanceScope
+  description: string
+  amount: number
+  date: string
+  period: string // YYYY-MM
+  categoryId: string | null
+  categoryName: string | null
+  paymentMethodId: string | null
+  personId: string | null
+  settled: boolean
+  settledAt: string | null
+  recurringRuleId: string | null
+  installmentGroup: string | null
+  installmentNo: number | null
+  installmentTotal: number | null
+  linkId: string | null
+  source: LedgerSource
+  editable: boolean
+  patientId: string | null
 }

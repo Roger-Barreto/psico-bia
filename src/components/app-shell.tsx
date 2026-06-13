@@ -10,6 +10,7 @@ import {
   UsersThreeIcon,
   SignOutIcon,
   ChartLineIcon,
+  WalletIcon,
   IdentificationCardIcon,
   UserCircleIcon,
   XCircleIcon,
@@ -66,6 +67,7 @@ function isGroup(e: NavEntry): e is NavGroup {
 const navItems: NavEntry[] = [
   { to: "/", label: "Dashboard", icon: ChartLineIcon, end: true },
   { to: "/agenda", label: "Agenda", icon: CalendarBlankIcon },
+  { to: "/financeiro", label: "Financeiro", icon: WalletIcon },
   {
     label: "Cadastros",
     icon: FolderIcon,

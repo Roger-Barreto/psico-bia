@@ -29,6 +29,23 @@ Termos do domínio, exatamente como usados no código e na interface.
 | **Faturado** | `revenue` | Soma das sessões pagas. |
 | **Pendente (financeiro)** | `pendingRevenue` | Atendidos não pagos + agendados com data passada. |
 
+### Gestão financeira (módulo `/financeiro`)
+
+| Termo | Em código | Definição |
+|---|---|---|
+| **Lançamento** | `Transaction` | Receita (`income`) ou despesa (`expense`) do ledger. |
+| **Escopo** | `scope` | `clinic` (PJ) \| `personal` (PF). |
+| **Competência** | `date` / `period` | Data que define o **mês** do valor (`period = YYYY-MM`). Ignora ciclo de fatura. |
+| **Quitado** | `settled` | Flag pago/recebido (+ `settledAt`). |
+| **Categoria** | `FinanceCategory` | Rótulo do usuário p/ análise (compartilhado receita+despesa). |
+| **Forma de pagamento** | `PaymentMethod` | PIX/Dinheiro/Débito/Crédito/…; `isLoan` marca empréstimo. |
+| **Pessoa** | `Person` | Contraparte de empréstimo. |
+| **Empréstimo** | `isLoan` + `personId` | Despesa+loan = *eu devo*; receita+loan = *me devem*. Saldo = não quitados. |
+| **Recorrência** | `RecurringRule` | Template mensal infinito; gera linhas sob demanda. |
+| **Parcelamento** | `installmentGroup` | N lançamentos iguais em N meses. |
+| **Receita clínica (derivada)** | `finance_clinic_income` | Faturamento read-only vindo de `appointments` atendidas. |
+| **Ledger** | `finance_ledger` | UNION de lançamentos manuais + receita clínica derivada. |
+
 ## Prefixos de ID
 
 IDs gerados com `nanoid(10)` + prefixo da coleção:
@@ -43,3 +60,10 @@ IDs gerados com `nanoid(10)` + prefixo da coleção:
 | `ins_` | Convênio |
 | `dr_` | Motivo de encerramento |
 | `an_` | Anotação |
+| `per_` | Pessoa (financeiro) |
+| `cat_` | Categoria financeira |
+| `pm_` | Forma de pagamento |
+| `rec_` | Regra de recorrência |
+| `tx_` | Lançamento financeiro |
+| `ins_` (`installment_group`) | Grupo de parcelas |
+| `lnk_` | Vínculo empréstimo concedido |
