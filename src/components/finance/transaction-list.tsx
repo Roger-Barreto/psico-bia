@@ -5,19 +5,28 @@ import {
   ArrowUpRightIcon,
   DotsThreeVerticalIcon,
   LockSimpleIcon,
+  PencilSimpleIcon,
   RepeatIcon,
   TrashIcon,
   CreditCardIcon,
   HandCoinsIcon,
 } from "@phosphor-icons/react"
-import type { LedgerEntry, PaymentMethod, Person } from "@/db/types"
+import type {
+  FinanceCategory,
+  LedgerEntry,
+  PaymentMethod,
+  Person,
+} from "@/db/types"
 import {
   useDeleteTransaction,
   useSetTransactionSettled,
 } from "@/api/queries"
-import { formatBRL } from "@/domain/finance"
-import { formatDateBR } from "@/domain/dates"
+import { formatBRL, signedAmount } from "@/domain/finance"
+import { formatLongDateBR } from "@/domain/dates"
+import { colorForKey } from "@/lib/finance-colors"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
+import { Card } from "@/components/ui/card"
+import { Spinner } from "@/components/ui/spinner"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,17 +39,37 @@ interface Props {
   entries: LedgerEntry[]
   methodsById: Map<string, PaymentMethod>
   peopleById: Map<string, Person>
+  categoriesById?: Map<string, FinanceCategory>
+  onEdit?: (entry: LedgerEntry) => void
 }
 
-export function TransactionList({ entries, methodsById, peopleById }: Props) {
+export function TransactionList({
+  entries,
+  methodsById,
+  peopleById,
+  categoriesById,
+  onEdit,
+}: Props) {
   const setSettled = useSetTransactionSettled()
   const del = useDeleteTransaction()
 
+  const togglingId = setSettled.isPending
+    ? (setSettled.variables as { id: string } | undefined)?.id
+    : undefined
+  const deletingId = del.isPending
+    ? (del.variables as string | undefined)
+    : undefined
+
   if (entries.length === 0) {
     return (
-      <p className="py-8 text-center text-sm text-muted-foreground">
-        Nenhum lançamento neste mês.
-      </p>
+      <div className="grid place-items-center gap-2 rounded-xl border border-dashed border-border/60 py-14 text-center">
+        <p className="text-sm font-medium text-muted-foreground">
+          Nenhum lançamento neste mês.
+        </p>
+        <p className="text-xs text-muted-foreground/70">
+          Use “Novo lançamento” para adicionar uma receita ou despesa.
+        </p>
+      </div>
     )
   }
 
@@ -54,55 +83,100 @@ export function TransactionList({ entries, methodsById, peopleById }: Props) {
   const days = [...byDay.keys()].sort((a, b) => b.localeCompare(a))
 
   return (
-    <div className="space-y-4">
-      {days.map((day) => (
-        <div key={day} className="space-y-1.5">
-          <p className="px-1 text-xs font-medium text-muted-foreground">
-            {formatDateBR(day)}
-          </p>
-          {byDay.get(day)!.map((e) => (
-            <Row
-              key={e.id}
-              entry={e}
-              method={
-                e.paymentMethodId
-                  ? methodsById.get(e.paymentMethodId)
-                  : undefined
-              }
-              person={e.personId ? peopleById.get(e.personId) : undefined}
-              onToggle={async () => {
-                if (!e.editable) return
-                try {
-                  await setSettled.mutateAsync({
-                    id: e.id,
-                    settled: !e.settled,
-                  })
-                } catch (err) {
-                  toast.error(err instanceof Error ? err.message : "Erro")
-                }
-              }}
-              onDelete={async () => {
-                if (!e.editable) return
-                if (
-                  !(await confirmDialog({
-                    title: "Excluir lançamento",
-                    description: `Excluir "${e.description}"?`,
-                    destructive: true,
-                  }))
-                )
-                  return
-                try {
-                  await del.mutateAsync(e.id)
-                  toast.success("Excluído")
-                } catch (err) {
-                  toast.error(err instanceof Error ? err.message : "Erro")
-                }
-              }}
-            />
-          ))}
-        </div>
-      ))}
+    <div className="space-y-5">
+      {days.map((day) => {
+        const items = byDay.get(day)!
+        const subtotal = items.reduce((s, e) => s + signedAmount(e), 0)
+        return (
+          <section key={day}>
+            <div className="mb-1.5 flex items-center justify-between gap-3 px-1">
+              <p className="text-xs font-medium text-muted-foreground">
+                {formatLongDateBR(day)}
+              </p>
+              <p
+                className={cn(
+                  "text-xs font-medium tabular-nums",
+                  subtotal < 0 ? "text-rose-300/80" : "text-emerald-300/80",
+                )}
+              >
+                {subtotal >= 0 ? "+" : "−"}
+                {formatBRL(Math.abs(subtotal))}
+              </p>
+            </div>
+            <Card className="divide-y divide-border/40 overflow-hidden">
+              {items.map((e) => (
+                <Row
+                  key={e.id}
+                  entry={e}
+                  method={
+                    e.paymentMethodId
+                      ? methodsById.get(e.paymentMethodId)
+                      : undefined
+                  }
+                  person={e.personId ? peopleById.get(e.personId) : undefined}
+                  toggling={togglingId === e.id}
+                  deleting={deletingId === e.id}
+                  categoryColor={
+                    (e.categoryId
+                      ? categoriesById?.get(e.categoryId)?.color
+                      : null) ??
+                    (e.categoryName ? colorForKey(e.categoryName) : null)
+                  }
+                  onEdit={onEdit ? () => onEdit(e) : undefined}
+                  onToggle={async () => {
+                    if (!e.editable) return
+                    try {
+                      await setSettled.mutateAsync({
+                        id: e.id,
+                        settled: !e.settled,
+                      })
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : "Erro")
+                    }
+                  }}
+                  onDelete={async () => {
+                    if (!e.editable) return
+                    if (
+                      !(await confirmDialog({
+                        title: "Excluir lançamento",
+                        description: `Excluir "${e.description}"?`,
+                        destructive: true,
+                      }))
+                    )
+                      return
+                    try {
+                      await del.mutateAsync(e.id)
+                      toast.success("Excluído")
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : "Erro")
+                    }
+                  }}
+                />
+              ))}
+            </Card>
+          </section>
+        )
+      })}
     </div>
+  )
+}
+
+function Chip({
+  children,
+  className,
+}: {
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-md bg-muted/40 px-1.5 py-0.5 text-[11px] leading-none text-muted-foreground",
+        className,
+      )}
+    >
+      {children}
+    </span>
   )
 }
 
@@ -110,12 +184,20 @@ function Row({
   entry: e,
   method,
   person,
+  categoryColor,
+  toggling,
+  deleting,
+  onEdit,
   onToggle,
   onDelete,
 }: {
   entry: LedgerEntry
   method?: PaymentMethod
   person?: Person
+  categoryColor?: string | null
+  toggling?: boolean
+  deleting?: boolean
+  onEdit?: () => void
   onToggle: () => void
   onDelete: () => void
 }) {
@@ -125,11 +207,11 @@ function Row({
   const isLoan = method?.isLoan ?? false
 
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-border/50 bg-card/40 px-3 py-2.5">
+    <div className="flex items-center gap-3 px-3 py-3 transition-colors hover:bg-muted/20 sm:px-4">
       <button
         type="button"
         onClick={onToggle}
-        disabled={!e.editable}
+        disabled={!e.editable || toggling}
         title={
           e.editable
             ? e.settled
@@ -149,7 +231,7 @@ function Row({
           !e.editable && "cursor-default opacity-90",
         )}
       >
-        <Icon weight="bold" className="size-4" />
+        {toggling ? <Spinner className="size-4" /> : <Icon weight="bold" className="size-4" />}
       </button>
 
       <div className="min-w-0 flex-1">
@@ -173,29 +255,36 @@ function Row({
             />
           )}
         </div>
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-          <span>{e.categoryName ?? "Sem categoria"}</span>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          <Chip>
+            <span
+              className="size-2 shrink-0 rounded-full"
+              style={{ background: categoryColor ?? "hsl(var(--muted-foreground))" }}
+            />
+            {e.categoryName ?? "Sem categoria"}
+          </Chip>
           {method && (
-            <span className="flex items-center gap-1">
+            <Chip>
               {isLoan ? (
                 <HandCoinsIcon className="size-3" />
               ) : (
                 <CreditCardIcon className="size-3" />
               )}
               {method.name}
-            </span>
+            </Chip>
           )}
-          {person && <span className="text-primary/80">· {person.name}</span>}
-          <span
+          {person && (
+            <Chip className="bg-primary/10 text-primary/90">{person.name}</Chip>
+          )}
+          <Chip
             className={cn(
-              "rounded px-1",
               e.scope === "clinic"
                 ? "bg-sky-500/10 text-sky-300/90"
                 : "bg-muted/40",
             )}
           >
             {e.scope === "clinic" ? "Clínica" : "Pessoal"}
-          </span>
+          </Chip>
         </div>
       </div>
 
@@ -216,18 +305,28 @@ function Row({
         )}
       </div>
 
-      {e.editable && (
+      {e.editable ? (
         <DropdownMenu open={open} onOpenChange={setOpen}>
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted/40"
+              disabled={deleting}
+              className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted/40 disabled:opacity-60"
               aria-label="Ações"
             >
-              <DotsThreeVerticalIcon weight="bold" className="size-4" />
+              {deleting ? (
+                <Spinner className="size-4" />
+              ) : (
+                <DotsThreeVerticalIcon weight="bold" className="size-4" />
+              )}
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {onEdit && (
+              <DropdownMenuItem onClick={onEdit}>
+                <PencilSimpleIcon weight="fill" /> Editar
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               onClick={onDelete}
               className="text-destructive focus:bg-destructive/15"
@@ -236,6 +335,8 @@ function Row({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+      ) : (
+        <span className="size-8 shrink-0" aria-hidden />
       )}
     </div>
   )

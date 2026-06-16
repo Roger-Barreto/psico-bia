@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-query"
 import { nanoid } from "nanoid"
 import { supabase, DOCS_BUCKET, requireUserId } from "@/lib/supabase"
+import { randomMonsterAvatarId } from "@/lib/monster-avatars"
 import type {
   Appointment,
   AppointmentSeries,
@@ -1348,6 +1349,7 @@ interface PersonRow {
   id: string
   name: string
   notes: string | null
+  avatar_id: number
   active: boolean
   created_at: string
 }
@@ -1356,6 +1358,7 @@ function rowToPerson(r: PersonRow): Person {
     id: r.id,
     name: r.name,
     notes: r.notes,
+    avatarId: r.avatar_id,
     active: r.active,
     createdAt: r.created_at,
   }
@@ -1382,6 +1385,7 @@ interface PaymentMethodRow {
   id: string
   name: string
   is_loan: boolean
+  color: string | null
   active: boolean
   created_at: string
 }
@@ -1390,6 +1394,7 @@ function rowToPaymentMethod(r: PaymentMethodRow): PaymentMethod {
     id: r.id,
     name: r.name,
     isLoan: r.is_loan,
+    color: r.color,
     active: r.active,
     createdAt: r.created_at,
   }
@@ -1512,11 +1517,16 @@ export function usePeople() {
 export function useCreatePerson() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (input: { name: string; notes?: string | null }) => {
+    mutationFn: async (input: {
+      name: string
+      notes?: string | null
+      avatarId?: number
+    }) => {
       const row: PersonRow = {
         id: newId("per"),
         name: input.name,
         notes: input.notes ?? null,
+        avatar_id: input.avatarId ?? randomMonsterAvatarId(),
         active: true,
         created_at: nowIso(),
       }
@@ -1540,11 +1550,12 @@ export function useUpdatePerson() {
       patch,
     }: {
       id: string
-      patch: Partial<Pick<Person, "name" | "notes" | "active">>
+      patch: Partial<Pick<Person, "name" | "notes" | "avatarId" | "active">>
     }) => {
       const row: Partial<PersonRow> = {}
       if (patch.name !== undefined) row.name = patch.name
       if (patch.notes !== undefined) row.notes = patch.notes
+      if (patch.avatarId !== undefined) row.avatar_id = patch.avatarId
       if (patch.active !== undefined) row.active = patch.active
       const { data, error } = await supabase
         .from("people")
@@ -1560,6 +1571,48 @@ export function useUpdatePerson() {
       invalidateLedger(qc)
     },
   })
+}
+
+/**
+ * Hard-delete a person and every finance launch / recurring rule referencing
+ * them (cascade RPC). Destructive — guard with a typed confirmation in the UI.
+ */
+export function useDeletePerson() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.rpc("finance_delete_person", { p_id: id })
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: fqk.people })
+      invalidateLedger(qc)
+    },
+  })
+}
+
+/** Count finance launches referencing a category / payment method / person. */
+export async function countFinanceUsage(
+  field: "category_id" | "payment_method_id" | "person_id",
+  id: string,
+): Promise<number> {
+  const { count, error } = await supabase
+    .from("finance_transactions")
+    .select("id", { count: "exact", head: true })
+    .eq(field, id)
+  if (error) throw error
+  return count ?? 0
+}
+
+/** Count appointments tagged with a payment method (kept, just untagged). */
+export async function countAppointmentsWithMethod(id: string): Promise<number> {
+  const { count, error } = await supabase
+    .from("appointments")
+    .select("id", { count: "exact", head: true })
+    .eq("payment_method_id", id)
+  if (error) throw error
+  return count ?? 0
 }
 
 // ─── CATEGORIES ──────────────────────────────────────────
@@ -1631,6 +1684,23 @@ export function useUpdateFinanceCategory() {
   })
 }
 
+export function useDeleteFinanceCategory() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.rpc("finance_delete_category", {
+        p_id: id,
+      })
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: fqk.categories })
+      invalidateLedger(qc)
+    },
+  })
+}
+
 // ─── PAYMENT METHODS ─────────────────────────────────────
 export function usePaymentMethods() {
   return useQuery({
@@ -1650,11 +1720,16 @@ export function usePaymentMethods() {
 export function useCreatePaymentMethod() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (input: { name: string; isLoan?: boolean }) => {
+    mutationFn: async (input: {
+      name: string
+      isLoan?: boolean
+      color?: string | null
+    }) => {
       const row: PaymentMethodRow = {
         id: newId("pm"),
         name: input.name,
         is_loan: input.isLoan ?? false,
+        color: input.color ?? null,
         active: true,
         created_at: nowIso(),
       }
@@ -1678,10 +1753,11 @@ export function useUpdatePaymentMethod() {
       patch,
     }: {
       id: string
-      patch: Partial<Pick<PaymentMethod, "name" | "active">>
+      patch: Partial<Pick<PaymentMethod, "name" | "color" | "active">>
     }) => {
       const row: Partial<PaymentMethodRow> = {}
       if (patch.name !== undefined) row.name = patch.name
+      if (patch.color !== undefined) row.color = patch.color
       if (patch.active !== undefined) row.active = patch.active
       const { data, error } = await supabase
         .from("payment_methods")
@@ -1694,6 +1770,24 @@ export function useUpdatePaymentMethod() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: fqk.paymentMethods })
+      invalidateLedger(qc)
+    },
+  })
+}
+
+export function useDeletePaymentMethod() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.rpc("finance_delete_payment_method", {
+        p_id: id,
+      })
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: fqk.paymentMethods })
+      qc.invalidateQueries({ queryKey: ["appointments"] })
       invalidateLedger(qc)
     },
   })

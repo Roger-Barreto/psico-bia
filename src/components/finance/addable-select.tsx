@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
+import { Spinner } from "@/components/ui/spinner"
 
 export interface Option {
   id: string
@@ -87,7 +88,11 @@ export function AddableSelect({
           className="grid size-9 shrink-0 place-items-center rounded-md text-emerald-400 hover:bg-emerald-500/15 disabled:opacity-50"
           aria-label="Confirmar"
         >
-          <CheckIcon weight="bold" className="size-4" />
+          {busy ? (
+            <Spinner className="size-4" />
+          ) : (
+            <CheckIcon weight="bold" className="size-4" />
+          )}
         </button>
         <button
           type="button"

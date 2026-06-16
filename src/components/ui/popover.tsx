@@ -9,13 +9,22 @@ const PopoverAnchor = PopoverPrimitive.Anchor
 
 const PopoverContent = React.forwardRef<
   React.ElementRef<typeof PopoverPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
->(({ className, align = "start", sideOffset = 6, ...props }, ref) => {
+  React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content> & {
+    /**
+     * Force portaling to document.body instead of the enclosing dialog node.
+     * The dialog node has a transform + overflow (containing block for fixed
+     * elements), which clips popovers that extend past its bounds. Use this
+     * for popovers with no internal scroll (e.g. a calendar) so they aren't cut off.
+     */
+    portalToBody?: boolean
+  }
+>(({ className, align = "start", sideOffset = 6, portalToBody, ...props }, ref) => {
   // Inside a modal Dialog, portal into the dialog node so the popover's scroll
   // areas live within the scroll-lock and remain touch-scrollable on iOS.
   const dialogBody = useDialogBody()
+  const container = portalToBody ? undefined : dialogBody ?? undefined
   return (
-  <PopoverPrimitive.Portal container={dialogBody ?? undefined}>
+  <PopoverPrimitive.Portal container={container}>
     <PopoverPrimitive.Content
       ref={ref}
       align={align}

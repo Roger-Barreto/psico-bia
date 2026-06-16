@@ -87,6 +87,11 @@ export function addPeriod(period: string, months: number): string {
   return `${year}-${String(mi + 1).padStart(2, "0")}`
 }
 
+/** YYYY-MM → the January period of its year, "YYYY-01". */
+export function yearStartPeriod(period: string): string {
+  return `${period.slice(0, 4)}-01`
+}
+
 /** YYYY-MM → "junho de 2026" */
 export function periodLabel(period: string): string {
   const [y, m] = period.split("-").map(Number)

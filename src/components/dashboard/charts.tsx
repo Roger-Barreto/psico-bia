@@ -139,6 +139,51 @@ export function CategoryPie({ data }: { data: PieDatum[] }) {
   )
 }
 
+interface ColoredPieDatum {
+  name: string
+  value: number
+  color: string
+}
+
+/** Pie using explicit per-slice colors (e.g. payment-method colors). */
+export function PaymentMethodPie({ data }: { data: ColoredPieDatum[] }) {
+  if (!data.length || data.every((d) => d.value === 0)) {
+    return (
+      <div className="grid h-full place-items-center text-xs text-muted-foreground">
+        Nenhum pagamento no mês.
+      </div>
+    )
+  }
+  return (
+    <PieChart>
+      <Pie
+        data={data}
+        dataKey="value"
+        nameKey="name"
+        innerRadius={50}
+        outerRadius={80}
+        paddingAngle={2}
+      >
+        {data.map((d, i) => (
+          <Cell key={i} fill={d.color} />
+        ))}
+      </Pie>
+      <Tooltip
+        contentStyle={tooltipStyle}
+        formatter={(v) => [
+          `${v} ${Number(v) === 1 ? "paciente" : "pacientes"}`,
+          "",
+        ]}
+      />
+      <Legend
+        verticalAlign="bottom"
+        height={36}
+        wrapperStyle={{ fontSize: 12 }}
+      />
+    </PieChart>
+  )
+}
+
 interface TopPatientsProps {
   data: { name: string; sessions: number }[]
 }

@@ -9,7 +9,12 @@ import { SharedChecklistPage } from "@/pages/checklist"
 import { DashboardPage } from "@/pages/dashboard"
 import { InsurancesPage } from "@/pages/insurances"
 import { DischargeReasonsPage } from "@/pages/discharge-reasons"
-import { FinancePage } from "@/pages/finance"
+import { FinanceLayout } from "@/components/finance/finance-layout"
+import { FinanceLedgerPage } from "@/pages/finance-ledger"
+import { FinanceDashboardPage } from "@/pages/finance-dashboard"
+import { FinancePeoplePage } from "@/pages/finance-people"
+import { FinanceCategoriesPage } from "@/pages/finance-categories"
+import { FinancePaymentMethodsPage } from "@/pages/finance-payment-methods"
 
 export default function App() {
   return (
@@ -25,7 +30,19 @@ export default function App() {
         >
           <Route path="/" element={<DashboardPage />} />
           <Route path="/agenda" element={<HomePage />} />
-          <Route path="/financeiro" element={<FinancePage />} />
+          <Route path="/financeiro" element={<FinanceLayout />}>
+            <Route index element={<FinanceLedgerPage />} />
+            <Route path="dashboard" element={<FinanceDashboardPage />} />
+            <Route path="pessoas" element={<FinancePeoplePage />} />
+            <Route
+              path="cadastros/categorias"
+              element={<FinanceCategoriesPage />}
+            />
+            <Route
+              path="cadastros/formas-de-pagamento"
+              element={<FinancePaymentMethodsPage />}
+            />
+          </Route>
           <Route path="/patients" element={<PatientsPage />} />
           <Route path="/insurances" element={<InsurancesPage />} />
           <Route

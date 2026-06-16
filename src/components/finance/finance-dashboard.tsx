@@ -15,27 +15,21 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
-import type { LedgerEntry, PaymentMethod, Person } from "@/db/types"
+import type {
+  FinanceCategory,
+  LedgerEntry,
+  PaymentMethod,
+  Person,
+} from "@/db/types"
 import { Card, CardContent } from "@/components/ui/card"
 import {
   formatBRL,
-  groupAmount,
   ledgerTotals,
   monthlySeries,
   periodShort,
 } from "@/domain/finance"
+import { colorForKey } from "@/lib/finance-colors"
 import { cn } from "@/lib/utils"
-
-const COLORS = [
-  "hsl(var(--primary))",
-  "hsl(var(--secondary))",
-  "rgb(16, 185, 129)",
-  "rgb(245, 158, 11)",
-  "rgb(244, 63, 94)",
-  "rgb(168, 85, 247)",
-  "rgb(59, 130, 246)",
-  "rgb(20, 184, 166)",
-]
 
 const axisProps = {
   stroke: "hsl(var(--muted-foreground))",
@@ -59,8 +53,11 @@ interface Props {
   entries: LedgerEntry[]
   methodsById: Map<string, PaymentMethod>
   peopleById: Map<string, Person>
+  categoriesById: Map<string, FinanceCategory>
   fromPeriod: string
   toPeriod: string
+  /** Accumulated balance since January of the current year. */
+  accumulated: number
 }
 
 function ChartCard({
@@ -135,8 +132,10 @@ export function FinanceDashboard({
   entries,
   methodsById,
   peopleById,
+  categoriesById,
   fromPeriod,
   toPeriod,
+  accumulated,
 }: Props) {
   const totals = useMemo(() => ledgerTotals(entries), [entries])
 
@@ -163,23 +162,38 @@ export function FinanceDashboard({
   )
 
   const byCategory = useMemo(() => {
-    const m = groupAmount(expenses, (e) => e.categoryName ?? "Sem categoria")
+    const m = new Map<string, { value: number; color: string }>()
+    for (const e of expenses) {
+      const name = e.categoryName ?? "Sem categoria"
+      const color =
+        (e.categoryId ? categoriesById.get(e.categoryId)?.color : null) ??
+        colorForKey(name)
+      const cur = m.get(name)
+      if (cur) cur.value += e.amount
+      else m.set(name, { value: e.amount, color })
+    }
     const arr = [...m.entries()]
-      .map(([name, value]) => ({ name, value }))
+      .map(([name, v]) => ({ name, value: v.value, color: v.color }))
       .sort((a, b) => b.value - a.value)
     if (arr.length <= 8) return arr
     const top = arr.slice(0, 7)
     const rest = arr.slice(7).reduce((s, x) => s + x.value, 0)
-    return [...top, { name: "Outros", value: rest }]
-  }, [expenses])
+    return [...top, { name: "Outros", value: rest, color: colorForKey("Outros") }]
+  }, [expenses, categoriesById])
 
   const byMethod = useMemo(() => {
-    const m = groupAmount(expenses, (e) => e.paymentMethodId)
+    const m = new Map<string, { value: number; color: string }>()
+    for (const e of expenses) {
+      if (!e.paymentMethodId) continue
+      const pm = methodsById.get(e.paymentMethodId)
+      const name = pm?.name ?? "—"
+      const color = pm?.color ?? colorForKey(name)
+      const cur = m.get(name)
+      if (cur) cur.value += e.amount
+      else m.set(name, { value: e.amount, color })
+    }
     return [...m.entries()]
-      .map(([id, value]) => ({
-        name: methodsById.get(id)?.name ?? "—",
-        value,
-      }))
+      .map(([name, v]) => ({ name, value: v.value, color: v.color }))
       .sort((a, b) => b.value - a.value)
   }, [expenses, methodsById])
 
@@ -218,12 +232,17 @@ export function FinanceDashboard({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
         <Stat label="Receitas" value={totals.income} tone="income" />
         <Stat label="Despesas" value={totals.expense} tone="expense" />
         <Stat label="Saldo" value={totals.balance} tone="neutral" />
         <Stat label="A receber" value={totals.receivable} tone="amber" />
         <Stat label="A pagar" value={totals.payable} tone="amber" />
+        <Stat
+          label="Acumulado (desde jan)"
+          value={accumulated}
+          tone="neutral"
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -293,8 +312,8 @@ export function FinanceDashboard({
                 outerRadius={80}
                 paddingAngle={2}
               >
-                {byCategory.map((_, i) => (
-                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                {byCategory.map((d, i) => (
+                  <Cell key={i} fill={d.color} />
                 ))}
               </Pie>
               <Tooltip contentStyle={tooltipStyle} formatter={brl} />
@@ -316,7 +335,11 @@ export function FinanceDashboard({
               <XAxis type="number" {...axisProps} tickFormatter={(v) => `R$${v}`} />
               <YAxis type="category" dataKey="name" width={110} {...axisProps} />
               <Tooltip contentStyle={tooltipStyle} formatter={brl} />
-              <Bar dataKey="value" fill="hsl(var(--secondary))" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                {byMethod.map((d, i) => (
+                  <Cell key={i} fill={d.color} />
+                ))}
+              </Bar>
             </BarChart>
           )}
         </ChartCard>

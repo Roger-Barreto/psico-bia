@@ -1,12 +1,18 @@
 import { useState } from "react"
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
+import { useIsFetching, useQueryClient } from "@tanstack/react-query"
 import {
+  ArrowsClockwiseIcon,
   CalendarBlankIcon,
   CaretDownIcon,
   CaretLeftIcon,
   CaretRightIcon,
+  ChartPieSliceIcon,
+  CreditCardIcon,
   ListIcon,
+  ListBulletsIcon,
   ListChecksIcon,
+  TagIcon,
   UsersThreeIcon,
   SignOutIcon,
   ChartLineIcon,
@@ -53,9 +59,10 @@ type NavItem = {
 }
 
 type NavGroup = {
+  id: string
   label: string
   icon: Icon
-  children: NavItem[]
+  children: NavEntry[]
 }
 
 type NavEntry = NavItem | NavGroup
@@ -67,8 +74,35 @@ function isGroup(e: NavEntry): e is NavGroup {
 const navItems: NavEntry[] = [
   { to: "/", label: "Dashboard", icon: ChartLineIcon, end: true },
   { to: "/agenda", label: "Agenda", icon: CalendarBlankIcon },
-  { to: "/financeiro", label: "Financeiro", icon: WalletIcon },
   {
+    id: "financeiro",
+    label: "Financeiro",
+    icon: WalletIcon,
+    children: [
+      { to: "/financeiro", label: "Lançamentos", icon: ListBulletsIcon, end: true },
+      { to: "/financeiro/dashboard", label: "Dashboard", icon: ChartPieSliceIcon },
+      { to: "/financeiro/pessoas", label: "Pessoas", icon: UsersThreeIcon },
+      {
+        id: "financeiro-cadastros",
+        label: "Cadastros",
+        icon: FolderIcon,
+        children: [
+          {
+            to: "/financeiro/cadastros/categorias",
+            label: "Categorias",
+            icon: TagIcon,
+          },
+          {
+            to: "/financeiro/cadastros/formas-de-pagamento",
+            label: "Formas de pagamento",
+            icon: CreditCardIcon,
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "cadastros",
     label: "Cadastros",
     icon: FolderIcon,
     children: [
@@ -84,7 +118,23 @@ const navItems: NavEntry[] = [
   },
 ]
 
-const cadastrosPaths = ["/patients", "/insurances", "/discharge-reasons", "/checklist"]
+/** Does this entry (or any descendant) match the current pathname? */
+function entryContains(entry: NavEntry, pathname: string): boolean {
+  if (isGroup(entry)) return entry.children.some((c) => entryContains(c, pathname))
+  return entry.end ? pathname === entry.to : pathname.startsWith(entry.to)
+}
+
+/** All group ids, including nested — used to open every group by default. */
+function allGroupIds(entries: NavEntry[]): string[] {
+  const out: string[] = []
+  for (const e of entries) {
+    if (isGroup(e)) {
+      out.push(e.id)
+      out.push(...allGroupIds(e.children))
+    }
+  }
+  return out
+}
 
 /** Top-level destinations shown in the mobile bottom tab bar. */
 const bottomTabs: NavItem[] = [
@@ -143,6 +193,8 @@ export function AppShell() {
 
             <div className="flex-1" />
 
+            <RefreshButton />
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-3 rounded-full p-1 pr-3 transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -199,6 +251,29 @@ export function AppShell() {
       <BottomTabBar onOpenMenu={() => setMobileNavOpen(true)} />
       <ProfileDrawer open={profileOpen} onOpenChange={setProfileOpen} />
     </div>
+  )
+}
+
+/** Refetch all data without a full page reload. Spins while any query is fetching. */
+function RefreshButton() {
+  const qc = useQueryClient()
+  const fetching = useIsFetching() > 0
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        qc.invalidateQueries()
+      }}
+      disabled={fetching}
+      className="grid size-10 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+      aria-label="Atualizar dados"
+      title="Atualizar dados"
+    >
+      <ArrowsClockwiseIcon
+        weight="bold"
+        className={cn("size-5", fetching && "animate-spin")}
+      />
+    </button>
   )
 }
 
@@ -273,9 +348,14 @@ function SidebarNav({
   onNavigate?: () => void
 }) {
   const location = useLocation()
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => ({
-    Cadastros: cadastrosPaths.some((p) => location.pathname.startsWith(p)),
-  }))
+  // Groups start expanded so every destination is visible on first paint.
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
+    const o: Record<string, boolean> = {}
+    for (const id of allGroupIds(navItems)) o[id] = true
+    return o
+  })
+  const toggle = (id: string) =>
+    setOpenGroups((s) => ({ ...s, [id]: !(s[id] ?? true) }))
 
   return (
     <nav
@@ -285,79 +365,115 @@ function SidebarNav({
       )}
     >
       {navItems.map((entry) => {
-        if (!isGroup(entry)) {
-          return (
-            <SidebarLink
-              key={entry.to}
-              item={entry}
-              collapsed={collapsed}
-              onNavigate={onNavigate}
-            />
-          )
-        }
-
         if (collapsed) {
-          return (
+          return isGroup(entry) ? (
             <CollapsedGroup
-              key={entry.label}
+              key={entry.id}
               group={entry}
               onNavigate={onNavigate}
             />
+          ) : (
+            <SidebarLink
+              key={entry.to}
+              item={entry}
+              collapsed
+              onNavigate={onNavigate}
+            />
           )
         }
-
-        const open = openGroups[entry.label] ?? false
-        const Icon = entry.icon
-        const groupActive = entry.children.some((c) =>
-          location.pathname.startsWith(c.to),
-        )
         return (
-          <div key={entry.label}>
-            <button
-              type="button"
-              onClick={() =>
-                setOpenGroups((s) => ({ ...s, [entry.label]: !open }))
-              }
-              className={cn(
-                "group relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
-                groupActive
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
-              )}
-            >
-              <Icon
-                weight="fill"
-                className={cn(
-                  "size-5 shrink-0",
-                  groupActive ? "text-primary" : "text-muted-foreground",
-                )}
-              />
-              <span className="flex-1 text-left">{entry.label}</span>
-              <CaretDownIcon
-                weight="bold"
-                className={cn(
-                  "size-3.5 transition-transform",
-                  open ? "rotate-0" : "-rotate-90",
-                )}
-              />
-            </button>
-            {open && (
-              <div className="ml-3 mt-1 space-y-1 border-l border-border/60 pl-2">
-                {entry.children.map((c) => (
-                  <SidebarLink
-                    key={c.to}
-                    item={c}
-                    compact
-                    collapsed={false}
-                    onNavigate={onNavigate}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
+          <ExpandedEntry
+            key={isGroup(entry) ? entry.id : entry.to}
+            entry={entry}
+            depth={0}
+            pathname={location.pathname}
+            openGroups={openGroups}
+            toggle={toggle}
+            onNavigate={onNavigate}
+          />
         )
       })}
     </nav>
+  )
+}
+
+/** Expanded-sidebar entry, recursive so groups can nest (Financeiro › Cadastros). */
+function ExpandedEntry({
+  entry,
+  depth,
+  pathname,
+  openGroups,
+  toggle,
+  onNavigate,
+}: {
+  entry: NavEntry
+  depth: number
+  pathname: string
+  openGroups: Record<string, boolean>
+  toggle: (id: string) => void
+  onNavigate?: () => void
+}) {
+  if (!isGroup(entry)) {
+    return (
+      <SidebarLink
+        item={entry}
+        compact={depth > 0}
+        collapsed={false}
+        onNavigate={onNavigate}
+      />
+    )
+  }
+
+  const open = openGroups[entry.id] ?? true
+  const Icon = entry.icon
+  const active = entry.children.some((c) => entryContains(c, pathname))
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => toggle(entry.id)}
+        className={cn(
+          "group relative flex w-full items-center gap-3 rounded-lg px-3 font-medium transition-all",
+          depth > 0 ? "py-2 text-sm" : "py-2.5 text-sm",
+          active
+            ? "text-foreground"
+            : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+        )}
+      >
+        <Icon
+          weight="fill"
+          className={cn(
+            "shrink-0",
+            depth > 0 ? "size-4" : "size-5",
+            active ? "text-primary" : "text-muted-foreground",
+          )}
+        />
+        <span className="flex-1 text-left">{entry.label}</span>
+        <CaretDownIcon
+          weight="bold"
+          className={cn(
+            "size-3.5 transition-transform",
+            open ? "rotate-0" : "-rotate-90",
+          )}
+        />
+      </button>
+      {open && (
+        <div className="ml-3 mt-1 space-y-1 border-l border-border/60 pl-2">
+          {entry.children.map((c) => (
+            <ExpandedEntry
+              key={isGroup(c) ? c.id : c.to}
+              entry={c}
+              depth={depth + 1}
+              pathname={pathname}
+              openGroups={openGroups}
+              toggle={toggle}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -372,7 +488,7 @@ function CollapsedGroup({
   const location = useLocation()
   const Icon = group.icon
   const groupActive = group.children.some((c) =>
-    location.pathname.startsWith(c.to),
+    entryContains(c, location.pathname),
   )
   return (
     <Popover>
@@ -396,19 +512,39 @@ function CollapsedGroup({
           />
         </button>
       </PopoverTrigger>
-      <PopoverContent side="right" align="start" className="w-56 p-1.5">
+      <PopoverContent side="right" align="start" className="w-60 p-1.5">
         <p className="px-2 py-1 text-xs font-medium text-muted-foreground">
           {group.label}
         </p>
-        {group.children.map((c) => (
-          <SidebarLink
-            key={c.to}
-            item={c}
-            compact
-            collapsed={false}
-            onNavigate={onNavigate}
-          />
-        ))}
+        {group.children.map((c) =>
+          isGroup(c) ? (
+            <div key={c.id} className="mt-1">
+              <p className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                {c.label}
+              </p>
+              {c.children.map(
+                (cc) =>
+                  !isGroup(cc) && (
+                    <SidebarLink
+                      key={cc.to}
+                      item={cc}
+                      compact
+                      collapsed={false}
+                      onNavigate={onNavigate}
+                    />
+                  ),
+              )}
+            </div>
+          ) : (
+            <SidebarLink
+              key={c.to}
+              item={c}
+              compact
+              collapsed={false}
+              onNavigate={onNavigate}
+            />
+          ),
+        )}
       </PopoverContent>
     </Popover>
   )

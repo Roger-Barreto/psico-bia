@@ -113,6 +113,7 @@ export interface Person {
   id: string
   name: string
   notes: string | null
+  avatarId: number
   active: boolean
   createdAt: string
 }
@@ -129,6 +130,7 @@ export interface PaymentMethod {
   id: string
   name: string
   isLoan: boolean
+  color: string | null
   active: boolean
   createdAt: string
 }

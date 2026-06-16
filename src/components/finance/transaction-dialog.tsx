@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import {
   Dialog,
@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { MoneyInput, parseMoney } from "@/components/ui/money-input"
 import { DatePicker } from "@/components/ui/date-picker"
 import { AddableSelect } from "@/components/finance/addable-select"
 import {
@@ -23,10 +24,10 @@ import {
   useFinanceCategories,
   usePaymentMethods,
   usePeople,
+  useUpdateTransaction,
 } from "@/api/queries"
-import type { FinanceScope, TransactionKind } from "@/db/types"
+import type { FinanceScope, LedgerEntry, TransactionKind } from "@/db/types"
 import {
-  formatBRL,
   installmentDates,
   periodOf,
   splitInstallments,
@@ -41,10 +42,16 @@ interface Props {
   open: boolean
   onOpenChange: (v: boolean) => void
   viewPeriod: string // currently viewed YYYY-MM (for recurring materialization)
+  /** When set, the dialog edits this manual launch instead of creating one. */
+  editing?: LedgerEntry | null
 }
 
-function parseAmount(s: string): number {
-  return Number(s.replace(/\./g, "").replace(",", ".")) || Number(s) || 0
+/** number → "1.234,56" */
+function formatMoneyValue(n: number): string {
+  return n.toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
 }
 
 function Segmented<T extends string>({
@@ -103,7 +110,14 @@ function Field({
   )
 }
 
-export function TransactionDialog({ open, onOpenChange, viewPeriod }: Props) {
+export function TransactionDialog({
+  open,
+  onOpenChange,
+  viewPeriod,
+  editing,
+}: Props) {
+  const isEdit = !!editing
+
   const categoriesQ = useFinanceCategories()
   const methodsQ = usePaymentMethods()
   const peopleQ = usePeople()
@@ -113,6 +127,7 @@ export function TransactionDialog({ open, onOpenChange, viewPeriod }: Props) {
   const createPerson = useCreatePerson()
 
   const createTx = useCreateTransaction()
+  const updateTx = useUpdateTransaction()
   const createInstallments = useCreateInstallments()
   const createLoanGranted = useCreateLoanGranted()
   const createRule = useCreateRecurringRule()
@@ -137,34 +152,49 @@ export function TransactionDialog({ open, onOpenChange, viewPeriod }: Props) {
   const [outflowMethodId, setOutflowMethodId] = useState<string | null>(null)
   const [outflowCategoryId, setOutflowCategoryId] = useState<string | null>(null)
 
+  // Prefill (edit) or reset (create) whenever the dialog opens.
+  useEffect(() => {
+    if (!open) return
+    if (editing) {
+      setKind(editing.kind)
+      setScope(editing.scope)
+      setDescription(editing.description)
+      setAmount(formatMoneyValue(editing.amount))
+      setDate(editing.date)
+      setCategoryId(editing.categoryId)
+      setMethodId(editing.paymentMethodId)
+      setPersonId(editing.personId)
+      setSettled(editing.settled)
+      setMode("single")
+    } else {
+      setKind("expense")
+      setScope("personal")
+      setDescription("")
+      setAmount("")
+      setDate(todayISO())
+      setCategoryId(null)
+      setMethodId(null)
+      setPersonId(null)
+      setSettled(true)
+      setMode("single")
+      setInstallments("2")
+      setWithOutflow(true)
+      setOutflowMethodId(null)
+      setOutflowCategoryId(null)
+    }
+  }, [open, editing])
+
   const selectedMethod = methods.find((m) => m.id === methodId)
   const isLoan = selectedMethod?.isLoan ?? false
-  const amountNum = parseAmount(amount)
+  const amountNum = parseMoney(amount)
   const nInst = Math.max(2, Math.min(360, Number(installments) || 2))
 
-  const isLoanGranted = kind === "income" && isLoan && withOutflow
+  const isLoanGranted = !isEdit && kind === "income" && isLoan && withOutflow
 
   const installmentPreview = useMemo(() => {
     if (mode !== "installment" || amountNum <= 0) return null
     return splitInstallments(amountNum, nInst)[0]
   }, [mode, amountNum, nInst])
-
-  function reset() {
-    setKind("expense")
-    setScope("personal")
-    setDescription("")
-    setAmount("")
-    setDate(todayISO())
-    setCategoryId(null)
-    setMethodId(null)
-    setPersonId(null)
-    setSettled(true)
-    setMode("single")
-    setInstallments("2")
-    setWithOutflow(true)
-    setOutflowMethodId(null)
-    setOutflowCategoryId(null)
-  }
 
   function close() {
     onOpenChange(false)
@@ -172,6 +202,7 @@ export function TransactionDialog({ open, onOpenChange, viewPeriod }: Props) {
 
   const busy =
     createTx.isPending ||
+    updateTx.isPending ||
     createInstallments.isPending ||
     createLoanGranted.isPending ||
     createRule.isPending
@@ -180,11 +211,31 @@ export function TransactionDialog({ open, onOpenChange, viewPeriod }: Props) {
     if (!description.trim()) return toast.error("Informe uma descrição")
     if (amountNum <= 0) return toast.error("Informe um valor válido")
     if (!date) return toast.error("Selecione a data")
-    if (isLoan && !personId)
-      return toast.error("Empréstimo exige uma pessoa")
+    if (isLoan && !personId) return toast.error("Empréstimo exige uma pessoa")
 
     try {
-      if (isLoanGranted) {
+      if (isEdit) {
+        await updateTx.mutateAsync({
+          id: editing!.id,
+          patch: {
+            kind,
+            scope,
+            description: description.trim(),
+            amount: amountNum,
+            date,
+            categoryId,
+            paymentMethodId: methodId,
+            personId: isLoan ? personId : null,
+            settled,
+            settledAt: settled
+              ? editing!.settled
+                ? editing!.settledAt
+                : new Date().toISOString()
+              : null,
+          },
+        })
+        toast.success("Lançamento atualizado")
+      } else if (isLoanGranted) {
         // case 3b: cash outflow (expense) + receivable (income/loan)
         if (!methodId) return
         await createLoanGranted.mutateAsync({
@@ -227,8 +278,7 @@ export function TransactionDialog({ open, onOpenChange, viewPeriod }: Props) {
           personId: isLoan ? personId : null,
           dayOfMonth,
           startPeriod: periodOf(date),
-          untilPeriod:
-            viewPeriod > todayPeriod() ? viewPeriod : todayPeriod(),
+          untilPeriod: viewPeriod > todayPeriod() ? viewPeriod : todayPeriod(),
         })
         toast.success("Recorrência criada")
       } else {
@@ -245,7 +295,6 @@ export function TransactionDialog({ open, onOpenChange, viewPeriod }: Props) {
         })
         toast.success(kind === "income" ? "Receita criada" : "Despesa criada")
       }
-      reset()
       close()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao salvar")
@@ -253,16 +302,12 @@ export function TransactionDialog({ open, onOpenChange, viewPeriod }: Props) {
   }
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(v) => {
-        if (!v) reset()
-        onOpenChange(v)
-      }}
-    >
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Novo lançamento</DialogTitle>
+          <DialogTitle>
+            {isEdit ? "Editar lançamento" : "Novo lançamento"}
+          </DialogTitle>
           <DialogDescription>
             A data define o mês de competência do valor.
           </DialogDescription>
@@ -300,13 +345,8 @@ export function TransactionDialog({ open, onOpenChange, viewPeriod }: Props) {
           </Field>
 
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Valor (R$)">
-              <Input
-                inputMode="decimal"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="0,00"
-              />
+            <Field label="Valor">
+              <MoneyInput value={amount} onChange={setAmount} />
             </Field>
             <Field label="Data (competência)">
               <DatePicker value={date} onChange={setDate} />
@@ -342,7 +382,8 @@ export function TransactionDialog({ open, onOpenChange, viewPeriod }: Props) {
               onChange={(id) => {
                 setMethodId(id)
                 // a loan starts outstanding (not yet paid back/received)
-                if (methods.find((m) => m.id === id)?.isLoan) setSettled(false)
+                if (!isEdit && methods.find((m) => m.id === id)?.isLoan)
+                  setSettled(false)
               }}
               options={methods}
               placeholder="Selecionar forma"
@@ -371,7 +412,7 @@ export function TransactionDialog({ open, onOpenChange, viewPeriod }: Props) {
           )}
 
           {/* Loan granted — record the real cash outflow too (case 3b) */}
-          {kind === "income" && isLoan && (
+          {!isEdit && kind === "income" && isLoan && (
             <div className="space-y-3 rounded-lg border border-border/60 bg-muted/20 p-3">
               <label className="flex cursor-pointer items-center gap-2 text-sm">
                 <input
@@ -415,8 +456,8 @@ export function TransactionDialog({ open, onOpenChange, viewPeriod }: Props) {
             </div>
           )}
 
-          {/* Recurrence / installments (not available for loan-granted) */}
-          {!isLoanGranted && (
+          {/* Recurrence / installments — only when creating */}
+          {!isEdit && !isLoanGranted && (
             <Field label="Repetição">
               <Segmented
                 value={mode}
@@ -430,7 +471,7 @@ export function TransactionDialog({ open, onOpenChange, viewPeriod }: Props) {
             </Field>
           )}
 
-          {mode === "installment" && !isLoanGranted && (
+          {!isEdit && mode === "installment" && !isLoanGranted && (
             <div className="grid grid-cols-2 items-end gap-3">
               <Field label="Nº de parcelas">
                 <Input
@@ -443,20 +484,20 @@ export function TransactionDialog({ open, onOpenChange, viewPeriod }: Props) {
               </Field>
               <p className="pb-2.5 text-sm text-muted-foreground">
                 {installmentPreview != null
-                  ? `${nInst}× de ${formatBRL(installmentPreview)}`
+                  ? `${nInst}× de ${formatMoneyValue(installmentPreview)}`
                   : "—"}
               </p>
             </div>
           )}
 
-          {mode === "recurring" && !isLoanGranted && (
+          {!isEdit && mode === "recurring" && !isLoanGranted && (
             <p className="text-xs text-muted-foreground">
               Repete todo mês no dia {Number(date.split("-")[2])} até ser
               cancelada.
             </p>
           )}
 
-          {mode === "single" && !isLoanGranted && (
+          {(isEdit || (mode === "single" && !isLoanGranted)) && (
             <label className="flex cursor-pointer items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -473,7 +514,7 @@ export function TransactionDialog({ open, onOpenChange, viewPeriod }: Props) {
           <Button variant="ghost" onClick={close}>
             Cancelar
           </Button>
-          <Button onClick={submit} disabled={busy}>
+          <Button onClick={submit} loading={busy}>
             Salvar
           </Button>
         </DialogFooter>

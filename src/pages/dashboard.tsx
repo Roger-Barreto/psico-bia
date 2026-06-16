@@ -14,7 +14,9 @@ import {
   useDischargeReasons,
   useInsurances,
   usePatients,
+  usePaymentMethods,
 } from "@/api/queries"
+import { colorForKey } from "@/lib/finance-colors"
 import { pendencyBreakdown } from "@/domain/pendencies"
 import {
   endOfMonth,
@@ -32,6 +34,7 @@ import {
   CategoryPie,
   ChartCard,
   MonthlyRevenueChart,
+  PaymentMethodPie,
   RevenueByDayChart,
   TopPatientsChart,
 } from "@/components/dashboard/charts"
@@ -99,6 +102,7 @@ export function DashboardPage() {
   const seriesQ = useAppointmentSeries()
   const insurancesQ = useInsurances()
   const reasonsQ = useDischargeReasons()
+  const methodsQ = usePaymentMethods()
 
   const longRangeStart = useMemo(() => {
     let m = month - 11
@@ -396,6 +400,31 @@ export function DashboardPage() {
     ]
   }, [appts, today])
 
+  // ── Payment methods by patients (paid sessions in the month) ──
+  const paymentByMethod = useMemo(() => {
+    const methodsById = new Map(
+      (methodsQ.data ?? []).map((m) => [m.id, m] as const),
+    )
+    const byMethod = new Map<string, Set<string>>()
+    for (const a of appts) {
+      if (!a.paid || !a.paymentMethodId) continue
+      const set = byMethod.get(a.paymentMethodId) ?? new Set<string>()
+      set.add(a.patientId)
+      byMethod.set(a.paymentMethodId, set)
+    }
+    return Array.from(byMethod.entries())
+      .map(([id, patientsSet]) => {
+        const pm = methodsById.get(id)
+        const name = pm?.name ?? "—"
+        return {
+          name,
+          value: patientsSet.size,
+          color: pm?.color ?? colorForKey(name),
+        }
+      })
+      .sort((a, b) => b.value - a.value)
+  }, [appts, methodsQ.data])
+
   // ── Top patients ─────────────────────────────────────────
   const topPatients = useMemo(() => {
     const counts = new Map<string, number>()
@@ -622,7 +651,7 @@ export function DashboardPage() {
         />
       </div>
 
-      <div className="grid gap-3 @3xl:grid-cols-2 [&>*]:min-w-0">
+      <div className="grid gap-3 @3xl:grid-cols-2 @6xl:grid-cols-3 [&>*]:min-w-0">
         <ChartCard
           title="Faturamento por dia"
           subtitle="Sessões pagas no mês"
@@ -634,6 +663,12 @@ export function DashboardPage() {
           subtitle="Atendidos x Faltas x Pendentes"
         >
           <CategoryPie data={statusPie} />
+        </ChartCard>
+        <ChartCard
+          title="Formas de pagamento por pacientes"
+          subtitle="Pacientes que pagaram no mês"
+        >
+          <PaymentMethodPie data={paymentByMethod} />
         </ChartCard>
       </div>
 
