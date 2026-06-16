@@ -217,12 +217,12 @@ function PersonDetail({
 }) {
   const ledgerQ = usePersonLedger(personId)
   const all = ledgerQ.data ?? []
-  // Open balance is cumulative (all-time); the list is the selected month.
-  const bal = personBalance(all)
+  // Both the totals and the list are scoped to the selected month.
   const monthEntries = useMemo(
     () => all.filter((e) => periodOf(e.date) === period),
     [all, period],
   )
+  const bal = personBalance(monthEntries)
 
   return (
     <div className="space-y-4">
