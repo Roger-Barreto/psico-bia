@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { PlusIcon } from "@phosphor-icons/react"
+import { MagnifyingGlassIcon, PlusIcon } from "@phosphor-icons/react"
 import {
   useEnsureRecurring,
   useFinanceCategories,
@@ -17,6 +17,7 @@ import {
 } from "@/domain/finance"
 import { Breadcrumbs } from "@/components/breadcrumbs"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { MonthNav } from "@/components/finance/month-nav"
 import { TransactionDialog } from "@/components/finance/transaction-dialog"
@@ -25,6 +26,7 @@ import { cn } from "@/lib/utils"
 
 export function FinanceLedgerPage() {
   const [period, setPeriod] = useState(todayPeriod())
+  const [query, setQuery] = useState("")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<LedgerEntry | null>(null)
 
@@ -105,6 +107,19 @@ export function FinanceLedgerPage() {
           </CardContent>
         </Card>
 
+        <div className="relative">
+          <MagnifyingGlassIcon
+            weight="fill"
+            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            placeholder="Buscar por descrição, valor, categoria, data…"
+            className="pl-9"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+
         {ledgerQ.isLoading ? (
           <p className="py-8 text-center text-sm text-muted-foreground">
             Carregando…
@@ -115,6 +130,7 @@ export function FinanceLedgerPage() {
             methodsById={methodsById}
             peopleById={peopleById}
             categoriesById={categoriesById}
+            query={query}
             onEdit={openEdit}
           />
         )}

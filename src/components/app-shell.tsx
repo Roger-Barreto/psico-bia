@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
 import { useIsFetching, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowsClockwiseIcon,
+  ArrowClockwiseIcon,
   CalendarBlankIcon,
   CaretDownIcon,
   CaretLeftIcon,
@@ -195,6 +196,8 @@ export function AppShell() {
 
             <RefreshButton />
 
+            <SystemUpdateButton />
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-3 rounded-full p-1 pr-3 transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -273,6 +276,49 @@ function RefreshButton() {
         weight="bold"
         className={cn("size-5", fetching && "animate-spin")}
       />
+    </button>
+  )
+}
+
+/**
+ * Hard reload like Ctrl+F5: clears Cache Storage + service workers, then
+ * reloads from network with a cache-busting query param.
+ */
+function SystemUpdateButton() {
+  const [busy, setBusy] = useState(false)
+  const hardReload = async () => {
+    setBusy(true)
+    try {
+      if ("caches" in window) {
+        const keys = await caches.keys()
+        await Promise.all(keys.map((k) => caches.delete(k)))
+      }
+      if ("serviceWorker" in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations()
+        await Promise.all(regs.map((r) => r.unregister()))
+      }
+    } catch {
+      // ignore — reload regardless
+    } finally {
+      const url = new URL(window.location.href)
+      url.searchParams.set("_", Date.now().toString())
+      window.location.replace(url.toString())
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={hardReload}
+      disabled={busy}
+      className="flex h-10 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+      aria-label="Atualizar sistema"
+      title="Recarrega a página inteira limpando o cache (Ctrl+F5)"
+    >
+      <ArrowClockwiseIcon
+        weight="bold"
+        className={cn("size-5", busy && "animate-spin")}
+      />
+      <span className="hidden sm:inline">Atualizar sistema</span>
     </button>
   )
 }

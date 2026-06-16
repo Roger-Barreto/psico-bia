@@ -1,16 +1,23 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   DotsThreeVerticalIcon,
   HandCoinsIcon,
+  MagnifyingGlassIcon,
   PencilSimpleIcon,
   PlusIcon,
   TrashIcon,
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
-import type { LedgerEntry, PaymentMethod, Person } from "@/db/types"
+import type {
+  FinanceCategory,
+  LedgerEntry,
+  PaymentMethod,
+  Person,
+} from "@/db/types"
 import {
   countFinanceUsage,
   useDeletePerson,
+  useFinanceCategories,
   usePaymentMethods,
   usePeople,
   usePersonLedger,
@@ -22,14 +29,16 @@ import {
   personBalance,
   todayPeriod,
 } from "@/domain/finance"
-import { formatDateBR } from "@/domain/dates"
 import { Breadcrumbs } from "@/components/breadcrumbs"
 import { PatientAvatar } from "@/components/patient/patient-avatar"
 import { MonthNav } from "@/components/finance/month-nav"
 import { PersonDialog } from "@/components/finance/person-dialog"
+import { TransactionDialog } from "@/components/finance/transaction-dialog"
+import { TransactionList } from "@/components/finance/transaction-list"
 import { ConfirmDeleteDialog } from "@/components/finance/confirm-delete-dialog"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,6 +50,7 @@ import { cn } from "@/lib/utils"
 export function FinancePeoplePage() {
   const peopleQ = usePeople()
   const methodsQ = usePaymentMethods()
+  const categoriesQ = useFinanceCategories()
   const deletePerson = useDeletePerson()
   const [selected, setSelected] = useState<string | null>(null)
   const [period, setPeriod] = useState(todayPeriod())
@@ -48,14 +58,32 @@ export function FinancePeoplePage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Person | null>(null)
 
+  // Edit a launch from the person's ledger (same dialog as Lançamentos).
+  const [txOpen, setTxOpen] = useState(false)
+  const [txEditing, setTxEditing] = useState<LedgerEntry | null>(null)
+
   const [deleting, setDeleting] = useState<Person | null>(null)
   const [deleteCount, setDeleteCount] = useState(0)
   const [deleteBusy, setDeleteBusy] = useState(false)
 
   const people = (peopleQ.data ?? []).filter((p) => p.active)
-  const methodsById = new Map(
-    (methodsQ.data ?? []).map((m) => [m.id, m] as const),
+  const methodsById = useMemo(
+    () => new Map((methodsQ.data ?? []).map((m) => [m.id, m] as const)),
+    [methodsQ.data],
   )
+  const peopleById = useMemo(
+    () => new Map((peopleQ.data ?? []).map((p) => [p.id, p] as const)),
+    [peopleQ.data],
+  )
+  const categoriesById = useMemo(
+    () => new Map((categoriesQ.data ?? []).map((c) => [c.id, c] as const)),
+    [categoriesQ.data],
+  )
+
+  // Auto-select the first person on entry (and after a deletion clears it).
+  useEffect(() => {
+    if (!selected && people.length > 0) setSelected(people[0].id)
+  }, [people, selected])
 
   function openNew() {
     setEditing(null)
@@ -64,6 +92,10 @@ export function FinancePeoplePage() {
   function openEdit(p: Person) {
     setEditing(p)
     setDialogOpen(true)
+  }
+  function openEditTx(entry: LedgerEntry) {
+    setTxEditing(entry)
+    setTxOpen(true)
   }
   async function askDelete(p: Person) {
     setDeleting(p)
@@ -173,9 +205,13 @@ export function FinancePeoplePage() {
         <div>
           {selected ? (
             <PersonDetail
+              key={selected}
               personId={selected}
               methodsById={methodsById}
+              peopleById={peopleById}
+              categoriesById={categoriesById}
               period={period}
+              onEditTx={openEditTx}
             />
           ) : (
             <Card>
@@ -194,6 +230,12 @@ export function FinancePeoplePage() {
         editing={editing}
         onCreated={(id) => setSelected(id)}
       />
+      <TransactionDialog
+        open={txOpen}
+        onOpenChange={setTxOpen}
+        viewPeriod={period}
+        editing={txEditing}
+      />
       <ConfirmDeleteDialog
         open={!!deleting}
         onOpenChange={(v) => !v && setDeleting(null)}
@@ -209,14 +251,21 @@ export function FinancePeoplePage() {
 function PersonDetail({
   personId,
   methodsById,
+  peopleById,
+  categoriesById,
   period,
+  onEditTx,
 }: {
   personId: string
   methodsById: Map<string, PaymentMethod>
+  peopleById: Map<string, Person>
+  categoriesById: Map<string, FinanceCategory>
   period: string
+  onEditTx: (entry: LedgerEntry) => void
 }) {
   const ledgerQ = usePersonLedger(personId)
   const all = ledgerQ.data ?? []
+  const [query, setQuery] = useState("")
   // Both the totals and the list are scoped to the selected month.
   const monthEntries = useMemo(
     () => all.filter((e) => periodOf(e.date) === period),
@@ -257,70 +306,31 @@ function PersonDetail({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent className="p-4">
-          <p className="mb-3 text-sm font-semibold">
-            Movimentações de {periodLabel(period)}
-          </p>
-          {monthEntries.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              Nenhuma movimentação neste mês.
-            </p>
-          ) : (
-            <div className="space-y-1.5">
-              {monthEntries.map((e) => (
-                <PersonRow
-                  key={e.id}
-                  entry={e}
-                  method={
-                    e.paymentMethodId
-                      ? methodsById.get(e.paymentMethodId)
-                      : undefined
-                  }
-                />
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
-
-function PersonRow({
-  entry: e,
-  method,
-}: {
-  entry: LedgerEntry
-  method?: PaymentMethod
-}) {
-  const income = e.kind === "income"
-  return (
-    <div className="flex items-center gap-3 rounded-lg border border-border/50 bg-card/40 px-3 py-2">
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">
-          {e.description}
-          {e.installmentTotal ? (
-            <span className="ml-1.5 rounded bg-muted/50 px-1 text-[10px] text-muted-foreground">
-              {e.installmentNo}/{e.installmentTotal}
-            </span>
-          ) : null}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {formatDateBR(e.date)}
-          {method ? ` · ${method.name}` : ""} ·{" "}
-          {e.settled ? "quitado" : income ? "a receber" : "a pagar"}
-        </p>
+      <div className="flex items-center justify-between gap-3 px-1">
+        <p className="text-sm font-semibold">Lançamentos de {periodLabel(period)}</p>
       </div>
-      <p
-        className={cn(
-          "shrink-0 text-sm font-semibold tabular-nums",
-          income ? "text-emerald-300" : "text-rose-300",
-        )}
-      >
-        {income ? "+" : "−"}
-        {formatBRL(e.amount)}
-      </p>
+
+      <div className="relative">
+        <MagnifyingGlassIcon
+          weight="fill"
+          className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+        />
+        <Input
+          placeholder="Buscar por descrição, valor, categoria, data…"
+          className="pl-9"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
+
+      <TransactionList
+        entries={monthEntries}
+        methodsById={methodsById}
+        peopleById={peopleById}
+        categoriesById={categoriesById}
+        query={query}
+        onEdit={onEditTx}
+      />
     </div>
   )
 }

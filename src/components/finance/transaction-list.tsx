@@ -21,7 +21,7 @@ import {
   useDeleteTransaction,
   useSetTransactionSettled,
 } from "@/api/queries"
-import { formatBRL, signedAmount } from "@/domain/finance"
+import { formatBRL, matchesLedgerQuery, signedAmount } from "@/domain/finance"
 import { formatLongDateBR } from "@/domain/dates"
 import { colorForKey } from "@/lib/finance-colors"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
@@ -40,6 +40,8 @@ interface Props {
   methodsById: Map<string, PaymentMethod>
   peopleById: Map<string, Person>
   categoriesById?: Map<string, FinanceCategory>
+  /** Free-text filter over every field (description, value, tags, date…). */
+  query?: string
   onEdit?: (entry: LedgerEntry) => void
 }
 
@@ -48,6 +50,7 @@ export function TransactionList({
   methodsById,
   peopleById,
   categoriesById,
+  query,
   onEdit,
 }: Props) {
   const setSettled = useSetTransactionSettled()
@@ -60,14 +63,28 @@ export function TransactionList({
     ? (del.variables as string | undefined)
     : undefined
 
-  if (entries.length === 0) {
+  const q = query?.trim() ?? ""
+  const filtered = q
+    ? entries.filter((e) =>
+        matchesLedgerQuery(e, q, {
+          method: e.paymentMethodId
+            ? methodsById.get(e.paymentMethodId)?.name
+            : undefined,
+          person: e.personId ? peopleById.get(e.personId)?.name : undefined,
+        }),
+      )
+    : entries
+
+  if (filtered.length === 0) {
     return (
       <div className="grid place-items-center gap-2 rounded-xl border border-dashed border-border/60 py-14 text-center">
         <p className="text-sm font-medium text-muted-foreground">
-          Nenhum lançamento neste mês.
+          {q ? "Nenhum lançamento encontrado." : "Nenhum lançamento neste mês."}
         </p>
         <p className="text-xs text-muted-foreground/70">
-          Use “Novo lançamento” para adicionar uma receita ou despesa.
+          {q
+            ? "Tente outros termos de busca."
+            : "Use “Novo lançamento” para adicionar uma receita ou despesa."}
         </p>
       </div>
     )
@@ -75,7 +92,7 @@ export function TransactionList({
 
   // group by day (descending)
   const byDay = new Map<string, LedgerEntry[]>()
-  for (const e of entries) {
+  for (const e of filtered) {
     const arr = byDay.get(e.date) ?? []
     arr.push(e)
     byDay.set(e.date, arr)

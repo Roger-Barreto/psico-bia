@@ -4,7 +4,7 @@ import type {
   Patient,
   TransactionKind,
 } from "@/db/types"
-import { todayISO } from "@/domain/dates"
+import { formatDateBR, formatLongDateBR, todayISO } from "@/domain/dates"
 
 export function effectiveValue(
   appt: Appointment,
@@ -251,4 +251,61 @@ export function personBalance(entries: LedgerEntry[]): PersonBalance {
     else payable += e.amount
   }
   return { receivable, payable, net: receivable - payable }
+}
+
+// ════════════════════════════════════════════════════════════════
+// Ledger search — accent-insensitive, multi-token over every field
+// ════════════════════════════════════════════════════════════════
+
+/** Lowercase + strip diacritics so "Clínica" matches "clinica". */
+function foldText(s: string): string {
+  // U+0300–U+036F = combining diacritical marks split out by NFD.
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+}
+
+/**
+ * Full searchable text of a ledger entry: description, value, category,
+ * payment method, person, date, scope and settlement status. The caller
+ * resolves method/person names (it holds the lookup maps).
+ */
+export function ledgerSearchText(
+  e: LedgerEntry,
+  parts: { method?: string; person?: string } = {},
+): string {
+  const income = e.kind === "income"
+  const status = e.settled
+    ? income
+      ? "recebido quitado"
+      : "pago quitado"
+    : income
+      ? "a receber pendente"
+      : "a pagar pendente"
+  const bits = [
+    e.description,
+    e.categoryName ?? "sem categoria",
+    parts.method ?? "",
+    parts.person ?? "",
+    e.scope === "clinic" ? "clínica pj" : "pessoal pf",
+    income ? "receita entrada" : "despesa saída",
+    status,
+    formatBRL(e.amount),
+    String(e.amount),
+    formatLongDateBR(e.date),
+    formatDateBR(e.date),
+    e.date,
+    e.installmentTotal ? `${e.installmentNo}/${e.installmentTotal}` : "",
+  ]
+  return foldText(bits.join(" "))
+}
+
+/** True when every whitespace-separated token of `query` is present. */
+export function matchesLedgerQuery(
+  e: LedgerEntry,
+  query: string,
+  parts: { method?: string; person?: string } = {},
+): boolean {
+  const q = foldText(query.trim())
+  if (!q) return true
+  const hay = ledgerSearchText(e, parts)
+  return q.split(/\s+/).every((tok) => hay.includes(tok))
 }
