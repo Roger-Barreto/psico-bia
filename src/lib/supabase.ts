@@ -19,6 +19,9 @@ export const supabase = createClient(url, anonKey, {
 
 export const DOCS_BUCKET = "patient-documents"
 
+/** Bucket público de capas de livros (módulo Leituras). Escrita restrita ao dono. */
+export const COVERS_BUCKET = "book-covers"
+
 /**
  * Returns the current user's id, or throws if there's no session.
  * Used to build per-user Storage paths so RLS (which keys off the first

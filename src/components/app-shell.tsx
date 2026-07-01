@@ -4,6 +4,8 @@ import { useIsFetching, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowsClockwiseIcon,
   ArrowClockwiseIcon,
+  BookOpenIcon,
+  BooksIcon,
   CalendarBlankIcon,
   CaretDownIcon,
   CaretLeftIcon,
@@ -100,6 +102,15 @@ const navItems: NavEntry[] = [
           },
         ],
       },
+    ],
+  },
+  {
+    id: "leituras",
+    label: "Leituras",
+    icon: BookOpenIcon,
+    children: [
+      { to: "/leituras", label: "Track", icon: BooksIcon, end: true },
+      { to: "/leituras/dashboard", label: "Dashboard", icon: ChartLineIcon },
     ],
   },
   {
