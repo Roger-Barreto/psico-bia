@@ -48,7 +48,10 @@ export function AvatarPicker({
           </span>
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-[17.5rem] p-3" align="start">
+      <PopoverContent
+        className="w-[17.5rem] max-h-[var(--radix-popover-content-available-height)] overflow-hidden p-3"
+        align="start"
+      >
         <div className="mb-2.5 flex items-center justify-between gap-2">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             Escolher avatar
@@ -62,7 +65,13 @@ export function AvatarPicker({
             Aleatório
           </button>
         </div>
-        <div className="grid max-h-52 grid-cols-6 gap-1.5 overflow-y-auto pr-0.5">
+        <div
+          style={{
+            maxHeight:
+              "min(13rem, calc(var(--radix-popover-content-available-height, 60dvh) - 5rem))",
+          }}
+          className="grid grid-cols-6 gap-1.5 overflow-y-auto overscroll-contain pr-0.5 [-webkit-overflow-scrolling:touch]"
+        >
           {monsterAvatarIds().map((id) => (
             <button
               key={id}

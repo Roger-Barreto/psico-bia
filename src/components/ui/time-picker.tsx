@@ -15,6 +15,12 @@ export interface TimePickerProps {
   minuteStep?: number
 }
 
+// Cap each scroll column to the room the popover actually has (Radix exposes it
+// as a CSS var). Subtracts the column label + content padding so the whole
+// popover stays inside the dialog and never gets clipped. Falls back to 60dvh.
+const LIST_MAX_HEIGHT =
+  "min(13rem, calc(var(--radix-popover-content-available-height, 60dvh) - 2.25rem))"
+
 function pad(n: number): string {
   return n.toString().padStart(2, "0")
 }
@@ -105,7 +111,10 @@ export const TimePicker = React.forwardRef<HTMLButtonElement, TimePickerProps>(
             <ClockIcon weight="duotone" className="size-4 text-primary" />
           </button>
         </PopoverTrigger>
-        <PopoverContent className="w-auto p-2" align="start">
+        <PopoverContent
+          className="w-auto max-h-[var(--radix-popover-content-available-height)] overflow-hidden p-2"
+          align="start"
+        >
           <div className="flex gap-2">
             <div className="flex flex-col items-center">
               <span className="mb-1 text-[0.65rem] font-medium uppercase tracking-wide text-muted-foreground">
@@ -113,6 +122,7 @@ export const TimePicker = React.forwardRef<HTMLButtonElement, TimePickerProps>(
               </span>
               <div
                 ref={hourListRef}
+                style={{ maxHeight: LIST_MAX_HEIGHT }}
                 className="h-52 w-14 touch-pan-y overflow-y-auto overscroll-contain rounded-md border border-border/60 bg-background/30 p-1 [-webkit-overflow-scrolling:touch]"
               >
                 {hours.map((h) => {
@@ -142,6 +152,7 @@ export const TimePicker = React.forwardRef<HTMLButtonElement, TimePickerProps>(
               </span>
               <div
                 ref={minListRef}
+                style={{ maxHeight: LIST_MAX_HEIGHT }}
                 className="h-52 w-14 touch-pan-y overflow-y-auto overscroll-contain rounded-md border border-border/60 bg-background/30 p-1 [-webkit-overflow-scrolling:touch]"
               >
                 {minutes.map((m) => {

@@ -29,6 +29,14 @@ const PopoverContent = React.forwardRef<
       ref={ref}
       align={align}
       sideOffset={sideOffset}
+      // Keep 8px away from screen/dialog edges so content never touches the
+      // viewport border (fixes calendars getting clipped on small screens).
+      collisionPadding={8}
+      // When portaled inside the dialog node, that node has transform+overflow
+      // and clips fixed children. Bound collision detection to it so Radix
+      // flips/shrinks the popover to stay *within* the dialog instead of
+      // overflowing (and being cut off). Undefined → default viewport boundary.
+      collisionBoundary={container ?? undefined}
       className={cn(
         "z-50 rounded-xl border border-border/70 bg-popover/95 p-3 text-popover-foreground shadow-xl backdrop-blur outline-none",
         "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
