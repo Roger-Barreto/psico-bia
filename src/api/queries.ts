@@ -60,6 +60,8 @@ interface PatientRow {
   individual_checklist_item_ids: string[]
   discharged_at: string | null
   discharge_reason_id: string | null
+  cpf: string | null
+  payer_cpf: string | null
 }
 
 function rowToPatient(r: PatientRow): Patient {
@@ -76,6 +78,8 @@ function rowToPatient(r: PatientRow): Patient {
     individualChecklistItemIds: r.individual_checklist_item_ids ?? [],
     dischargedAt: r.discharged_at,
     dischargeReasonId: r.discharge_reason_id,
+    cpf: r.cpf ?? null,
+    payerCpf: r.payer_cpf ?? null,
   }
 }
 
@@ -98,6 +102,8 @@ function patientToRow(
   if (p.dischargedAt !== undefined) row.discharged_at = p.dischargedAt
   if (p.dischargeReasonId !== undefined)
     row.discharge_reason_id = p.dischargeReasonId
+  if (p.cpf !== undefined) row.cpf = p.cpf
+  if (p.payerCpf !== undefined) row.payer_cpf = p.payerCpf
   return row
 }
 
@@ -358,6 +364,8 @@ export function useCreatePatient() {
         individual_checklist_item_ids: input.individualChecklistItemIds ?? [],
         discharged_at: input.dischargedAt ?? null,
         discharge_reason_id: input.dischargeReasonId ?? null,
+        cpf: input.cpf ?? null,
+        payer_cpf: input.payerCpf ?? null,
       }
       const { data, error } = await supabase
         .from("patients")

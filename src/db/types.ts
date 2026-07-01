@@ -20,6 +20,8 @@ export interface Patient {
   individualChecklistItemIds: string[]
   dischargedAt: string | null
   dischargeReasonId: string | null
+  cpf: string | null // dígitos do CPF do paciente (beneficiário)
+  payerCpf: string | null // dígitos do CPF do pagador; null = mesmo que o paciente
 }
 
 export interface AppointmentSeries {

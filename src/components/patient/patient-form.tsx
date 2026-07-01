@@ -36,6 +36,7 @@ import { nextOrder } from "@/lib/checklist"
 import { occurrencesForPatient } from "@/domain/recurrence"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Checkbox } from "@/components/ui/checkbox"
 import { DatePicker } from "@/components/ui/date-picker"
 import { Label } from "@/components/ui/label"
 import {
@@ -51,6 +52,7 @@ import {
 } from "@/components/ui/radio-group"
 import { todayISO, formatDateBR } from "@/domain/dates"
 import { randomMonsterAvatarId } from "@/lib/monster-avatars"
+import { formatCpf, isValidCpf, onlyDigits } from "@/lib/cpf"
 import { cn } from "@/lib/utils"
 import { PatientDocuments } from "./patient-documents"
 import { AvatarPicker } from "./avatar-picker"
@@ -150,6 +152,13 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
     patient?.avatarId ?? randomMonsterAvatarId(),
   )
   const [birthdate, setBirthdate] = useState<string>(patient?.birthdate ?? "")
+  const [cpf, setCpf] = useState<string>(formatCpf(patient?.cpf ?? ""))
+  const [payerSameAsPatient, setPayerSameAsPatient] = useState<boolean>(
+    patient ? !patient.payerCpf : true,
+  )
+  const [payerCpf, setPayerCpf] = useState<string>(
+    formatCpf(patient?.payerCpf ?? ""),
+  )
   const [consultationValue, setConsultationValue] = useState<string>(
     patient ? String(patient.consultationValue ?? 0) : "0",
   )
@@ -223,6 +232,9 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
     setGender("female")
     setAvatarId(randomMonsterAvatarId())
     setBirthdate("")
+    setCpf("")
+    setPayerSameAsPatient(true)
+    setPayerCpf("")
     setConsultationValue("0")
     setInsuranceId("__none__")
     setTab("dados")
@@ -346,6 +358,15 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
     const valueNum = Number(consultationValue)
     if (!Number.isFinite(valueNum) || valueNum < 0)
       return toast.error("Valor de consulta inválido")
+    const cpfDigits = onlyDigits(cpf)
+    if (cpfDigits && !isValidCpf(cpfDigits))
+      return toast.error("CPF do paciente inválido")
+    const payerDigits = payerSameAsPatient ? "" : onlyDigits(payerCpf)
+    if (payerDigits && !isValidCpf(payerDigits))
+      return toast.error("CPF do pagador inválido")
+    const cpfFinal = cpfDigits || null
+    // null = pagador é o mesmo que o paciente
+    const payerCpfFinal = payerSameAsPatient ? null : payerDigits || null
     const insuranceFinal = insuranceId === "__none__" ? null : insuranceId
     try {
       if (isEdit && patient) {
@@ -356,6 +377,8 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
             gender,
             avatarId,
             birthdate,
+            cpf: cpfFinal,
+            payerCpf: payerCpfFinal,
             consultationValue: valueNum,
             insuranceId: insuranceFinal,
           },
@@ -367,6 +390,8 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
           gender,
           avatarId,
           birthdate,
+          cpf: cpfFinal,
+          payerCpf: payerCpfFinal,
           individualChecklistItemIds: [],
           active: true,
           consultationValue: valueNum,
@@ -521,6 +546,48 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
                 />
               </div>
             </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="cpf">
+                CPF{" "}
+                <span className="font-normal text-muted-foreground">
+                  (opcional)
+                </span>
+              </Label>
+              <Input
+                id="cpf"
+                inputMode="numeric"
+                value={cpf}
+                onChange={(e) => setCpf(formatCpf(e.target.value))}
+                placeholder="000.000.000-00"
+              />
+            </div>
+
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <Checkbox
+                checked={payerSameAsPatient}
+                onCheckedChange={(v) => setPayerSameAsPatient(v === true)}
+              />
+              <span>CPF do pagador é o mesmo do paciente</span>
+            </label>
+
+            {!payerSameAsPatient && (
+              <div className="space-y-2">
+                <Label htmlFor="payer-cpf">
+                  CPF do pagador{" "}
+                  <span className="font-normal text-muted-foreground">
+                    (opcional)
+                  </span>
+                </Label>
+                <Input
+                  id="payer-cpf"
+                  inputMode="numeric"
+                  value={payerCpf}
+                  onChange={(e) => setPayerCpf(formatCpf(e.target.value))}
+                  placeholder="000.000.000-00"
+                />
+              </div>
+            )}
           </SectionBlock>
 
           <SectionBlock title="Financeiro" icon={IdentificationCardIcon}>

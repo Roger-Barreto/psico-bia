@@ -43,6 +43,8 @@ interface Patient {
   individualChecklistItemIds: string[]
   dischargedAt: string | null      // YYYY-MM-DD (encerramento)
   dischargeReasonId: string | null
+  cpf: string | null               // 11 dígitos do CPF do paciente (beneficiário); opcional
+  payerCpf: string | null          // 11 dígitos do CPF do pagador; null = mesmo que o paciente
 }
 ```
 
