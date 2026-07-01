@@ -25,3 +25,46 @@ export function celebrate(kind: CelebrateKind) {
         : ["#64748b", "#94a3b8"],
   })
 }
+
+/**
+ * Comemoração ao concluir um livro (módulo Leituras): rajada central + canhões
+ * laterais por ~1,2s, com emojis de livro. Reaproveita canvas-confetti.
+ */
+export function celebrateBook() {
+  const emojis = ["📚", "📖", "✨", "🎉", "🌟"]
+  const shapes = emojis.map((text) =>
+    confetti.shapeFromText({ text, scalar: 2 }),
+  )
+  confetti({
+    particleCount: 140,
+    spread: 100,
+    startVelocity: 48,
+    gravity: 0.9,
+    origin: { y: 0.6 },
+    shapes,
+    scalar: 2,
+    ticks: 200,
+    colors: ["#f43f5e", "#fbbf24", "#22c55e", "#a78bfa", "#38bdf8"],
+  })
+  const end = Date.now() + 1200
+  const frame = () => {
+    confetti({
+      particleCount: 6,
+      angle: 60,
+      spread: 60,
+      origin: { x: 0 },
+      shapes,
+      scalar: 2,
+    })
+    confetti({
+      particleCount: 6,
+      angle: 120,
+      spread: 60,
+      origin: { x: 1 },
+      shapes,
+      scalar: 2,
+    })
+    if (Date.now() < end) requestAnimationFrame(frame)
+  }
+  requestAnimationFrame(frame)
+}

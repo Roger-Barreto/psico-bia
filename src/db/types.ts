@@ -198,3 +198,70 @@ export interface LedgerEntry {
   editable: boolean
   patientId: string | null
 }
+
+// ════════════════════════════════════════════════════════════════
+// Reading module (Leituras)
+// ════════════════════════════════════════════════════════════════
+export type BookStatus = "want" | "reading" | "finished" | "dnf" | "paused"
+export type BookFormat = "physical" | "ebook" | "audiobook"
+
+export interface Book {
+  id: string
+  title: string
+  subtitle: string | null
+  author: string | null
+  coverUrl: string | null // URL externa OU pública do bucket
+  coverPath: string | null // caminho no bucket (upload próprio)
+  pageCount: number | null
+  currentPage: number // fonte de verdade do progresso
+  format: BookFormat
+  genre: string | null
+  publisher: string | null
+  publishedYear: number | null
+  isbn: string | null
+  status: BookStatus
+  rating: number | null // 0.5..5 (meia-estrela)
+  review: string | null
+  notes: string | null
+  tags: string[]
+  isFavorite: boolean
+  color: string | null
+  startedAt: string | null // YYYY-MM-DD
+  finishedAt: string | null // YYYY-MM-DD
+  rereadCount: number
+  active: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ReadingSession {
+  id: string
+  bookId: string
+  date: string // YYYY-MM-DD
+  startedAt: string | null
+  endedAt: string | null
+  durationSeconds: number
+  startPage: number | null
+  endPage: number | null
+  pagesRead: number
+  notes: string | null
+  createdAt: string
+}
+
+export interface ReadingGoal {
+  id: string
+  year: number
+  targetBooks: number | null
+  targetPages: number | null
+  targetMinutes: number | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface BookQuote {
+  id: string
+  bookId: string
+  text: string
+  page: number | null
+  createdAt: string
+}

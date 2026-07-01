@@ -15,6 +15,9 @@ import { FinanceDashboardPage } from "@/pages/finance-dashboard"
 import { FinancePeoplePage } from "@/pages/finance-people"
 import { FinanceCategoriesPage } from "@/pages/finance-categories"
 import { FinancePaymentMethodsPage } from "@/pages/finance-payment-methods"
+import { ReadingLayout } from "@/components/reading/reading-layout"
+import { ReadingTrackPage } from "@/pages/reading-track"
+import { ReadingDashboardPage } from "@/pages/reading-dashboard"
 
 export default function App() {
   return (
@@ -42,6 +45,10 @@ export default function App() {
               path="cadastros/formas-de-pagamento"
               element={<FinancePaymentMethodsPage />}
             />
+          </Route>
+          <Route path="/leituras" element={<ReadingLayout />}>
+            <Route index element={<ReadingTrackPage />} />
+            <Route path="dashboard" element={<ReadingDashboardPage />} />
           </Route>
           <Route path="/patients" element={<PatientsPage />} />
           <Route path="/insurances" element={<InsurancesPage />} />
