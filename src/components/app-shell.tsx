@@ -85,6 +85,7 @@ const navItems: NavEntry[] = [
       { to: "/financeiro", label: "Lançamentos", icon: ListBulletsIcon, end: true },
       { to: "/financeiro/dashboard", label: "Dashboard", icon: ChartPieSliceIcon },
       { to: "/financeiro/pessoas", label: "Pessoas", icon: UsersThreeIcon },
+      { to: "/financeiro/cartoes", label: "Cartões", icon: CreditCardIcon },
       {
         id: "financeiro-cadastros",
         label: "Cadastros",

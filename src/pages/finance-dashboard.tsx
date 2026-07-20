@@ -24,7 +24,7 @@ const RANGES = [
 ] as const
 
 export function FinanceDashboardPage() {
-  const [rangeId, setRangeId] = useState<string>("6")
+  const [rangeId, setRangeId] = useState<string>("1")
 
   const methodsQ = usePaymentMethods()
   const peopleQ = usePeople()

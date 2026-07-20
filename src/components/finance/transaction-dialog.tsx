@@ -13,7 +13,16 @@ import { Input } from "@/components/ui/input"
 import { MoneyInput, parseMoney } from "@/components/ui/money-input"
 import { DatePicker } from "@/components/ui/date-picker"
 import { AddableSelect } from "@/components/finance/addable-select"
+import { CardDialog } from "@/components/finance/card-dialog"
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  useCards,
   useCreateFinanceCategory,
   useCreateInstallments,
   useCreateLoanGranted,
@@ -28,12 +37,14 @@ import {
 } from "@/api/queries"
 import type { FinanceScope, LedgerEntry, TransactionKind } from "@/db/types"
 import {
+  cardInvoiceFor,
   installmentDates,
   periodOf,
   splitInstallments,
   todayPeriod,
 } from "@/domain/finance"
-import { todayISO } from "@/domain/dates"
+import { formatLongDateBR, todayISO } from "@/domain/dates"
+import { PlusIcon } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 
 type Mode = "single" | "installment" | "recurring"
@@ -44,6 +55,8 @@ interface Props {
   viewPeriod: string // currently viewed YYYY-MM (for recurring materialization)
   /** When set, the dialog edits this manual launch instead of creating one. */
   editing?: LedgerEntry | null
+  /** Pre-select a credit card + its method when creating (from the Cartões page). */
+  presetCardId?: string | null
 }
 
 /** number → "1.234,56" */
@@ -115,12 +128,14 @@ export function TransactionDialog({
   onOpenChange,
   viewPeriod,
   editing,
+  presetCardId,
 }: Props) {
   const isEdit = !!editing
 
   const categoriesQ = useFinanceCategories()
   const methodsQ = usePaymentMethods()
   const peopleQ = usePeople()
+  const cardsQ = useCards()
 
   const createCategory = useCreateFinanceCategory()
   const createMethod = useCreatePaymentMethod()
@@ -135,6 +150,7 @@ export function TransactionDialog({
   const categories = (categoriesQ.data ?? []).filter((c) => c.active)
   const methods = (methodsQ.data ?? []).filter((m) => m.active)
   const people = (peopleQ.data ?? []).filter((p) => p.active)
+  const cards = (cardsQ.data ?? []).filter((c) => c.active)
 
   const [kind, setKind] = useState<TransactionKind>("expense")
   const [scope, setScope] = useState<FinanceScope>("personal")
@@ -144,6 +160,8 @@ export function TransactionDialog({
   const [categoryId, setCategoryId] = useState<string | null>(null)
   const [methodId, setMethodId] = useState<string | null>(null)
   const [personId, setPersonId] = useState<string | null>(null)
+  const [cardId, setCardId] = useState<string | null>(null)
+  const [cardDialogOpen, setCardDialogOpen] = useState(false)
   const [settled, setSettled] = useState(true)
   const [mode, setMode] = useState<Mode>("single")
   const [installments, setInstallments] = useState("2")
@@ -164,6 +182,7 @@ export function TransactionDialog({
       setCategoryId(editing.categoryId)
       setMethodId(editing.paymentMethodId)
       setPersonId(editing.personId)
+      setCardId(editing.cardId)
       setSettled(editing.settled)
       setMode("single")
     } else {
@@ -173,23 +192,43 @@ export function TransactionDialog({
       setAmount("")
       setDate(todayISO())
       setCategoryId(null)
-      setMethodId(null)
       setPersonId(null)
-      setSettled(true)
       setMode("single")
       setInstallments("2")
       setWithOutflow(true)
       setOutflowMethodId(null)
       setOutflowCategoryId(null)
+      // Pre-select the credit-card method + card when opened from a card page.
+      const ccMethod = presetCardId
+        ? (methodsQ.data ?? []).find((m) => m.active && m.isCreditCard)
+        : undefined
+      if (presetCardId && ccMethod) {
+        setMethodId(ccMethod.id)
+        setCardId(presetCardId)
+        setSettled(false)
+      } else {
+        setMethodId(null)
+        setCardId(null)
+        setSettled(true)
+      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editing])
 
   const selectedMethod = methods.find((m) => m.id === methodId)
   const isLoan = selectedMethod?.isLoan ?? false
+  const isCreditCard = selectedMethod?.isCreditCard ?? false
+  const selectedCard = cards.find((c) => c.id === cardId)
   const amountNum = parseMoney(amount)
   const nInst = Math.max(2, Math.min(360, Number(installments) || 2))
 
   const isLoanGranted = !isEdit && kind === "income" && isLoan && withOutflow
+
+  // Which invoice this purchase falls into (preview for the credit-card flow).
+  const invoicePreview =
+    isCreditCard && selectedCard && date
+      ? cardInvoiceFor(selectedCard.closingDay, selectedCard.dueDay, date)
+      : null
 
   const installmentPreview = useMemo(() => {
     if (mode !== "installment" || amountNum <= 0) return null
@@ -212,11 +251,14 @@ export function TransactionDialog({
     if (amountNum <= 0) return toast.error("Informe um valor válido")
     if (!date) return toast.error("Selecione a data")
     if (isLoan && !personId) return toast.error("Empréstimo exige uma pessoa")
+    if (isCreditCard && !cardId)
+      return toast.error("Selecione um cartão para o pagamento no crédito")
 
     try {
       if (isEdit) {
         await updateTx.mutateAsync({
           id: editing!.id,
+          installmentGroup: editing!.installmentGroup,
           patch: {
             kind,
             scope,
@@ -226,6 +268,7 @@ export function TransactionDialog({
             categoryId,
             paymentMethodId: methodId,
             personId: isLoan ? personId : null,
+            cardId: isCreditCard ? cardId : null,
             settled,
             settledAt: settled
               ? editing!.settled
@@ -261,6 +304,7 @@ export function TransactionDialog({
             categoryId,
             paymentMethodId: methodId,
             personId: isLoan ? personId : null,
+            cardId: isCreditCard ? cardId : null,
           },
           amounts,
           dates,
@@ -276,6 +320,7 @@ export function TransactionDialog({
           categoryId,
           paymentMethodId: methodId,
           personId: isLoan ? personId : null,
+          cardId: isCreditCard ? cardId : null,
           dayOfMonth,
           startPeriod: periodOf(date),
           untilPeriod: viewPeriod > todayPeriod() ? viewPeriod : todayPeriod(),
@@ -291,6 +336,7 @@ export function TransactionDialog({
           categoryId,
           paymentMethodId: methodId,
           personId: isLoan ? personId : null,
+          cardId: isCreditCard ? cardId : null,
           settled,
         })
         toast.success(kind === "income" ? "Receita criada" : "Despesa criada")
@@ -381,9 +427,11 @@ export function TransactionDialog({
               value={methodId}
               onChange={(id) => {
                 setMethodId(id)
-                // a loan starts outstanding (not yet paid back/received)
-                if (!isEdit && methods.find((m) => m.id === id)?.isLoan)
-                  setSettled(false)
+                const m = methods.find((x) => x.id === id)
+                // loans and card purchases start outstanding (a pagar)
+                if (!isEdit && (m?.isLoan || m?.isCreditCard)) setSettled(false)
+                // dropping the credit-card method clears the card link
+                if (!m?.isCreditCard) setCardId(null)
               }}
               options={methods}
               placeholder="Selecionar forma"
@@ -394,6 +442,48 @@ export function TransactionDialog({
               }}
             />
           </Field>
+
+          {isCreditCard && (
+            <Field
+              label="Cartão"
+              hint={
+                invoicePreview
+                  ? mode === "installment" && !isEdit
+                    ? `1ª parcela na fatura que vence em ${formatLongDateBR(invoicePreview.dueDate)}; as demais nas faturas seguintes.`
+                    : `Entra na fatura que vence em ${formatLongDateBR(invoicePreview.dueDate)}.`
+                  : "Selecione o cartão para lançar na fatura certa."
+              }
+            >
+              <Select
+                value={cardId ?? undefined}
+                onValueChange={(v) => {
+                  if (v === "__add_card__") {
+                    setCardDialogOpen(true)
+                    return
+                  }
+                  setCardId(v)
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecionar cartão" />
+                </SelectTrigger>
+                <SelectContent>
+                  {cards.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                      {c.last4 ? ` •••• ${c.last4}` : ""}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="__add_card__" className="text-primary">
+                    <span className="flex items-center gap-1.5">
+                      <PlusIcon weight="bold" className="size-3.5" />
+                      Novo cartão…
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
 
           {isLoan && (
             <Field label="Pessoa">
@@ -497,16 +587,24 @@ export function TransactionDialog({
             </p>
           )}
 
-          {(isEdit || (mode === "single" && !isLoanGranted)) && (
-            <label className="flex cursor-pointer items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={settled}
-                onChange={(e) => setSettled(e.target.checked)}
-                className="size-4 rounded border-border accent-emerald-500"
-              />
-              {kind === "income" ? "Já recebido" : "Já pago"}
-            </label>
+          {(isEdit || (mode === "single" && !isLoanGranted)) &&
+            !isCreditCard && (
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={settled}
+                  onChange={(e) => setSettled(e.target.checked)}
+                  className="size-4 rounded border-border accent-emerald-500"
+                />
+                {kind === "income" ? "Já recebido" : "Já pago"}
+              </label>
+            )}
+
+          {isCreditCard && (
+            <p className="text-xs text-muted-foreground">
+              O pagamento é controlado pela fatura do cartão, em{" "}
+              <span className="font-medium text-foreground">Cartões</span>.
+            </p>
           )}
         </div>
 
@@ -519,6 +617,12 @@ export function TransactionDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <CardDialog
+        open={cardDialogOpen}
+        onOpenChange={setCardDialogOpen}
+        onCreated={(id) => setCardId(id)}
+      />
     </Dialog>
   )
 }

@@ -1,3 +1,4 @@
+import { toast } from "sonner"
 import {
   countAppointmentsWithMethod,
   countFinanceUsage,
@@ -14,6 +15,8 @@ export function FinancePaymentMethodsPage() {
   const update = useUpdatePaymentMethod()
   const del = useDeletePaymentMethod()
 
+  const methodsById = new Map((methodsQ.data ?? []).map((m) => [m.id, m]))
+
   return (
     <FinanceCrudList
       breadcrumbs={[
@@ -22,15 +25,35 @@ export function FinancePaymentMethodsPage() {
         { label: "Formas de pagamento" },
       ]}
       title="Formas de pagamento"
-      description="“Empréstimo” vincula a uma pessoa. A cor é usada nos gráficos."
+      description="Marque o tipo: “Empréstimo” pede uma pessoa e “Cartão de crédito” pede um cartão ao lançar. A cor é usada nos gráficos."
       placeholder="Nova forma…"
       showColor
+      kinds={{
+        options: [
+          { value: "plain", label: "Comum" },
+          { value: "loan", label: "Empréstimo" },
+          { value: "credit", label: "Cartão de crédito" },
+        ],
+        valueOf: (item) => {
+          const m = methodsById.get(item.id)
+          return m?.isLoan ? "loan" : m?.isCreditCard ? "credit" : "plain"
+        },
+        onChange: async (id, value) => {
+          await update.mutateAsync({
+            id,
+            patch: {
+              isLoan: value === "loan",
+              isCreditCard: value === "credit",
+            },
+          })
+          toast.success("Tipo atualizado")
+        },
+      }}
       items={(methodsQ.data ?? []).map((m) => ({
         id: m.id,
         name: m.name,
         active: m.active,
         color: m.color,
-        badge: m.isLoan ? "empréstimo" : undefined,
       }))}
       onAdd={async (name) => {
         await create.mutateAsync({ name })

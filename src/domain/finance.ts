@@ -157,7 +157,10 @@ export interface LedgerTotals {
   realizedBalance: number // settled income − settled expense
 }
 
-export function ledgerTotals(entries: LedgerEntry[]): LedgerTotals {
+/** Minimal shape ledgerTotals needs — lets synthetic rows (card invoices) in. */
+export type LedgerTotalsInput = Pick<LedgerEntry, "kind" | "amount" | "settled">
+
+export function ledgerTotals(entries: LedgerTotalsInput[]): LedgerTotals {
   let income = 0
   let expense = 0
   let receivable = 0
@@ -254,6 +257,242 @@ export function personBalance(entries: LedgerEntry[]): PersonBalance {
 }
 
 // ════════════════════════════════════════════════════════════════
+// Credit card invoices (faturas) — pure helpers, mirror the SQL trigger
+// ════════════════════════════════════════════════════════════════
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0")
+}
+
+/** Last calendar day of a 1-based month. */
+function lastDayOfMonth(year: number, month1: number): number {
+  return new Date(year, month1, 0).getDate()
+}
+
+export interface InvoiceDates {
+  period: string // YYYY-MM (month the invoice is due)
+  closeDate: string // YYYY-MM-DD — dia de fechamento
+  dueDate: string // YYYY-MM-DD — dia de vencimento
+}
+
+/**
+ * Which invoice a purchase on `dateISO` falls into, given the card's closing
+ * and due days. Mirrors `public.finance_card_invoice` in SQL 1:1 so the
+ * client preview matches what the trigger stores.
+ */
+export function cardInvoiceFor(
+  closingDay: number,
+  dueDay: number,
+  dateISO: string,
+): InvoiceDates {
+  const y = Number(dateISO.slice(0, 4))
+  const m = Number(dateISO.slice(5, 7))
+  const d = Number(dateISO.slice(8, 10))
+
+  const effClose = Math.min(closingDay, lastDayOfMonth(y, m))
+  let cy = y
+  let cm = m
+  // On the closing day itself the invoice is already closed → next invoice
+  // ("a partir do dia de fechamento", melhor dia de compra). Mirrors SQL.
+  if (d >= effClose) {
+    cm = m + 1
+    if (cm > 12) {
+      cm = 1
+      cy = y + 1
+    }
+  }
+
+  let dy = cy
+  let dmo = cm
+  if (dueDay <= closingDay) {
+    dmo = cm + 1
+    if (dmo > 12) {
+      dmo = 1
+      dy = cy + 1
+    }
+  }
+
+  const closeD = Math.min(closingDay, lastDayOfMonth(cy, cm))
+  const dueD = Math.min(dueDay, lastDayOfMonth(dy, dmo))
+  return {
+    period: `${dy}-${pad2(dmo)}`,
+    closeDate: `${cy}-${pad2(cm)}-${pad2(closeD)}`,
+    dueDate: `${dy}-${pad2(dmo)}-${pad2(dueD)}`,
+  }
+}
+
+/**
+ * Close/due dates of the invoice due in `period` (YYYY-MM). Used to render an
+ * empty (future/current) invoice that has no transactions yet.
+ */
+export function invoiceDatesForPeriod(
+  closingDay: number,
+  dueDay: number,
+  period: string,
+): InvoiceDates {
+  const dy = Number(period.slice(0, 4))
+  const dmo = Number(period.slice(5, 7))
+  let cy = dy
+  let cm = dmo
+  if (dueDay <= closingDay) {
+    // due comes the month after closing → close month is one before the due month
+    cm = dmo - 1
+    if (cm < 1) {
+      cm = 12
+      cy = dy - 1
+    }
+  }
+  const closeD = Math.min(closingDay, lastDayOfMonth(cy, cm))
+  const dueD = Math.min(dueDay, lastDayOfMonth(dy, dmo))
+  return {
+    period,
+    closeDate: `${cy}-${pad2(cm)}-${pad2(closeD)}`,
+    dueDate: `${dy}-${pad2(dmo)}-${pad2(dueD)}`,
+  }
+}
+
+/** Period of the invoice currently open for purchases (based on today). */
+export function currentInvoicePeriod(
+  closingDay: number,
+  dueDay: number,
+): string {
+  return cardInvoiceFor(closingDay, dueDay, todayISO()).period
+}
+
+export type InvoiceStatus = "open" | "closed" | "paid"
+
+export interface CardInvoice {
+  period: string
+  closeDate: string
+  dueDate: string
+  entries: LedgerEntry[]
+  /** Net amount owed (expenses positive, refunds/credits negative). */
+  total: number
+  paidTotal: number // settled portion
+  openTotal: number // still to pay
+  count: number
+  status: InvoiceStatus
+}
+
+/** Signed contribution of a card entry to its invoice (expense +, income −). */
+function invoiceSigned(e: LedgerEntry): number {
+  return e.kind === "expense" ? e.amount : -e.amount
+}
+
+/**
+ * Summarize the invoice for `period`: totals, paid/open split and status.
+ * Uses the dates stored on the transactions; falls back to the card config
+ * for an empty invoice.
+ */
+export function summarizeInvoice(
+  period: string,
+  entries: LedgerEntry[],
+  card: { closingDay: number; dueDay: number },
+  today: string = todayISO(),
+): CardInvoice {
+  const inv = entries.filter((e) => e.invoicePeriod === period)
+  let total = 0
+  let paidTotal = 0
+  let openTotal = 0
+  for (const e of inv) {
+    const v = invoiceSigned(e)
+    total += v
+    if (e.settled) paidTotal += v
+    else openTotal += v
+  }
+  const dates =
+    inv.find((e) => e.invoiceCloseDate && e.invoiceDueDate) ?? null
+  const closeDate =
+    dates?.invoiceCloseDate ??
+    invoiceDatesForPeriod(card.closingDay, card.dueDay, period).closeDate
+  const dueDate =
+    dates?.invoiceDueDate ??
+    invoiceDatesForPeriod(card.closingDay, card.dueDay, period).dueDate
+
+  const paid = inv.length > 0 && Math.abs(openTotal) < 0.005
+  const status: InvoiceStatus = paid
+    ? "paid"
+    : closeDate <= today
+      ? "closed"
+      : "open"
+
+  return {
+    period,
+    closeDate,
+    dueDate,
+    entries: inv,
+    total,
+    paidTotal,
+    openTotal,
+    count: inv.length,
+    status,
+  }
+}
+
+/** Distinct invoice periods present in the entries, newest first. */
+export function invoicePeriods(entries: LedgerEntry[]): string[] {
+  const set = new Set<string>()
+  for (const e of entries) if (e.invoicePeriod) set.add(e.invoicePeriod)
+  return [...set].sort((a, b) => b.localeCompare(a))
+}
+
+/** Net amount still owed on the card across every unsettled entry (used limit). */
+export function cardOpenTotal(entries: LedgerEntry[]): number {
+  let sum = 0
+  for (const e of entries) {
+    if (e.settled) continue
+    sum += invoiceSigned(e)
+  }
+  return sum
+}
+
+export interface CardInvoiceSummary {
+  cardId: string
+  period: string // YYYY-MM da fatura (mês de vencimento)
+  closeDate: string
+  dueDate: string
+  amount: number // líquido (compras − estornos)
+  settled: boolean // toda a fatura quitada
+  count: number
+}
+
+/**
+ * Aggregate card-linked entries into one summary per (card, invoice period).
+ * Dates come from what is stored on the transactions (history-preserving);
+ * when parcels disagree (card days edited midway) the latest due date wins.
+ */
+export function cardInvoiceSummaries(
+  entries: LedgerEntry[],
+): CardInvoiceSummary[] {
+  const map = new Map<string, CardInvoiceSummary>()
+  for (const e of entries) {
+    if (!e.cardId || !e.invoicePeriod) continue
+    const key = `${e.cardId}|${e.invoicePeriod}`
+    let s = map.get(key)
+    if (!s) {
+      s = {
+        cardId: e.cardId,
+        period: e.invoicePeriod,
+        closeDate: e.invoiceCloseDate ?? "",
+        dueDate: e.invoiceDueDate ?? "",
+        amount: 0,
+        settled: true,
+        count: 0,
+      }
+      map.set(key, s)
+    }
+    s.amount += invoiceSigned(e)
+    if (!e.settled) s.settled = false
+    s.count += 1
+    if (e.invoiceDueDate && e.invoiceDueDate > s.dueDate) {
+      s.dueDate = e.invoiceDueDate
+      s.closeDate = e.invoiceCloseDate ?? s.closeDate
+    }
+  }
+  return [...map.values()].sort((a, b) => a.period.localeCompare(b.period))
+}
+
+// ════════════════════════════════════════════════════════════════
 // Ledger search — accent-insensitive, multi-token over every field
 // ════════════════════════════════════════════════════════════════
 
@@ -298,14 +537,19 @@ export function ledgerSearchText(
   return foldText(bits.join(" "))
 }
 
+/** True when every whitespace-separated token of `query` occurs in `hay`. */
+export function matchesTokens(hay: string, query: string): boolean {
+  const q = foldText(query.trim())
+  if (!q) return true
+  const h = foldText(hay)
+  return q.split(/\s+/).every((tok) => h.includes(tok))
+}
+
 /** True when every whitespace-separated token of `query` is present. */
 export function matchesLedgerQuery(
   e: LedgerEntry,
   query: string,
   parts: { method?: string; person?: string } = {},
 ): boolean {
-  const q = foldText(query.trim())
-  if (!q) return true
-  const hay = ledgerSearchText(e, parts)
-  return q.split(/\s+/).every((tok) => hay.includes(tok))
+  return matchesTokens(ledgerSearchText(e, parts), query)
 }

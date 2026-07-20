@@ -3,7 +3,8 @@ import { toast } from "sonner"
 import {
   ArchiveIcon,
   ArrowCounterClockwiseIcon,
-  HandCoinsIcon,
+  CaretDownIcon,
+  CheckIcon,
   PaletteIcon,
   PlusIcon,
   TrashIcon,
@@ -11,11 +12,19 @@ import {
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Breadcrumbs } from "@/components/breadcrumbs"
 import { ColorPicker } from "@/components/finance/color-picker"
 import { AvatarPicker } from "@/components/patient/avatar-picker"
 import { ConfirmDeleteDialog } from "@/components/finance/confirm-delete-dialog"
 import { colorForKey } from "@/lib/finance-colors"
+import { cn } from "@/lib/utils"
 
 export interface CrudItem {
   id: string
@@ -26,6 +35,18 @@ export interface CrudItem {
   badge?: string
 }
 
+export interface KindOption {
+  value: string
+  label: string
+}
+
+/** Optional per-item "type" selector (e.g. payment method: comum/empréstimo/cartão). */
+export interface KindControl {
+  options: KindOption[]
+  valueOf: (item: CrudItem) => string
+  onChange: (id: string, value: string) => Promise<void>
+}
+
 interface Props {
   breadcrumbs: { label: string }[]
   title: string
@@ -34,6 +55,8 @@ interface Props {
   placeholder: string
   showColor?: boolean
   showAvatar?: boolean
+  /** Optional per-item type selector shown before the actions. */
+  kinds?: KindControl
   onAdd: (name: string) => Promise<void>
   onRename: (id: string, name: string) => Promise<void>
   onColor?: (id: string, color: string) => Promise<void>
@@ -60,6 +83,7 @@ export function FinanceCrudList({
   placeholder,
   showColor,
   showAvatar,
+  kinds,
   onAdd,
   onRename,
   onColor,
@@ -242,11 +266,18 @@ export function FinanceCrudList({
                   </button>
                 )}
 
-                {it.badge && (
-                  <span className="flex items-center gap-1 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                    <HandCoinsIcon className="size-3" />
-                    {it.badge}
-                  </span>
+                {kinds ? (
+                  <KindSelect
+                    options={kinds.options}
+                    value={kinds.valueOf(it)}
+                    onChange={(v) => kinds.onChange(it.id, v)}
+                  />
+                ) : (
+                  it.badge && (
+                    <span className="flex items-center gap-1 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                      {it.badge}
+                    </span>
+                  )
                 )}
 
                 {!it.active && (
@@ -317,5 +348,62 @@ export function FinanceCrudList({
         onConfirm={confirmDelete}
       />
     </div>
+  )
+}
+
+/** Compact dropdown to change an item's "type" (payment-method kind). */
+function KindSelect({
+  options,
+  value,
+  onChange,
+}: {
+  options: KindOption[]
+  value: string
+  onChange: (value: string) => Promise<void>
+}) {
+  const [busy, setBusy] = useState(false)
+  const current = options.find((o) => o.value === value) ?? options[0]
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          disabled={busy}
+          className="flex shrink-0 items-center gap-1 rounded-md bg-muted/50 px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
+          title="Alterar tipo da forma de pagamento"
+        >
+          {busy ? <Spinner className="size-3" /> : null}
+          {current.label}
+          <CaretDownIcon weight="bold" className="size-3 opacity-70" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {options.map((o) => (
+          <DropdownMenuItem
+            key={o.value}
+            onClick={async () => {
+              if (o.value === value) return
+              setBusy(true)
+              try {
+                await onChange(o.value)
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : "Erro")
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            <CheckIcon
+              weight="bold"
+              className={cn(
+                "size-3.5",
+                o.value === value ? "opacity-100" : "opacity-0",
+              )}
+            />
+            {o.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }

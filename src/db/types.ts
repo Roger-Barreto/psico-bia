@@ -132,7 +132,26 @@ export interface PaymentMethod {
   id: string
   name: string
   isLoan: boolean
+  isCreditCard: boolean
   color: string | null
+  active: boolean
+  createdAt: string
+}
+
+/**
+ * Credit card registry. `closingDay`/`dueDay` drive which invoice a purchase
+ * falls into; changing them only affects new purchases (past invoices keep the
+ * dates stored on each transaction).
+ */
+export interface FinanceCard {
+  id: string
+  name: string
+  closingDay: number // 1..31 — dia de fechamento da fatura
+  dueDay: number // 1..31 — dia de vencimento da fatura
+  color: string | null
+  creditLimit: number | null
+  brand: string | null
+  last4: string | null
   active: boolean
   createdAt: string
 }
@@ -146,6 +165,7 @@ export interface RecurringRule {
   categoryId: string | null
   paymentMethodId: string | null
   personId: string | null
+  cardId: string | null
   dayOfMonth: number
   startPeriod: string // YYYY-MM
   active: boolean
@@ -162,6 +182,10 @@ export interface Transaction {
   categoryId: string | null
   paymentMethodId: string | null
   personId: string | null
+  cardId: string | null
+  invoicePeriod: string | null // YYYY-MM (mês de vencimento da fatura)
+  invoiceCloseDate: string | null // YYYY-MM-DD
+  invoiceDueDate: string | null // YYYY-MM-DD
   settled: boolean
   settledAt: string | null
   recurringRuleId: string | null
@@ -189,6 +213,10 @@ export interface LedgerEntry {
   categoryName: string | null
   paymentMethodId: string | null
   personId: string | null
+  cardId: string | null
+  invoicePeriod: string | null // YYYY-MM (mês de vencimento da fatura)
+  invoiceCloseDate: string | null // YYYY-MM-DD
+  invoiceDueDate: string | null // YYYY-MM-DD
   settled: boolean
   settledAt: string | null
   recurringRuleId: string | null

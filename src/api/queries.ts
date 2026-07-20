@@ -12,6 +12,7 @@ import type {
   AppointmentSeries,
   AppointmentStatus,
   DischargeReason,
+  FinanceCard,
   FinanceCategory,
   FinanceScope,
   Frequency,
@@ -1393,6 +1394,7 @@ interface PaymentMethodRow {
   id: string
   name: string
   is_loan: boolean
+  is_credit_card: boolean
   color: string | null
   active: boolean
   created_at: string
@@ -1402,7 +1404,35 @@ function rowToPaymentMethod(r: PaymentMethodRow): PaymentMethod {
     id: r.id,
     name: r.name,
     isLoan: r.is_loan,
+    isCreditCard: r.is_credit_card ?? false,
     color: r.color,
+    active: r.active,
+    createdAt: r.created_at,
+  }
+}
+
+interface FinanceCardRow {
+  id: string
+  name: string
+  closing_day: number
+  due_day: number
+  color: string | null
+  credit_limit: number | null
+  brand: string | null
+  last4: string | null
+  active: boolean
+  created_at: string
+}
+function rowToCard(r: FinanceCardRow): FinanceCard {
+  return {
+    id: r.id,
+    name: r.name,
+    closingDay: r.closing_day,
+    dueDay: r.due_day,
+    color: r.color,
+    creditLimit: r.credit_limit != null ? Number(r.credit_limit) : null,
+    brand: r.brand,
+    last4: r.last4,
     active: r.active,
     createdAt: r.created_at,
   }
@@ -1417,6 +1447,7 @@ interface RecurringRuleRow {
   category_id: string | null
   payment_method_id: string | null
   person_id: string | null
+  card_id: string | null
   day_of_month: number
   start_period: string
   active: boolean
@@ -1432,6 +1463,7 @@ function rowToRule(r: RecurringRuleRow): RecurringRule {
     categoryId: r.category_id,
     paymentMethodId: r.payment_method_id,
     personId: r.person_id,
+    cardId: r.card_id ?? null,
     dayOfMonth: r.day_of_month,
     startPeriod: r.start_period,
     active: r.active,
@@ -1451,6 +1483,10 @@ interface LedgerRow {
   category_name: string | null
   payment_method_id: string | null
   person_id: string | null
+  card_id: string | null
+  invoice_period: string | null
+  invoice_close_date: string | null
+  invoice_due_date: string | null
   settled: boolean
   settled_at: string | null
   recurring_rule_id: string | null
@@ -1475,6 +1511,10 @@ function rowToLedgerEntry(r: LedgerRow): LedgerEntry {
     categoryName: r.category_name,
     paymentMethodId: r.payment_method_id,
     personId: r.person_id,
+    cardId: r.card_id ?? null,
+    invoicePeriod: r.invoice_period ?? null,
+    invoiceCloseDate: r.invoice_close_date ?? null,
+    invoiceDueDate: r.invoice_due_date ?? null,
     settled: r.settled,
     settledAt: r.settled_at,
     recurringRuleId: r.recurring_rule_id,
@@ -1493,6 +1533,7 @@ export const fqk = {
   people: ["finance-people"] as const,
   categories: ["finance-categories"] as const,
   paymentMethods: ["finance-payment-methods"] as const,
+  cards: ["finance-cards"] as const,
   rules: ["finance-rules"] as const,
   ledgerMonth: (period: string) =>
     ["finance-ledger", "month", period] as const,
@@ -1500,6 +1541,9 @@ export const fqk = {
     ["finance-ledger", "range", from, to] as const,
   personLedger: (personId: string) =>
     ["finance-ledger", "person", personId] as const,
+  cardLedger: (cardId: string) =>
+    ["finance-ledger", "card", cardId] as const,
+  openLoans: ["finance-ledger", "open-loans"] as const,
 }
 
 function invalidateLedger(qc: ReturnType<typeof useQueryClient>) {
@@ -1731,12 +1775,14 @@ export function useCreatePaymentMethod() {
     mutationFn: async (input: {
       name: string
       isLoan?: boolean
+      isCreditCard?: boolean
       color?: string | null
     }) => {
       const row: PaymentMethodRow = {
         id: newId("pm"),
         name: input.name,
         is_loan: input.isLoan ?? false,
+        is_credit_card: input.isCreditCard ?? false,
         color: input.color ?? null,
         active: true,
         created_at: nowIso(),
@@ -1761,12 +1807,20 @@ export function useUpdatePaymentMethod() {
       patch,
     }: {
       id: string
-      patch: Partial<Pick<PaymentMethod, "name" | "color" | "active">>
+      patch: Partial<
+        Pick<
+          PaymentMethod,
+          "name" | "color" | "active" | "isLoan" | "isCreditCard"
+        >
+      >
     }) => {
       const row: Partial<PaymentMethodRow> = {}
       if (patch.name !== undefined) row.name = patch.name
       if (patch.color !== undefined) row.color = patch.color
       if (patch.active !== undefined) row.active = patch.active
+      if (patch.isLoan !== undefined) row.is_loan = patch.isLoan
+      if (patch.isCreditCard !== undefined)
+        row.is_credit_card = patch.isCreditCard
       const { data, error } = await supabase
         .from("payment_methods")
         .update(row)
@@ -1813,6 +1867,255 @@ export function useSeedFinanceDefaults() {
       qc.invalidateQueries({ queryKey: fqk.categories })
       qc.invalidateQueries({ queryKey: fqk.paymentMethods })
     },
+  })
+}
+
+// ─── CARDS ───────────────────────────────────────────────
+export function useCards() {
+  return useQuery({
+    queryKey: fqk.cards,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("finance_cards")
+        .select("*")
+        .order("name", { ascending: true })
+      if (error) throw error
+      return (data ?? []).map((r) => rowToCard(r as FinanceCardRow))
+    },
+    staleTime: 60_000,
+  })
+}
+
+export interface NewCardInput {
+  name: string
+  closingDay: number
+  dueDay: number
+  color?: string | null
+  creditLimit?: number | null
+  brand?: string | null
+  last4?: string | null
+}
+
+export function useCreateCard() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: NewCardInput) => {
+      const row: FinanceCardRow = {
+        id: newId("card"),
+        name: input.name,
+        closing_day: input.closingDay,
+        due_day: input.dueDay,
+        color: input.color ?? null,
+        credit_limit: input.creditLimit ?? null,
+        brand: input.brand ?? null,
+        last4: input.last4 ?? null,
+        active: true,
+        created_at: nowIso(),
+      }
+      const { data, error } = await supabase
+        .from("finance_cards")
+        .insert(row)
+        .select()
+        .single()
+      if (error) throw error
+      return rowToCard(data as FinanceCardRow)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: fqk.cards }),
+  })
+}
+
+export function useUpdateCard() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      id,
+      patch,
+    }: {
+      id: string
+      patch: Partial<
+        Pick<
+          FinanceCard,
+          | "name"
+          | "closingDay"
+          | "dueDay"
+          | "color"
+          | "creditLimit"
+          | "brand"
+          | "last4"
+          | "active"
+        >
+      >
+    }) => {
+      const row: Partial<FinanceCardRow> = {}
+      if (patch.name !== undefined) row.name = patch.name
+      if (patch.closingDay !== undefined) row.closing_day = patch.closingDay
+      if (patch.dueDay !== undefined) row.due_day = patch.dueDay
+      if (patch.color !== undefined) row.color = patch.color
+      if (patch.creditLimit !== undefined) row.credit_limit = patch.creditLimit
+      if (patch.brand !== undefined) row.brand = patch.brand
+      if (patch.last4 !== undefined) row.last4 = patch.last4
+      if (patch.active !== undefined) row.active = patch.active
+      const { data, error } = await supabase
+        .from("finance_cards")
+        .update(row)
+        .eq("id", id)
+        .select()
+        .single()
+      if (error) throw error
+      return rowToCard(data as FinanceCardRow)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: fqk.cards })
+      invalidateLedger(qc)
+    },
+  })
+}
+
+/**
+ * Hard-delete a card, unlinking (not deleting) its transactions/rules so the
+ * expense history is preserved — those launches just leave every invoice.
+ */
+export function useDeleteCard() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.rpc("finance_delete_card", { p_id: id })
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: fqk.cards })
+      invalidateLedger(qc)
+    },
+  })
+}
+
+/** Count launches (transactions) tied to a card. */
+export async function countCardUsage(id: string): Promise<number> {
+  const { count, error } = await supabase
+    .from("finance_transactions")
+    .select("id", { count: "exact", head: true })
+    .eq("card_id", id)
+  if (error) throw error
+  return count ?? 0
+}
+
+/** Every launch on a card (all invoices), newest first. */
+export function useCardLedger(cardId?: string) {
+  return useQuery({
+    queryKey: fqk.cardLedger(cardId ?? "none"),
+    queryFn: async () => {
+      if (!cardId) return []
+      const { data, error } = await supabase
+        .from("finance_ledger")
+        .select("*")
+        .eq("card_id", cardId)
+        .order("date", { ascending: false })
+      if (error) throw error
+      return (data ?? []).map((r) => rowToLedgerEntry(r as LedgerRow))
+    },
+    enabled: !!cardId,
+    staleTime: 15_000,
+  })
+}
+
+/** Settle (or reopen) every launch of one card invoice at once. */
+export function usePayInvoice() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      cardId,
+      period,
+      settled,
+    }: {
+      cardId: string
+      period: string
+      settled: boolean
+    }) => {
+      const { error } = await supabase
+        .from("finance_transactions")
+        .update({
+          settled,
+          settled_at: settled ? nowIso() : null,
+          updated_at: nowIso(),
+        })
+        .eq("card_id", cardId)
+        .eq("invoice_period", period)
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => invalidateLedger(qc),
+  })
+}
+
+/** Every card-linked entry (all cards, all invoices) — feeds invoice summaries. */
+export function useCardEntriesAll() {
+  return useQuery({
+    queryKey: ["finance-ledger", "card-entries"] as const,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("finance_ledger")
+        .select("*")
+        .not("card_id", "is", null)
+        .order("date", { ascending: false })
+      if (error) throw error
+      return (data ?? []).map((r) => rowToLedgerEntry(r as LedgerRow))
+    },
+    staleTime: 15_000,
+  })
+}
+
+/** Net amount still owed per card (used limit), across all invoices. */
+export function useCardsOpenTotals() {
+  return useQuery({
+    queryKey: ["finance-ledger", "card-open"] as const,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("finance_ledger")
+        .select("card_id, kind, amount")
+        .not("card_id", "is", null)
+        .eq("settled", false)
+      if (error) throw error
+      const map = new Map<string, number>()
+      for (const r of (data ?? []) as {
+        card_id: string
+        kind: TransactionKind
+        amount: number
+      }[]) {
+        const v = r.kind === "expense" ? Number(r.amount) : -Number(r.amount)
+        map.set(r.card_id, (map.get(r.card_id) ?? 0) + v)
+      }
+      return map
+    },
+    staleTime: 15_000,
+  })
+}
+
+/** Net open-loan balance per person (receivable/payable), across all months. */
+export function usePeopleBalances() {
+  return useQuery({
+    queryKey: fqk.openLoans,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("finance_ledger")
+        .select("person_id, kind, amount, settled")
+        .not("person_id", "is", null)
+        .eq("settled", false)
+      if (error) throw error
+      const map = new Map<string, { receivable: number; payable: number }>()
+      for (const r of (data ?? []) as {
+        person_id: string
+        kind: TransactionKind
+        amount: number
+      }[]) {
+        const cur = map.get(r.person_id) ?? { receivable: 0, payable: 0 }
+        if (r.kind === "income") cur.receivable += Number(r.amount)
+        else cur.payable += Number(r.amount)
+        map.set(r.person_id, cur)
+      }
+      return map
+    },
+    staleTime: 15_000,
   })
 }
 
@@ -1880,6 +2183,7 @@ export interface NewTransactionInput {
   categoryId?: string | null
   paymentMethodId?: string | null
   personId?: string | null
+  cardId?: string | null
   settled?: boolean
   settledAt?: string | null
 }
@@ -1895,6 +2199,7 @@ function buildTxRow(input: NewTransactionInput, now: string) {
     category_id: input.categoryId ?? null,
     payment_method_id: input.paymentMethodId ?? null,
     person_id: input.personId ?? null,
+    card_id: input.cardId ?? null,
     settled: input.settled ?? false,
     settled_at: input.settled ? (input.settledAt ?? now) : null,
     created_at: now,
@@ -2018,9 +2323,12 @@ export function useUpdateTransaction() {
     mutationFn: async ({
       id,
       patch,
+      installmentGroup,
     }: {
       id: string
       patch: Partial<Transaction>
+      /** When editing one parcel, card/method changes mirror to the whole group. */
+      installmentGroup?: string | null
     }) => {
       const row: Record<string, unknown> = { updated_at: nowIso() }
       if (patch.kind !== undefined) row.kind = patch.kind
@@ -2032,6 +2340,7 @@ export function useUpdateTransaction() {
       if (patch.paymentMethodId !== undefined)
         row.payment_method_id = patch.paymentMethodId
       if (patch.personId !== undefined) row.person_id = patch.personId
+      if (patch.cardId !== undefined) row.card_id = patch.cardId
       if (patch.settled !== undefined) row.settled = patch.settled
       if (patch.settledAt !== undefined) row.settled_at = patch.settledAt
       const { error } = await supabase
@@ -2039,6 +2348,24 @@ export function useUpdateTransaction() {
         .update(row)
         .eq("id", id)
       if (error) throw error
+      // Card/method are attributes of the purchase, not of one parcel: mirror
+      // them on the sibling installments so every parcel lands in its own
+      // successive invoice (the DB trigger recomputes each one by its date).
+      if (
+        installmentGroup &&
+        (patch.cardId !== undefined || patch.paymentMethodId !== undefined)
+      ) {
+        const sibling: Record<string, unknown> = { updated_at: nowIso() }
+        if (patch.paymentMethodId !== undefined)
+          sibling.payment_method_id = patch.paymentMethodId
+        if (patch.cardId !== undefined) sibling.card_id = patch.cardId
+        const { error: e2 } = await supabase
+          .from("finance_transactions")
+          .update(sibling)
+          .eq("installment_group", installmentGroup)
+          .neq("id", id)
+        if (e2) throw e2
+      }
       return { ok: true as const }
     },
     onSuccess: () => invalidateLedger(qc),
@@ -2140,6 +2467,7 @@ export function useCreateRecurringRule() {
       categoryId?: string | null
       paymentMethodId?: string | null
       personId?: string | null
+      cardId?: string | null
       dayOfMonth: number
       startPeriod: string
       untilPeriod: string // materialize up to here on creation
@@ -2153,6 +2481,7 @@ export function useCreateRecurringRule() {
         category_id: input.categoryId ?? null,
         payment_method_id: input.paymentMethodId ?? null,
         person_id: input.personId ?? null,
+        card_id: input.cardId ?? null,
         day_of_month: input.dayOfMonth,
         start_period: input.startPeriod,
         active: true,

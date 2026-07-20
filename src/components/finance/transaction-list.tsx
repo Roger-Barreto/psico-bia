@@ -3,6 +3,7 @@ import { toast } from "sonner"
 import {
   ArrowDownLeftIcon,
   ArrowUpRightIcon,
+  CaretRightIcon,
   DotsThreeVerticalIcon,
   LockSimpleIcon,
   PencilSimpleIcon,
@@ -12,6 +13,7 @@ import {
   HandCoinsIcon,
 } from "@phosphor-icons/react"
 import type {
+  FinanceCard,
   FinanceCategory,
   LedgerEntry,
   PaymentMethod,
@@ -21,7 +23,13 @@ import {
   useDeleteTransaction,
   useSetTransactionSettled,
 } from "@/api/queries"
-import { formatBRL, matchesLedgerQuery, signedAmount } from "@/domain/finance"
+import {
+  formatBRL,
+  matchesLedgerQuery,
+  matchesTokens,
+  periodShort,
+  signedAmount,
+} from "@/domain/finance"
 import { formatLongDateBR } from "@/domain/dates"
 import { colorForKey } from "@/lib/finance-colors"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
@@ -35,13 +43,33 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 
+/** Synthetic "fatura do cartão" row shown on the due date. */
+export interface InvoiceListItem {
+  id: string
+  cardId: string
+  period: string // YYYY-MM da fatura
+  cardName: string
+  cardColor: string
+  last4: string | null
+  dueDate: string // dia em que a linha é agrupada
+  amount: number // líquido a pagar
+  settled: boolean
+  count: number
+}
+
 interface Props {
   entries: LedgerEntry[]
   methodsById: Map<string, PaymentMethod>
   peopleById: Map<string, Person>
   categoriesById?: Map<string, FinanceCategory>
+  cardsById?: Map<string, FinanceCard>
+  /** Card invoices to interleave (grouped on their due date). */
+  invoices?: InvoiceListItem[]
+  onOpenInvoice?: (inv: InvoiceListItem) => void
   /** Free-text filter over every field (description, value, tags, date…). */
   query?: string
+  /** Empty-state text when there is no query (filter-aware wording). */
+  emptyLabel?: string
   onEdit?: (entry: LedgerEntry) => void
 }
 
@@ -50,7 +78,11 @@ export function TransactionList({
   methodsById,
   peopleById,
   categoriesById,
+  cardsById,
+  invoices,
+  onOpenInvoice,
   query,
+  emptyLabel,
   onEdit,
 }: Props) {
   const setSettled = useSetTransactionSettled()
@@ -74,12 +106,22 @@ export function TransactionList({
         }),
       )
     : entries
+  const invoiceRows = (invoices ?? []).filter(
+    (r) =>
+      !q ||
+      matchesTokens(
+        `fatura do cartão ${r.cardName} ${r.period} ${formatBRL(r.amount)} ${r.dueDate} ${r.settled ? "paga" : "a pagar"}`,
+        q,
+      ),
+  )
 
-  if (filtered.length === 0) {
+  if (filtered.length === 0 && invoiceRows.length === 0) {
     return (
       <div className="grid place-items-center gap-2 rounded-xl border border-dashed border-border/60 py-14 text-center">
         <p className="text-sm font-medium text-muted-foreground">
-          {q ? "Nenhum lançamento encontrado." : "Nenhum lançamento neste mês."}
+          {q
+            ? "Nenhum lançamento encontrado."
+            : (emptyLabel ?? "Nenhum lançamento neste mês.")}
         </p>
         <p className="text-xs text-muted-foreground/70">
           {q
@@ -90,20 +132,31 @@ export function TransactionList({
     )
   }
 
-  // group by day (descending)
-  const byDay = new Map<string, LedgerEntry[]>()
-  for (const e of filtered) {
-    const arr = byDay.get(e.date) ?? []
-    arr.push(e)
-    byDay.set(e.date, arr)
+  // group by day (descending); card invoices land on their due date
+  const byDay = new Map<
+    string,
+    { entries: LedgerEntry[]; invoices: InvoiceListItem[] }
+  >()
+  const slotOf = (day: string) => {
+    let s = byDay.get(day)
+    if (!s) {
+      s = { entries: [], invoices: [] }
+      byDay.set(day, s)
+    }
+    return s
   }
+  for (const e of filtered) slotOf(e.date).entries.push(e)
+  for (const r of invoiceRows) slotOf(r.dueDate).invoices.push(r)
   const days = [...byDay.keys()].sort((a, b) => b.localeCompare(a))
 
   return (
     <div className="space-y-5">
       {days.map((day) => {
-        const items = byDay.get(day)!
-        const subtotal = items.reduce((s, e) => s + signedAmount(e), 0)
+        const slot = byDay.get(day)!
+        const items = slot.entries
+        const subtotal =
+          items.reduce((s, e) => s + signedAmount(e), 0) -
+          slot.invoices.reduce((s, r) => s + r.amount, 0)
         return (
           <section key={day}>
             <div className="mb-1.5 flex items-center justify-between gap-3 px-1">
@@ -121,6 +174,13 @@ export function TransactionList({
               </p>
             </div>
             <Card className="divide-y divide-border/40 overflow-hidden">
+              {slot.invoices.map((r) => (
+                <InvoiceRow
+                  key={r.id}
+                  invoice={r}
+                  onOpen={onOpenInvoice ? () => onOpenInvoice(r) : undefined}
+                />
+              ))}
               {items.map((e) => (
                 <Row
                   key={e.id}
@@ -131,6 +191,7 @@ export function TransactionList({
                       : undefined
                   }
                   person={e.personId ? peopleById.get(e.personId) : undefined}
+                  card={e.cardId ? cardsById?.get(e.cardId) : undefined}
                   toggling={togglingId === e.id}
                   deleting={deletingId === e.id}
                   categoryColor={
@@ -141,7 +202,8 @@ export function TransactionList({
                   }
                   onEdit={onEdit ? () => onEdit(e) : undefined}
                   onToggle={async () => {
-                    if (!e.editable) return
+                    // card purchases settle only via the invoice payment
+                    if (!e.editable || e.cardId) return
                     try {
                       await setSettled.mutateAsync({
                         id: e.id,
@@ -181,12 +243,15 @@ export function TransactionList({
 function Chip({
   children,
   className,
+  style,
 }: {
   children: React.ReactNode
   className?: string
+  style?: React.CSSProperties
 }) {
   return (
     <span
+      style={style}
       className={cn(
         "inline-flex items-center gap-1 rounded-md bg-muted/40 px-1.5 py-0.5 text-[11px] leading-none text-muted-foreground",
         className,
@@ -201,6 +266,7 @@ function Row({
   entry: e,
   method,
   person,
+  card,
   categoryColor,
   toggling,
   deleting,
@@ -211,6 +277,7 @@ function Row({
   entry: LedgerEntry
   method?: PaymentMethod
   person?: Person
+  card?: FinanceCard
   categoryColor?: string | null
   toggling?: boolean
   deleting?: boolean
@@ -222,21 +289,27 @@ function Row({
   const income = e.kind === "income"
   const Icon = income ? ArrowUpRightIcon : ArrowDownLeftIcon
   const isLoan = method?.isLoan ?? false
+  // Card purchases are settled by paying the invoice, never one by one.
+  const invoiceLocked = !!e.cardId
 
   return (
     <div className="flex items-center gap-3 px-3 py-3 transition-colors hover:bg-muted/20 sm:px-4">
       <button
         type="button"
         onClick={onToggle}
-        disabled={!e.editable || toggling}
+        disabled={!e.editable || toggling || invoiceLocked}
         title={
-          e.editable
+          invoiceLocked
             ? e.settled
-              ? income
-                ? "Recebido"
-                : "Pago"
-              : "Marcar como " + (income ? "recebido" : "pago")
-            : "Faturamento da clínica (automático)"
+              ? "Paga pela fatura do cartão"
+              : "Será paga junto com a fatura do cartão"
+            : e.editable
+              ? e.settled
+                ? income
+                  ? "Recebido"
+                  : "Pago"
+                : "Marcar como " + (income ? "recebido" : "pago")
+              : "Faturamento da clínica (automático)"
         }
         className={cn(
           "grid size-9 shrink-0 place-items-center rounded-full border transition-colors",
@@ -245,7 +318,8 @@ function Row({
               ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
               : "border-rose-500/40 bg-rose-500/15 text-rose-300"
             : "border-border/60 text-muted-foreground hover:border-foreground/40",
-          !e.editable && "cursor-default opacity-90",
+          (!e.editable || invoiceLocked) &&
+            "cursor-default opacity-90 hover:border-border/60",
         )}
       >
         {toggling ? <Spinner className="size-4" /> : <Icon weight="bold" className="size-4" />}
@@ -290,6 +364,21 @@ function Row({
               {method.name}
             </Chip>
           )}
+          {card && (
+            <Chip
+              className="bg-transparent"
+              style={{
+                color: card.color ?? undefined,
+                boxShadow: `inset 0 0 0 1px ${card.color ?? "hsl(var(--border))"}`,
+              }}
+            >
+              {card.name}
+              {card.last4 ? ` •••• ${card.last4}` : ""}
+            </Chip>
+          )}
+          {e.cardId && e.invoicePeriod && (
+            <Chip>fatura {periodShort(e.invoicePeriod)}</Chip>
+          )}
           {person && (
             <Chip className="bg-primary/10 text-primary/90">{person.name}</Chip>
           )}
@@ -317,7 +406,7 @@ function Row({
         </p>
         {!e.settled && (
           <p className="text-[10px] text-amber-400/90">
-            {income ? "a receber" : "a pagar"}
+            {invoiceLocked ? "na fatura" : income ? "a receber" : "a pagar"}
           </p>
         )}
       </div>
@@ -356,5 +445,60 @@ function Row({
         <span className="size-8 shrink-0" aria-hidden />
       )}
     </div>
+  )
+}
+
+/** "Fatura do cartão X" — aggregated invoice due this day; click opens it. */
+function InvoiceRow({
+  invoice: r,
+  onOpen,
+}: {
+  invoice: InvoiceListItem
+  onOpen?: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      disabled={!onOpen}
+      className="flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-muted/20 disabled:cursor-default sm:px-4"
+      title="Abrir a fatura do cartão"
+    >
+      <span
+        className="grid size-9 shrink-0 place-items-center rounded-full text-white shadow-inner"
+        style={{ backgroundColor: r.cardColor }}
+      >
+        <CreditCardIcon weight="fill" className="size-4" />
+      </span>
+
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">
+          Fatura do cartão {r.cardName}
+        </p>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          <Chip>fatura {periodShort(r.period)}</Chip>
+          <Chip>
+            {r.count} {r.count === 1 ? "lançamento" : "lançamentos"}
+          </Chip>
+          {r.last4 && <Chip>•••• {r.last4}</Chip>}
+        </div>
+      </div>
+
+      <div className="shrink-0 text-right">
+        <p className="text-sm font-semibold tabular-nums text-rose-300">
+          −{formatBRL(r.amount)}
+        </p>
+        {r.settled ? (
+          <p className="text-[10px] text-emerald-300">paga</p>
+        ) : (
+          <p className="text-[10px] text-amber-400/90">a pagar</p>
+        )}
+      </div>
+
+      <CaretRightIcon
+        weight="bold"
+        className="size-4 shrink-0 text-muted-foreground"
+      />
+    </button>
   )
 }
