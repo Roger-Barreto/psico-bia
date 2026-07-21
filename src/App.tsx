@@ -14,6 +14,7 @@ import { FinanceLedgerPage } from "@/pages/finance-ledger"
 import { FinanceDashboardPage } from "@/pages/finance-dashboard"
 import { FinancePeoplePage } from "@/pages/finance-people"
 import { FinanceCardsPage } from "@/pages/finance-cards"
+import { FinanceCofrinhosPage } from "@/pages/finance-cofrinhos"
 import { FinanceCategoriesPage } from "@/pages/finance-categories"
 import { FinancePaymentMethodsPage } from "@/pages/finance-payment-methods"
 import { ReadingLayout } from "@/components/reading/reading-layout"
@@ -39,6 +40,7 @@ export default function App() {
             <Route path="dashboard" element={<FinanceDashboardPage />} />
             <Route path="pessoas" element={<FinancePeoplePage />} />
             <Route path="cartoes" element={<FinanceCardsPage />} />
+            <Route path="cofrinhos" element={<FinanceCofrinhosPage />} />
             <Route
               path="cadastros/categorias"
               element={<FinanceCategoriesPage />}

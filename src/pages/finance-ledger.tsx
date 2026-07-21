@@ -1,15 +1,26 @@
 import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { MagnifyingGlassIcon, PlusIcon } from "@phosphor-icons/react"
+import { toast } from "sonner"
 import {
+  MagnifyingGlassIcon,
+  PiggyBankIcon,
+  PlusIcon,
+} from "@phosphor-icons/react"
+import {
+  useAllCofrinhoEntries,
   useCardEntriesAll,
   useCards,
+  useCofrinhos,
+  useCofrinhoPurchaseDescriptions,
+  useCofrinhoWithdrawals,
   useEnsureRecurring,
   useFinanceCategories,
   useLedgerMonth,
   useLedgerRange,
   usePaymentMethods,
   usePeople,
+  useResolveCofrinhoSlot,
+  useSkipCofrinhoSlot,
 } from "@/api/queries"
 import type { LedgerEntry } from "@/db/types"
 import {
@@ -20,27 +31,36 @@ import {
   todayPeriod,
   yearStartPeriod,
 } from "@/domain/finance"
+import { cofrinhoSlots, incomeByDay } from "@/domain/cofrinhos"
 import { Breadcrumbs } from "@/components/breadcrumbs"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
-import { MonthNav } from "@/components/finance/month-nav"
 import { LedgerMiniCalendar } from "@/components/finance/ledger-mini-calendar"
 import { TransactionDialog } from "@/components/finance/transaction-dialog"
 import {
   TransactionList,
+  type CofrinhoAction,
+  type CofrinhoDepositItem,
+  type CofrinhoListItem,
   type InvoiceListItem,
 } from "@/components/finance/transaction-list"
+import {
+  CofrinhoResolveDialog,
+  type ResolveTarget,
+} from "@/components/finance/cofrinho-resolve-dialog"
+import { CofrinhoDepositDialog } from "@/components/finance/cofrinho-deposit-dialog"
 import { colorForKey } from "@/lib/finance-colors"
 import { cn } from "@/lib/utils"
 
-type LedgerFilter = "all" | "payable" | "receivable" | "card"
+type LedgerFilter = "all" | "payable" | "receivable" | "card" | "cofrinho"
 
 const FILTERS: { id: LedgerFilter; label: string }[] = [
   { id: "all", label: "Todos" },
   { id: "payable", label: "A pagar" },
   { id: "receivable", label: "A receber" },
   { id: "card", label: "Compras no cartão" },
+  { id: "cofrinho", label: "Cofrinho" },
 ]
 
 export function FinanceLedgerPage() {
@@ -161,6 +181,178 @@ export function FinanceLedgerPage() {
     [monthInvoices, cardsById],
   )
 
+  // Cofrinho savings prompts for the month (computed from goals + income).
+  const cofrinhosQ = useCofrinhos()
+  const cofrinhosById = useMemo(
+    () => new Map((cofrinhosQ.data ?? []).map((c) => [c.id, c] as const)),
+    [cofrinhosQ.data],
+  )
+  const cofrinhoEntriesQ = useAllCofrinhoEntries()
+  const repayDescQ = useCofrinhoPurchaseDescriptions()
+  const resolveSlot = useResolveCofrinhoSlot()
+  const skipSlot = useSkipCofrinhoSlot()
+  const [resolveTarget, setResolveTarget] = useState<ResolveTarget | null>(null)
+  const [resolveOpen, setResolveOpen] = useState(false)
+  const [depositOpen, setDepositOpen] = useState(false)
+  const [cofrinhoBusyKey, setCofrinhoBusyKey] = useState<string | null>(null)
+
+  const cofrinhoItems: CofrinhoListItem[] = useMemo(() => {
+    const active = (cofrinhosQ.data ?? []).filter((c) => c.active)
+    const cofEntries = cofrinhoEntriesQ.data ?? []
+    const descById = repayDescQ.data ?? new Map<string, string>()
+    const out: CofrinhoListItem[] = []
+    for (const c of active) {
+      const income = incomeByDay(entries, c.incomeScope)
+      for (const s of cofrinhoSlots(c, period, income, cofEntries)) {
+        out.push({
+          id: `${c.id}:${s.slotKey}`,
+          cofrinhoId: c.id,
+          cofrinhoName: c.name,
+          cofrinhoColor: c.color ?? colorForKey(c.name),
+          slotKey: s.slotKey,
+          date: s.date,
+          period: s.period,
+          source: s.source,
+          expected: s.expected,
+          saved: s.saved,
+          pending: s.pending,
+          status: s.status,
+          description: s.purchaseTxId
+            ? (descById.get(s.purchaseTxId) ?? null)
+            : null,
+        })
+      }
+    }
+    return out
+  }, [cofrinhosQ.data, cofrinhoEntriesQ.data, repayDescQ.data, entries, period])
+
+  // Manual "Adicionar valor" deposits for the month, shown as ledger lines.
+  const cofrinhoDepositItems: CofrinhoDepositItem[] = useMemo(() => {
+    const out: CofrinhoDepositItem[] = []
+    for (const e of cofrinhoEntriesQ.data ?? []) {
+      if (e.kind !== "deposit" || e.source !== "manual" || e.period !== period)
+        continue
+      const c = cofrinhosById.get(e.cofrinhoId)
+      out.push({
+        id: e.id,
+        cofrinhoId: e.cofrinhoId,
+        cofrinhoName: c?.name ?? "Cofrinho",
+        cofrinhoColor: c?.color ?? colorForKey(c?.name ?? "Cofrinho"),
+        date: e.date,
+        amount: e.amount,
+        description: e.description,
+      })
+    }
+    return out
+  }, [cofrinhoEntriesQ.data, cofrinhosById, period])
+
+  async function handleCofrinhoAction(
+    item: CofrinhoListItem,
+    action: CofrinhoAction,
+  ) {
+    if (action === "partial") {
+      setResolveTarget({
+        cofrinhoId: item.cofrinhoId,
+        cofrinhoName: item.cofrinhoName,
+        slotKey: item.slotKey,
+        date: item.date,
+        period: item.period,
+        source: item.source,
+        expected: item.expected,
+        saved: item.saved,
+        pending: item.pending,
+      })
+      setResolveOpen(true)
+      return
+    }
+    setCofrinhoBusyKey(item.id)
+    try {
+      if (action === "save") {
+        await resolveSlot.mutateAsync({
+          cofrinhoId: item.cofrinhoId,
+          slotKey: item.slotKey,
+          date: item.date,
+          source: item.source,
+          amount: item.pending,
+          expected: item.pending,
+        })
+        toast.success("Guardado")
+      } else {
+        await skipSlot.mutateAsync({
+          cofrinhoId: item.cofrinhoId,
+          slotKey: item.slotKey,
+          date: item.date,
+          source: item.source,
+          expected: item.expected,
+        })
+        toast.success("Pulado")
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro")
+    } finally {
+      setCofrinhoBusyKey(null)
+    }
+  }
+
+  // Cofrinho insight figures for the indicator strip.
+  const cofrinhoWithdrawalsQ = useCofrinhoWithdrawals()
+  const cofrinhoInsights = useMemo(() => {
+    const cofEntries = cofrinhoEntriesQ.data ?? []
+    const withdrawals = cofrinhoWithdrawalsQ.data ?? new Map<string, number>()
+    let deposited = 0
+    let depositedMonth = 0
+    for (const e of cofEntries) {
+      if (e.kind !== "deposit") continue
+      deposited += e.amount
+      if (e.period === period) depositedMonth += e.amount
+    }
+    let withdrawn = 0
+    for (const v of withdrawals.values()) withdrawn += v
+    const active = (cofrinhosQ.data ?? []).filter((c) => c.active)
+    const initial = active.reduce((s, c) => s + (c.initialAmount ?? 0), 0)
+    const pending = cofrinhoItems.reduce((s, r) => s + r.pending, 0)
+    return {
+      reserved: initial + deposited - withdrawn,
+      savedMonth: depositedMonth,
+      toSave: pending,
+      hasCofrinhos: active.length > 0,
+    }
+  }, [
+    cofrinhoEntriesQ.data,
+    cofrinhoWithdrawalsQ.data,
+    cofrinhoItems,
+    cofrinhosQ.data,
+    period,
+  ])
+
+  // Cofrinho prompts show in "Todos" and in the dedicated "Cofrinho" view.
+  const typeCofrinhos = useMemo(
+    () =>
+      filter === "all" || filter === "cofrinho" ? cofrinhoItems : [],
+    [cofrinhoItems, filter],
+  )
+  const shownCofrinhos = useMemo(
+    () =>
+      selectedDay
+        ? typeCofrinhos.filter((r) => r.date === selectedDay)
+        : typeCofrinhos,
+    [typeCofrinhos, selectedDay],
+  )
+
+  // Manual deposits show alongside prompts ("Todos" + "Cofrinho" views).
+  const typeCofrinhoDeposits = useMemo(
+    () =>
+      filter === "all" || filter === "cofrinho" ? cofrinhoDepositItems : [],
+    [cofrinhoDepositItems, filter],
+  )
+  const shownCofrinhoDeposits = useMemo(
+    () =>
+      selectedDay
+        ? typeCofrinhoDeposits.filter((r) => r.date === selectedDay)
+        : typeCofrinhoDeposits,
+    [typeCofrinhoDeposits, selectedDay],
+  )
+
   // Type filter (button group). Card purchases NEVER count as "a pagar" —
   // there the invoice shows up instead; they get their own "card" view.
   const typeEntries = useMemo(() => {
@@ -175,6 +367,8 @@ export function FinanceLedgerPage() {
         )
       case "card":
         return entries.filter((e) => !!e.cardId)
+      case "cofrinho":
+        return entries.filter((e) => !!e.cofrinhoId)
       default:
         return entries
     }
@@ -193,8 +387,11 @@ export function FinanceLedgerPage() {
     for (const e of typeEntries) m.set(e.date, (m.get(e.date) ?? 0) + 1)
     for (const r of typeInvoices)
       m.set(r.dueDate, (m.get(r.dueDate) ?? 0) + 1)
+    for (const r of typeCofrinhos) m.set(r.date, (m.get(r.date) ?? 0) + 1)
+    for (const r of typeCofrinhoDeposits)
+      m.set(r.date, (m.get(r.date) ?? 0) + 1)
     return m
-  }, [typeEntries, typeInvoices])
+  }, [typeEntries, typeInvoices, typeCofrinhos, typeCofrinhoDeposits])
 
   const shownEntries = useMemo(
     () =>
@@ -220,6 +417,8 @@ export function FinanceLedgerPage() {
         return `Nada a receber ${scope}.`
       case "card":
         return `Nenhuma compra no cartão ${scope}.`
+      case "cofrinho":
+        return `Nada de cofrinho ${scope}.`
       default:
         return selectedDay ? "Nenhum lançamento neste dia." : undefined
     }
@@ -245,13 +444,10 @@ export function FinanceLedgerPage() {
             Compras no cartão de crédito entram pela fatura.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <MonthNav period={period} onChange={setPeriod} />
-          <Button onClick={openNew}>
-            <PlusIcon weight="bold" />
-            Novo lançamento
-          </Button>
-        </div>
+        <Button onClick={openNew}>
+          <PlusIcon weight="bold" />
+          Novo lançamento
+        </Button>
       </div>
 
       <div className="space-y-4">
@@ -267,6 +463,27 @@ export function FinanceLedgerPage() {
             />
           </CardContent>
         </Card>
+
+        {cofrinhoInsights.hasCofrinhos && (
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-4 py-2.5 text-sm">
+            <span className="flex items-center gap-1.5 text-amber-300">
+              <PiggyBankIcon weight="fill" className="size-4" />
+              <span className="font-medium">Cofrinhos</span>
+            </span>
+            <CofStat label="Reservado" value={cofrinhoInsights.reserved} />
+            <CofStat label="Guardado no mês" value={cofrinhoInsights.savedMonth} />
+            <CofStat label="A guardar" value={cofrinhoInsights.toSave} muted />
+            <Button
+              size="sm"
+              variant="outline"
+              className="ml-auto"
+              onClick={() => setDepositOpen(true)}
+            >
+              <PlusIcon weight="bold" />
+              Adicionar valor
+            </Button>
+          </div>
+        )}
 
         <div className="flex flex-col gap-2 @3xl:flex-row @3xl:items-center">
           <div className="flex flex-wrap gap-1 self-start rounded-lg border border-border/60 bg-background/40 p-1">
@@ -323,6 +540,7 @@ export function FinanceLedgerPage() {
                 peopleById={peopleById}
                 categoriesById={categoriesById}
                 cardsById={cardsById}
+                cofrinhosById={cofrinhosById}
                 emptyLabel={emptyLabel}
                 invoices={shownInvoices}
                 onOpenInvoice={(inv) =>
@@ -330,6 +548,10 @@ export function FinanceLedgerPage() {
                     `/financeiro/cartoes?cartao=${inv.cardId}&fatura=${inv.period}`,
                   )
                 }
+                cofrinhos={shownCofrinhos}
+                onCofrinhoAction={handleCofrinhoAction}
+                cofrinhoBusyKey={cofrinhoBusyKey}
+                cofrinhoDeposits={shownCofrinhoDeposits}
                 query={query}
                 onEdit={openEdit}
               />
@@ -344,6 +566,12 @@ export function FinanceLedgerPage() {
         viewPeriod={period}
         editing={editing}
       />
+      <CofrinhoResolveDialog
+        open={resolveOpen}
+        onOpenChange={setResolveOpen}
+        target={resolveTarget}
+      />
+      <CofrinhoDepositDialog open={depositOpen} onOpenChange={setDepositOpen} />
     </div>
   )
 }
@@ -371,5 +599,29 @@ function Stat({
         {formatBRL(value)}
       </p>
     </div>
+  )
+}
+
+function CofStat({
+  label,
+  value,
+  muted,
+}: {
+  label: string
+  value: number
+  muted?: boolean
+}) {
+  return (
+    <span className="flex items-baseline gap-1.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span
+        className={cn(
+          "text-sm font-semibold tabular-nums",
+          muted ? "text-amber-300/90" : "text-foreground",
+        )}
+      >
+        {formatBRL(value)}
+      </span>
+    </span>
   )
 }

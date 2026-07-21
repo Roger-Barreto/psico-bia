@@ -14,6 +14,7 @@ import { MoneyInput, parseMoney } from "@/components/ui/money-input"
 import { DatePicker } from "@/components/ui/date-picker"
 import { AddableSelect } from "@/components/finance/addable-select"
 import { CardDialog } from "@/components/finance/card-dialog"
+import { CofrinhoDialog } from "@/components/finance/cofrinho-dialog"
 import {
   Select,
   SelectContent,
@@ -23,6 +24,7 @@ import {
 } from "@/components/ui/select"
 import {
   useCards,
+  useCofrinhos,
   useCreateFinanceCategory,
   useCreateInstallments,
   useCreateLoanGranted,
@@ -31,12 +33,14 @@ import {
   useCreateRecurringRule,
   useCreateTransaction,
   useFinanceCategories,
+  usePayWithCofrinho,
   usePaymentMethods,
   usePeople,
   useUpdateTransaction,
 } from "@/api/queries"
 import type { FinanceScope, LedgerEntry, TransactionKind } from "@/db/types"
 import {
+  addMonthsISO,
   cardInvoiceFor,
   installmentDates,
   periodOf,
@@ -44,7 +48,7 @@ import {
   todayPeriod,
 } from "@/domain/finance"
 import { formatLongDateBR, todayISO } from "@/domain/dates"
-import { PlusIcon } from "@phosphor-icons/react"
+import { PiggyBankIcon, PlusIcon } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 
 type Mode = "single" | "installment" | "recurring"
@@ -57,6 +61,8 @@ interface Props {
   editing?: LedgerEntry | null
   /** Pre-select a credit card + its method when creating (from the Cartões page). */
   presetCardId?: string | null
+  /** Pre-select a cofrinho + its method when creating (from the Cofrinhos page). */
+  presetCofrinhoId?: string | null
 }
 
 /** number → "1.234,56" */
@@ -129,6 +135,7 @@ export function TransactionDialog({
   viewPeriod,
   editing,
   presetCardId,
+  presetCofrinhoId,
 }: Props) {
   const isEdit = !!editing
 
@@ -136,6 +143,7 @@ export function TransactionDialog({
   const methodsQ = usePaymentMethods()
   const peopleQ = usePeople()
   const cardsQ = useCards()
+  const cofrinhosQ = useCofrinhos()
 
   const createCategory = useCreateFinanceCategory()
   const createMethod = useCreatePaymentMethod()
@@ -146,11 +154,13 @@ export function TransactionDialog({
   const createInstallments = useCreateInstallments()
   const createLoanGranted = useCreateLoanGranted()
   const createRule = useCreateRecurringRule()
+  const payWithCofrinho = usePayWithCofrinho()
 
   const categories = (categoriesQ.data ?? []).filter((c) => c.active)
   const methods = (methodsQ.data ?? []).filter((m) => m.active)
   const people = (peopleQ.data ?? []).filter((p) => p.active)
   const cards = (cardsQ.data ?? []).filter((c) => c.active)
+  const cofrinhos = (cofrinhosQ.data ?? []).filter((c) => c.active)
 
   const [kind, setKind] = useState<TransactionKind>("expense")
   const [scope, setScope] = useState<FinanceScope>("personal")
@@ -162,6 +172,11 @@ export function TransactionDialog({
   const [personId, setPersonId] = useState<string | null>(null)
   const [cardId, setCardId] = useState<string | null>(null)
   const [cardDialogOpen, setCardDialogOpen] = useState(false)
+  const [cofrinhoId, setCofrinhoId] = useState<string | null>(null)
+  const [cofrinhoDialogOpen, setCofrinhoDialogOpen] = useState(false)
+  // pay-with-cofrinho: whether to replenish the reserve, and in how many months
+  const [replenish, setReplenish] = useState(true)
+  const [repayInstallments, setRepayInstallments] = useState("1")
   const [settled, setSettled] = useState(true)
   const [mode, setMode] = useState<Mode>("single")
   const [installments, setInstallments] = useState("2")
@@ -183,6 +198,7 @@ export function TransactionDialog({
       setMethodId(editing.paymentMethodId)
       setPersonId(editing.personId)
       setCardId(editing.cardId)
+      setCofrinhoId(editing.cofrinhoId)
       setSettled(editing.settled)
       setMode("single")
     } else {
@@ -195,6 +211,8 @@ export function TransactionDialog({
       setPersonId(null)
       setMode("single")
       setInstallments("2")
+      setReplenish(true)
+      setRepayInstallments("1")
       setWithOutflow(true)
       setOutflowMethodId(null)
       setOutflowCategoryId(null)
@@ -202,13 +220,24 @@ export function TransactionDialog({
       const ccMethod = presetCardId
         ? (methodsQ.data ?? []).find((m) => m.active && m.isCreditCard)
         : undefined
+      // Pre-select the cofrinho method + reserve when opened from a cofrinho page.
+      const cofMethod = presetCofrinhoId
+        ? (methodsQ.data ?? []).find((m) => m.active && m.isCofrinho)
+        : undefined
       if (presetCardId && ccMethod) {
         setMethodId(ccMethod.id)
         setCardId(presetCardId)
+        setCofrinhoId(null)
         setSettled(false)
+      } else if (presetCofrinhoId && cofMethod) {
+        setMethodId(cofMethod.id)
+        setCofrinhoId(presetCofrinhoId)
+        setCardId(null)
+        setSettled(true)
       } else {
         setMethodId(null)
         setCardId(null)
+        setCofrinhoId(null)
         setSettled(true)
       }
     }
@@ -218,9 +247,12 @@ export function TransactionDialog({
   const selectedMethod = methods.find((m) => m.id === methodId)
   const isLoan = selectedMethod?.isLoan ?? false
   const isCreditCard = selectedMethod?.isCreditCard ?? false
+  const isCofrinho = selectedMethod?.isCofrinho ?? false
   const selectedCard = cards.find((c) => c.id === cardId)
+  const selectedCofrinho = cofrinhos.find((c) => c.id === cofrinhoId)
   const amountNum = parseMoney(amount)
   const nInst = Math.max(2, Math.min(360, Number(installments) || 2))
+  const nRepay = Math.max(1, Math.min(360, Number(repayInstallments) || 1))
 
   const isLoanGranted = !isEdit && kind === "income" && isLoan && withOutflow
 
@@ -244,7 +276,8 @@ export function TransactionDialog({
     updateTx.isPending ||
     createInstallments.isPending ||
     createLoanGranted.isPending ||
-    createRule.isPending
+    createRule.isPending ||
+    payWithCofrinho.isPending
 
   async function submit() {
     if (!description.trim()) return toast.error("Informe uma descrição")
@@ -253,6 +286,8 @@ export function TransactionDialog({
     if (isLoan && !personId) return toast.error("Empréstimo exige uma pessoa")
     if (isCreditCard && !cardId)
       return toast.error("Selecione um cartão para o pagamento no crédito")
+    if (isCofrinho && !cofrinhoId)
+      return toast.error("Selecione o cofrinho de onde vai retirar")
 
     try {
       if (isEdit) {
@@ -269,6 +304,7 @@ export function TransactionDialog({
             paymentMethodId: methodId,
             personId: isLoan ? personId : null,
             cardId: isCreditCard ? cardId : null,
+            cofrinhoId: isCofrinho ? cofrinhoId : null,
             settled,
             settledAt: settled
               ? editing!.settled
@@ -278,6 +314,34 @@ export function TransactionDialog({
           },
         })
         toast.success("Lançamento atualizado")
+      } else if (isCofrinho) {
+        if (!cofrinhoId) return
+        const repay =
+          replenish && amountNum > 0
+            ? {
+                amounts: splitInstallments(amountNum, nRepay),
+                dates: installmentDates(addMonthsISO(date, 1), nRepay),
+              }
+            : undefined
+        await payWithCofrinho.mutateAsync({
+          tx: {
+            kind: "expense",
+            scope,
+            description: description.trim(),
+            amount: amountNum,
+            date,
+            categoryId,
+            paymentMethodId: methodId,
+            cofrinhoId,
+            settled: true,
+          },
+          repay,
+        })
+        toast.success(
+          replenish
+            ? `Pago com o cofrinho — reposição em ${nRepay}x`
+            : "Pago com o cofrinho",
+        )
       } else if (isLoanGranted) {
         // case 3b: cash outflow (expense) + receivable (income/loan)
         if (!methodId) return
@@ -430,8 +494,14 @@ export function TransactionDialog({
                 const m = methods.find((x) => x.id === id)
                 // loans and card purchases start outstanding (a pagar)
                 if (!isEdit && (m?.isLoan || m?.isCreditCard)) setSettled(false)
-                // dropping the credit-card method clears the card link
+                // dropping the credit-card / cofrinho method clears its link
                 if (!m?.isCreditCard) setCardId(null)
+                if (!m?.isCofrinho) setCofrinhoId(null)
+                // paying with a cofrinho is always an expense, paid now
+                if (m?.isCofrinho) {
+                  setKind("expense")
+                  setSettled(true)
+                }
               }}
               options={methods}
               placeholder="Selecionar forma"
@@ -483,6 +553,86 @@ export function TransactionDialog({
                 </SelectContent>
               </Select>
             </Field>
+          )}
+
+          {isCofrinho && (
+            <div className="space-y-3">
+              <Field
+                label="Cofrinho"
+                hint={
+                  selectedCofrinho
+                    ? "O valor sai da reserva deste cofrinho."
+                    : "Escolha de qual reserva o dinheiro vai sair."
+                }
+              >
+                <Select
+                  value={cofrinhoId ?? undefined}
+                  onValueChange={(v) => {
+                    if (v === "__add_cofrinho__") {
+                      setCofrinhoDialogOpen(true)
+                      return
+                    }
+                    setCofrinhoId(v)
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecionar cofrinho" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {cofrinhos.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                    <SelectItem
+                      value="__add_cofrinho__"
+                      className="text-primary"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <PlusIcon weight="bold" className="size-3.5" />
+                        Novo cofrinho…
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <div className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] p-3">
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={replenish}
+                    onChange={(e) => setReplenish(e.target.checked)}
+                    className="size-4 rounded border-border accent-amber-500"
+                  />
+                  <span className="flex items-center gap-1.5">
+                    <PiggyBankIcon
+                      weight="fill"
+                      className="size-4 text-amber-400"
+                    />
+                    Vou repor o cofrinho depois
+                  </span>
+                </label>
+                {replenish && (
+                  <div className="grid grid-cols-2 items-end gap-3">
+                    <Field label="Em quantas vezes">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={360}
+                        value={repayInstallments}
+                        onChange={(e) => setRepayInstallments(e.target.value)}
+                      />
+                    </Field>
+                    <p className="pb-2.5 text-xs text-muted-foreground">
+                      {amountNum > 0
+                        ? `${nRepay}× de ${formatMoneyValue(splitInstallments(amountNum, nRepay)[0])} — metas a partir do mês que vem.`
+                        : "Metas de guardar a partir do mês que vem."}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
           )}
 
           {isLoan && (
@@ -547,7 +697,7 @@ export function TransactionDialog({
           )}
 
           {/* Recurrence / installments — only when creating */}
-          {!isEdit && !isLoanGranted && (
+          {!isEdit && !isLoanGranted && !isCofrinho && (
             <Field label="Repetição">
               <Segmented
                 value={mode}
@@ -561,7 +711,7 @@ export function TransactionDialog({
             </Field>
           )}
 
-          {!isEdit && mode === "installment" && !isLoanGranted && (
+          {!isEdit && mode === "installment" && !isLoanGranted && !isCofrinho && (
             <div className="grid grid-cols-2 items-end gap-3">
               <Field label="Nº de parcelas">
                 <Input
@@ -588,7 +738,8 @@ export function TransactionDialog({
           )}
 
           {(isEdit || (mode === "single" && !isLoanGranted)) &&
-            !isCreditCard && (
+            !isCreditCard &&
+            !isCofrinho && (
               <label className="flex cursor-pointer items-center gap-2 text-sm">
                 <input
                   type="checkbox"
@@ -604,6 +755,15 @@ export function TransactionDialog({
             <p className="text-xs text-muted-foreground">
               O pagamento é controlado pela fatura do cartão, em{" "}
               <span className="font-medium text-foreground">Cartões</span>.
+            </p>
+          )}
+
+          {isCofrinho && (
+            <p className="text-xs text-muted-foreground">
+              O valor sai da reserva do cofrinho.{" "}
+              {replenish
+                ? "As metas de reposição aparecerão nos próximos meses."
+                : "Sem reposição, a reserva diminui de vez."}
             </p>
           )}
         </div>
@@ -622,6 +782,11 @@ export function TransactionDialog({
         open={cardDialogOpen}
         onOpenChange={setCardDialogOpen}
         onCreated={(id) => setCardId(id)}
+      />
+      <CofrinhoDialog
+        open={cofrinhoDialogOpen}
+        onOpenChange={setCofrinhoDialogOpen}
+        onCreated={(id) => setCofrinhoId(id)}
       />
     </Dialog>
   )

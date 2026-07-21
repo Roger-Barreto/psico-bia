@@ -11,6 +11,13 @@ import type {
   Appointment,
   AppointmentSeries,
   AppointmentStatus,
+  Cofrinho,
+  CofrinhoEntry,
+  CofrinhoEntryKind,
+  CofrinhoEntrySource,
+  CofrinhoEntryStatus,
+  CofrinhoGoalType,
+  CofrinhoIncomeScope,
   DischargeReason,
   FinanceCard,
   FinanceCategory,
@@ -1395,6 +1402,7 @@ interface PaymentMethodRow {
   name: string
   is_loan: boolean
   is_credit_card: boolean
+  is_cofrinho: boolean
   color: string | null
   active: boolean
   created_at: string
@@ -1405,9 +1413,76 @@ function rowToPaymentMethod(r: PaymentMethodRow): PaymentMethod {
     name: r.name,
     isLoan: r.is_loan,
     isCreditCard: r.is_credit_card ?? false,
+    isCofrinho: r.is_cofrinho ?? false,
     color: r.color,
     active: r.active,
     createdAt: r.created_at,
+  }
+}
+
+interface CofrinhoRow {
+  id: string
+  name: string
+  color: string | null
+  goal_type: CofrinhoGoalType
+  percent: number | null
+  fixed_amount: number | null
+  fixed_day: number | null
+  income_scope: CofrinhoIncomeScope
+  initial_amount: number | null
+  active: boolean
+  created_at: string
+}
+function rowToCofrinho(r: CofrinhoRow): Cofrinho {
+  return {
+    id: r.id,
+    name: r.name,
+    color: r.color,
+    goalType: r.goal_type,
+    percent: r.percent != null ? Number(r.percent) : null,
+    fixedAmount: r.fixed_amount != null ? Number(r.fixed_amount) : null,
+    fixedDay: r.fixed_day,
+    incomeScope: r.income_scope ?? "all",
+    initialAmount: r.initial_amount != null ? Number(r.initial_amount) : 0,
+    active: r.active,
+    createdAt: r.created_at,
+  }
+}
+
+interface CofrinhoEntryRow {
+  id: string
+  cofrinho_id: string
+  kind: CofrinhoEntryKind
+  date: string
+  period: string
+  slot_key: string | null
+  source: CofrinhoEntrySource
+  expected: number | null
+  amount: number
+  status: CofrinhoEntryStatus
+  purchase_tx_id: string | null
+  parent_id: string | null
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+function rowToCofrinhoEntry(r: CofrinhoEntryRow): CofrinhoEntry {
+  return {
+    id: r.id,
+    cofrinhoId: r.cofrinho_id,
+    kind: r.kind,
+    date: r.date,
+    period: r.period,
+    slotKey: r.slot_key,
+    source: r.source,
+    expected: r.expected != null ? Number(r.expected) : null,
+    amount: Number(r.amount),
+    status: r.status,
+    purchaseTxId: r.purchase_tx_id,
+    parentId: r.parent_id,
+    description: r.description ?? null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
   }
 }
 
@@ -1487,6 +1562,7 @@ interface LedgerRow {
   invoice_period: string | null
   invoice_close_date: string | null
   invoice_due_date: string | null
+  cofrinho_id: string | null
   settled: boolean
   settled_at: string | null
   recurring_rule_id: string | null
@@ -1515,6 +1591,7 @@ function rowToLedgerEntry(r: LedgerRow): LedgerEntry {
     invoicePeriod: r.invoice_period ?? null,
     invoiceCloseDate: r.invoice_close_date ?? null,
     invoiceDueDate: r.invoice_due_date ?? null,
+    cofrinhoId: r.cofrinho_id ?? null,
     settled: r.settled,
     settledAt: r.settled_at,
     recurringRuleId: r.recurring_rule_id,
@@ -1534,6 +1611,8 @@ export const fqk = {
   categories: ["finance-categories"] as const,
   paymentMethods: ["finance-payment-methods"] as const,
   cards: ["finance-cards"] as const,
+  cofrinhos: ["finance-cofrinhos"] as const,
+  cofrinhoEntries: ["finance-cofrinho-entries"] as const,
   rules: ["finance-rules"] as const,
   ledgerMonth: (period: string) =>
     ["finance-ledger", "month", period] as const,
@@ -1543,7 +1622,14 @@ export const fqk = {
     ["finance-ledger", "person", personId] as const,
   cardLedger: (cardId: string) =>
     ["finance-ledger", "card", cardId] as const,
+  cofrinhoLedger: (cofrinhoId: string) =>
+    ["finance-ledger", "cofrinho", cofrinhoId] as const,
   openLoans: ["finance-ledger", "open-loans"] as const,
+}
+
+/** Invalidate every cofrinho-entries query (deposits/skips/plans). */
+function invalidateCofrinhoEntries(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: fqk.cofrinhoEntries })
 }
 
 function invalidateLedger(qc: ReturnType<typeof useQueryClient>) {
@@ -1776,6 +1862,7 @@ export function useCreatePaymentMethod() {
       name: string
       isLoan?: boolean
       isCreditCard?: boolean
+      isCofrinho?: boolean
       color?: string | null
     }) => {
       const row: PaymentMethodRow = {
@@ -1783,6 +1870,7 @@ export function useCreatePaymentMethod() {
         name: input.name,
         is_loan: input.isLoan ?? false,
         is_credit_card: input.isCreditCard ?? false,
+        is_cofrinho: input.isCofrinho ?? false,
         color: input.color ?? null,
         active: true,
         created_at: nowIso(),
@@ -1810,7 +1898,12 @@ export function useUpdatePaymentMethod() {
       patch: Partial<
         Pick<
           PaymentMethod,
-          "name" | "color" | "active" | "isLoan" | "isCreditCard"
+          | "name"
+          | "color"
+          | "active"
+          | "isLoan"
+          | "isCreditCard"
+          | "isCofrinho"
         >
       >
     }) => {
@@ -1821,6 +1914,7 @@ export function useUpdatePaymentMethod() {
       if (patch.isLoan !== undefined) row.is_loan = patch.isLoan
       if (patch.isCreditCard !== undefined)
         row.is_credit_card = patch.isCreditCard
+      if (patch.isCofrinho !== undefined) row.is_cofrinho = patch.isCofrinho
       const { data, error } = await supabase
         .from("payment_methods")
         .update(row)
@@ -2119,6 +2213,519 @@ export function usePeopleBalances() {
   })
 }
 
+// ─── COFRINHOS (registry) ────────────────────────────────
+export function useCofrinhos() {
+  return useQuery({
+    queryKey: fqk.cofrinhos,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("finance_cofrinhos")
+        .select("*")
+        .order("name", { ascending: true })
+      if (error) throw error
+      return (data ?? []).map((r) => rowToCofrinho(r as CofrinhoRow))
+    },
+    staleTime: 60_000,
+  })
+}
+
+export interface NewCofrinhoInput {
+  name: string
+  color?: string | null
+  goalType: CofrinhoGoalType
+  percent?: number | null
+  fixedAmount?: number | null
+  fixedDay?: number | null
+  incomeScope?: CofrinhoIncomeScope
+  initialAmount?: number | null
+}
+
+export function useCreateCofrinho() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: NewCofrinhoInput) => {
+      const row: CofrinhoRow = {
+        id: newId("cof"),
+        name: input.name,
+        color: input.color ?? null,
+        goal_type: input.goalType,
+        percent: input.percent ?? null,
+        fixed_amount: input.fixedAmount ?? null,
+        fixed_day: input.fixedDay ?? null,
+        income_scope: input.incomeScope ?? "all",
+        initial_amount: input.initialAmount ?? 0,
+        active: true,
+        created_at: nowIso(),
+      }
+      const { data, error } = await supabase
+        .from("finance_cofrinhos")
+        .insert(row)
+        .select()
+        .single()
+      if (error) throw error
+      return rowToCofrinho(data as CofrinhoRow)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: fqk.cofrinhos }),
+  })
+}
+
+export function useUpdateCofrinho() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      id,
+      patch,
+    }: {
+      id: string
+      patch: Partial<
+        Pick<
+          Cofrinho,
+          | "name"
+          | "color"
+          | "goalType"
+          | "percent"
+          | "fixedAmount"
+          | "fixedDay"
+          | "incomeScope"
+          | "initialAmount"
+          | "active"
+        >
+      >
+    }) => {
+      const row: Partial<CofrinhoRow> = {}
+      if (patch.name !== undefined) row.name = patch.name
+      if (patch.color !== undefined) row.color = patch.color
+      if (patch.goalType !== undefined) row.goal_type = patch.goalType
+      if (patch.percent !== undefined) row.percent = patch.percent
+      if (patch.fixedAmount !== undefined) row.fixed_amount = patch.fixedAmount
+      if (patch.fixedDay !== undefined) row.fixed_day = patch.fixedDay
+      if (patch.incomeScope !== undefined) row.income_scope = patch.incomeScope
+      if (patch.initialAmount !== undefined)
+        row.initial_amount = patch.initialAmount
+      if (patch.active !== undefined) row.active = patch.active
+      const { data, error } = await supabase
+        .from("finance_cofrinhos")
+        .update(row)
+        .eq("id", id)
+        .select()
+        .single()
+      if (error) throw error
+      return rowToCofrinho(data as CofrinhoRow)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: fqk.cofrinhos })
+      invalidateCofrinhoEntries(qc)
+    },
+  })
+}
+
+/** Hard-delete a cofrinho; unlinks its purchases (kept as expenses), drops its entries. */
+export function useDeleteCofrinho() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.rpc("finance_delete_cofrinho", {
+        p_id: id,
+      })
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: fqk.cofrinhos })
+      invalidateCofrinhoEntries(qc)
+      invalidateLedger(qc)
+    },
+  })
+}
+
+/** Count purchases (transactions) paid from a cofrinho. */
+export async function countCofrinhoUsage(id: string): Promise<number> {
+  const { count, error } = await supabase
+    .from("finance_transactions")
+    .select("id", { count: "exact", head: true })
+    .eq("cofrinho_id", id)
+  if (error) throw error
+  return count ?? 0
+}
+
+// ─── COFRINHO ENTRIES (deposits / skips / plans) ─────────
+/** All entries of one cofrinho (balance + history). */
+export function useCofrinhoEntries(cofrinhoId?: string) {
+  return useQuery({
+    queryKey: [...fqk.cofrinhoEntries, "cofrinho", cofrinhoId ?? "none"],
+    queryFn: async () => {
+      if (!cofrinhoId) return []
+      const { data, error } = await supabase
+        .from("finance_cofrinho_entries")
+        .select("*")
+        .eq("cofrinho_id", cofrinhoId)
+        .order("date", { ascending: false })
+      if (error) throw error
+      return (data ?? []).map((r) => rowToCofrinhoEntry(r as CofrinhoEntryRow))
+    },
+    enabled: !!cofrinhoId,
+    staleTime: 15_000,
+  })
+}
+
+/** Every cofrinho entry (all cofrinhos) — feeds the ledger overlay + balances. */
+export function useAllCofrinhoEntries() {
+  return useQuery({
+    queryKey: [...fqk.cofrinhoEntries, "all"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("finance_cofrinho_entries")
+        .select("*")
+        .order("date", { ascending: false })
+      if (error) throw error
+      return (data ?? []).map((r) => rowToCofrinhoEntry(r as CofrinhoEntryRow))
+    },
+    staleTime: 15_000,
+  })
+}
+
+/** Description of each purchase that a cofrinho repayment plan refers to. */
+export function useCofrinhoPurchaseDescriptions() {
+  return useQuery({
+    queryKey: [...fqk.cofrinhoEntries, "purchase-desc"],
+    queryFn: async () => {
+      const { data: entries, error: e1 } = await supabase
+        .from("finance_cofrinho_entries")
+        .select("purchase_tx_id")
+        .not("purchase_tx_id", "is", null)
+      if (e1) throw e1
+      const ids = [
+        ...new Set(
+          (entries ?? [])
+            .map((r) => (r as { purchase_tx_id: string }).purchase_tx_id)
+            .filter(Boolean),
+        ),
+      ]
+      const map = new Map<string, string>()
+      if (ids.length === 0) return map
+      const { data, error } = await supabase
+        .from("finance_transactions")
+        .select("id, description")
+        .in("id", ids)
+      if (error) throw error
+      for (const r of (data ?? []) as { id: string; description: string }[])
+        map.set(r.id, r.description)
+      return map
+    },
+    staleTime: 15_000,
+  })
+}
+
+/** Net withdrawn per cofrinho (purchases paid from it), across all time. */
+export function useCofrinhoWithdrawals() {
+  return useQuery({
+    queryKey: [...fqk.cofrinhoEntries, "withdrawals"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("finance_ledger")
+        .select("cofrinho_id, kind, amount")
+        .not("cofrinho_id", "is", null)
+      if (error) throw error
+      const map = new Map<string, number>()
+      for (const r of (data ?? []) as {
+        cofrinho_id: string
+        kind: TransactionKind
+        amount: number
+      }[]) {
+        const v = r.kind === "expense" ? Number(r.amount) : -Number(r.amount)
+        map.set(r.cofrinho_id, (map.get(r.cofrinho_id) ?? 0) + v)
+      }
+      return map
+    },
+    staleTime: 15_000,
+  })
+}
+
+/** Purchases paid from a cofrinho (withdrawals), newest first. */
+export function useCofrinhoTransactions(cofrinhoId?: string) {
+  return useQuery({
+    queryKey: fqk.cofrinhoLedger(cofrinhoId ?? "none"),
+    queryFn: async () => {
+      if (!cofrinhoId) return []
+      const { data, error } = await supabase
+        .from("finance_ledger")
+        .select("*")
+        .eq("cofrinho_id", cofrinhoId)
+        .order("date", { ascending: false })
+      if (error) throw error
+      return (data ?? []).map((r) => rowToLedgerEntry(r as LedgerRow))
+    },
+    enabled: !!cofrinhoId,
+    staleTime: 15_000,
+  })
+}
+
+/** All cofrinho-funded purchases (every cofrinho), newest first. */
+export function useAllCofrinhoTransactions() {
+  return useQuery({
+    queryKey: fqk.cofrinhoLedger("all"),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("finance_ledger")
+        .select("*")
+        .not("cofrinho_id", "is", null)
+        .order("date", { ascending: false })
+      if (error) throw error
+      return (data ?? []).map((r) => rowToLedgerEntry(r as LedgerRow))
+    },
+    staleTime: 15_000,
+  })
+}
+
+// ─── COFRINHO ENTRIES (write) ────────────────────────────
+type CofrinhoEntryInsert = Omit<CofrinhoEntryRow, "period" | "description"> & {
+  description?: string | null
+}
+
+/** Deposit into a goal slot (guardar / parcial), optionally rolling the
+ *  leftover of a fixed goal into a plan for a later month. */
+export function useResolveCofrinhoSlot() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      cofrinhoId: string
+      slotKey: string
+      date: string
+      source: CofrinhoEntrySource
+      amount: number
+      expected: number
+      /** When set (fixed partial), create a rollover plan for the remainder. */
+      rolloverToDate?: string | null
+      parentId?: string | null
+    }) => {
+      const now = nowIso()
+      const status: CofrinhoEntryStatus =
+        input.amount + 0.005 >= input.expected ? "saved" : "partial"
+      const rows: CofrinhoEntryInsert[] = [
+        {
+          id: newId("ce"),
+          cofrinho_id: input.cofrinhoId,
+          kind: "deposit",
+          date: input.date,
+          slot_key: input.slotKey,
+          source: input.source,
+          expected: input.expected,
+          amount: input.amount,
+          status,
+          purchase_tx_id: null,
+          parent_id: input.parentId ?? null,
+          created_at: now,
+          updated_at: now,
+        },
+      ]
+      const remaining = Math.round((input.expected - input.amount) * 100) / 100
+      if (input.rolloverToDate && remaining > 0.005) {
+        rows.push({
+          id: newId("ce"),
+          cofrinho_id: input.cofrinhoId,
+          kind: "plan",
+          date: input.rolloverToDate,
+          slot_key: null,
+          source: "rollover",
+          expected: remaining,
+          amount: 0,
+          status: "pending",
+          purchase_tx_id: null,
+          parent_id: input.slotKey,
+          created_at: now,
+          updated_at: now,
+        })
+      }
+      const { error } = await supabase
+        .from("finance_cofrinho_entries")
+        .insert(rows)
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => invalidateCofrinhoEntries(qc),
+  })
+}
+
+/** Ad-hoc manual deposit made at any time (not tied to a generated prompt).
+ *  `slotKey` decides whether it counts toward a goal — `fixed:${period}` /
+ *  `pct:${date}` abates that slot's pending; `null` is a plain extra deposit. */
+export function useAddCofrinhoDeposit() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      cofrinhoId: string
+      amount: number
+      date: string
+      slotKey: string | null
+      description?: string | null
+    }) => {
+      const now = nowIso()
+      const row: CofrinhoEntryInsert = {
+        id: newId("ce"),
+        cofrinho_id: input.cofrinhoId,
+        kind: "deposit",
+        date: input.date,
+        slot_key: input.slotKey,
+        source: "manual",
+        expected: 0,
+        amount: input.amount,
+        status: "saved",
+        purchase_tx_id: null,
+        parent_id: null,
+        description: input.description?.trim() || null,
+        created_at: now,
+        updated_at: now,
+      }
+      const { error } = await supabase
+        .from("finance_cofrinho_entries")
+        .insert(row)
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => invalidateCofrinhoEntries(qc),
+  })
+}
+
+/** Mark a goal slot as skipped (não guardar) — suppresses the prompt. */
+export function useSkipCofrinhoSlot() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      cofrinhoId: string
+      slotKey: string
+      date: string
+      source: CofrinhoEntrySource
+      expected: number
+    }) => {
+      const now = nowIso()
+      const row: CofrinhoEntryInsert = {
+        id: newId("ce"),
+        cofrinho_id: input.cofrinhoId,
+        kind: "skip",
+        date: input.date,
+        slot_key: input.slotKey,
+        source: input.source,
+        expected: input.expected,
+        amount: 0,
+        status: "skipped",
+        purchase_tx_id: null,
+        parent_id: null,
+        created_at: now,
+        updated_at: now,
+      }
+      const { error } = await supabase
+        .from("finance_cofrinho_entries")
+        .insert(row)
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => invalidateCofrinhoEntries(qc),
+  })
+}
+
+/** Remove a deposit/skip entry (undo a resolution). */
+export function useDeleteCofrinhoEntry() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("finance_cofrinho_entries")
+        .delete()
+        .eq("id", id)
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => invalidateCofrinhoEntries(qc),
+  })
+}
+
+/**
+ * "Pay with cofrinho": insert the purchase (a normal expense funded by the
+ * reserve, tagged with cofrinho_id) and, when replenishing, the N monthly
+ * repayment obligations linked to that purchase.
+ */
+export function usePayWithCofrinho() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      tx: NewTransactionInput // kind:'expense', cofrinhoId set, settled:true
+      repay?: { amounts: number[]; dates: string[] }
+    }) => {
+      const now = nowIso()
+      const txId = newId("tx")
+      const txRow = { ...buildTxRow(input.tx, now), id: txId }
+      const { error } = await supabase
+        .from("finance_transactions")
+        .insert(txRow)
+      if (error) throw error
+      if (input.repay && input.repay.amounts.length && input.tx.cofrinhoId) {
+        const rows: CofrinhoEntryInsert[] = input.repay.amounts.map(
+          (amount, i) => ({
+            id: newId("ce"),
+            cofrinho_id: input.tx.cofrinhoId!,
+            kind: "plan",
+            date: input.repay!.dates[i],
+            slot_key: null,
+            source: "repay",
+            expected: amount,
+            amount: 0,
+            status: "pending",
+            purchase_tx_id: txId,
+            parent_id: null,
+            created_at: now,
+            updated_at: now,
+          }),
+        )
+        const { error: e2 } = await supabase
+          .from("finance_cofrinho_entries")
+          .insert(rows)
+        if (e2) throw e2
+      }
+      return { ok: true as const }
+    },
+    onSuccess: () => {
+      invalidateLedger(qc)
+      invalidateCofrinhoEntries(qc)
+    },
+  })
+}
+
+/** Replenishment plans for a "pay with cofrinho": N monthly obligations. */
+export function useCreateRepayPlans() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      cofrinhoId: string
+      purchaseTxId: string
+      amounts: number[]
+      dates: string[]
+    }) => {
+      const now = nowIso()
+      const rows: CofrinhoEntryInsert[] = input.amounts.map((amount, i) => ({
+        id: newId("ce"),
+        cofrinho_id: input.cofrinhoId,
+        kind: "plan",
+        date: input.dates[i],
+        slot_key: null,
+        source: "repay",
+        expected: amount,
+        amount: 0,
+        status: "pending",
+        purchase_tx_id: input.purchaseTxId,
+        parent_id: null,
+        created_at: now,
+        updated_at: now,
+      }))
+      const { error } = await supabase
+        .from("finance_cofrinho_entries")
+        .insert(rows)
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => invalidateCofrinhoEntries(qc),
+  })
+}
+
 // ─── LEDGER (read) ───────────────────────────────────────
 export function useLedgerMonth(period: string) {
   return useQuery({
@@ -2184,6 +2791,7 @@ export interface NewTransactionInput {
   paymentMethodId?: string | null
   personId?: string | null
   cardId?: string | null
+  cofrinhoId?: string | null
   settled?: boolean
   settledAt?: string | null
 }
@@ -2200,6 +2808,7 @@ function buildTxRow(input: NewTransactionInput, now: string) {
     payment_method_id: input.paymentMethodId ?? null,
     person_id: input.personId ?? null,
     card_id: input.cardId ?? null,
+    cofrinho_id: input.cofrinhoId ?? null,
     settled: input.settled ?? false,
     settled_at: input.settled ? (input.settledAt ?? now) : null,
     created_at: now,
@@ -2341,6 +2950,7 @@ export function useUpdateTransaction() {
         row.payment_method_id = patch.paymentMethodId
       if (patch.personId !== undefined) row.person_id = patch.personId
       if (patch.cardId !== undefined) row.card_id = patch.cardId
+      if (patch.cofrinhoId !== undefined) row.cofrinho_id = patch.cofrinhoId
       if (patch.settled !== undefined) row.settled = patch.settled
       if (patch.settledAt !== undefined) row.settled_at = patch.settledAt
       const { error } = await supabase
@@ -2348,17 +2958,21 @@ export function useUpdateTransaction() {
         .update(row)
         .eq("id", id)
       if (error) throw error
-      // Card/method are attributes of the purchase, not of one parcel: mirror
-      // them on the sibling installments so every parcel lands in its own
+      // Card/method/cofrinho are attributes of the purchase, not of one parcel:
+      // mirror them on the sibling installments so every parcel lands in its own
       // successive invoice (the DB trigger recomputes each one by its date).
       if (
         installmentGroup &&
-        (patch.cardId !== undefined || patch.paymentMethodId !== undefined)
+        (patch.cardId !== undefined ||
+          patch.paymentMethodId !== undefined ||
+          patch.cofrinhoId !== undefined)
       ) {
         const sibling: Record<string, unknown> = { updated_at: nowIso() }
         if (patch.paymentMethodId !== undefined)
           sibling.payment_method_id = patch.paymentMethodId
         if (patch.cardId !== undefined) sibling.card_id = patch.cardId
+        if (patch.cofrinhoId !== undefined)
+          sibling.cofrinho_id = patch.cofrinhoId
         const { error: e2 } = await supabase
           .from("finance_transactions")
           .update(sibling)

@@ -62,7 +62,16 @@ export function LedgerMiniCalendar({
           </p>
           <p className="text-base font-semibold">{monthLabel[monthIdx]}</p>
         </div>
-        <div className="flex gap-1">
+        <div className="flex items-center gap-1">
+          {period !== today.slice(0, 7) && (
+            <button
+              type="button"
+              className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+              onClick={() => onChangePeriod(today.slice(0, 7))}
+            >
+              Hoje
+            </button>
+          )}
           <button
             type="button"
             className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-muted/40 hover:text-foreground"

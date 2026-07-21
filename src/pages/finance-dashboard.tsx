@@ -1,5 +1,8 @@
 import { useMemo, useState } from "react"
 import {
+  useAllCofrinhoEntries,
+  useCofrinhos,
+  useCofrinhoWithdrawals,
   useFinanceCategories,
   useLedgerRange,
   usePaymentMethods,
@@ -8,11 +11,22 @@ import {
 import {
   addPeriod,
   ledgerTotals,
+  periodShort,
   todayPeriod,
   yearStartPeriod,
 } from "@/domain/finance"
+import {
+  cofrinhoSlots,
+  incomeByDay,
+  monthlyDeposited,
+} from "@/domain/cofrinhos"
 import { Breadcrumbs } from "@/components/breadcrumbs"
-import { FinanceDashboard } from "@/components/finance/finance-dashboard"
+import {
+  FinanceDashboard,
+  type CofrinhoBalance,
+  type CofrinhoGoal,
+} from "@/components/finance/finance-dashboard"
+import { colorForKey } from "@/lib/finance-colors"
 import { cn } from "@/lib/utils"
 
 const RANGES = [
@@ -61,6 +75,72 @@ export function FinanceDashboardPage() {
     [categoriesQ.data],
   )
 
+  // Cofrinho reserves (balance per cofrinho = deposits − withdrawals).
+  const cofrinhosQ = useCofrinhos()
+  const cofEntriesQ = useAllCofrinhoEntries()
+  const cofWithdrawalsQ = useCofrinhoWithdrawals()
+  const cofrinhoBalances = useMemo<CofrinhoBalance[]>(() => {
+    const deposits = new Map<string, number>()
+    for (const e of cofEntriesQ.data ?? []) {
+      if (e.kind === "deposit")
+        deposits.set(e.cofrinhoId, (deposits.get(e.cofrinhoId) ?? 0) + e.amount)
+    }
+    const withdrawals = cofWithdrawalsQ.data ?? new Map<string, number>()
+    return (cofrinhosQ.data ?? [])
+      .filter((c) => c.active)
+      .map((c) => ({
+        name: c.name,
+        value:
+          (c.initialAmount ?? 0) +
+          (deposits.get(c.id) ?? 0) -
+          (withdrawals.get(c.id) ?? 0),
+        color: c.color ?? colorForKey(c.name),
+      }))
+      .sort((a, b) => b.value - a.value)
+  }, [cofrinhosQ.data, cofEntriesQ.data, cofWithdrawalsQ.data])
+
+  const cofrinhoMonthly = useMemo(
+    () =>
+      monthlyDeposited(cofEntriesQ.data ?? [], fromPeriod, toPeriod).map((p) => ({
+        label: periodShort(p.period),
+        total: p.total,
+      })),
+    [cofEntriesQ.data, fromPeriod, toPeriod],
+  )
+
+  // Goal vs saved per cofrinho, summed over every month in the range.
+  const cofrinhoGoals = useMemo<CofrinhoGoal[]>(() => {
+    const active = (cofrinhosQ.data ?? []).filter((c) => c.active)
+    const cofEntries = cofEntriesQ.data ?? []
+    const incomeAll = incomeByDay(entries, "all")
+    const incomeClinic = incomeByDay(entries, "clinic")
+    const periods: string[] = []
+    let p = fromPeriod
+    while (p <= toPeriod) {
+      periods.push(p)
+      p = addPeriod(p, 1)
+    }
+    return active
+      .map((c) => {
+        const income = c.incomeScope === "clinic" ? incomeClinic : incomeAll
+        let meta = 0
+        let saved = 0
+        for (const per of periods) {
+          for (const s of cofrinhoSlots(c, per, income, cofEntries)) {
+            meta += s.expected
+            saved += s.saved
+          }
+        }
+        return {
+          name: c.name,
+          color: c.color ?? colorForKey(c.name),
+          meta: Math.round(meta * 100) / 100,
+          saved: Math.round(saved * 100) / 100,
+        }
+      })
+      .filter((x) => x.meta > 0.005 || x.saved > 0.005)
+  }, [cofrinhosQ.data, cofEntriesQ.data, entries, fromPeriod, toPeriod])
+
   return (
     <div className="space-y-6">
       <div>
@@ -104,6 +184,9 @@ export function FinanceDashboardPage() {
           fromPeriod={fromPeriod}
           toPeriod={toPeriod}
           accumulated={accumulated}
+          cofrinhoBalances={cofrinhoBalances}
+          cofrinhoMonthly={cofrinhoMonthly}
+          cofrinhoGoals={cofrinhoGoals}
         />
       )}
     </div>

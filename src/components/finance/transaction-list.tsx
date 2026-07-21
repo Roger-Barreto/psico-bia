@@ -4,15 +4,19 @@ import {
   ArrowDownLeftIcon,
   ArrowUpRightIcon,
   CaretRightIcon,
+  CheckIcon,
   DotsThreeVerticalIcon,
   LockSimpleIcon,
   PencilSimpleIcon,
+  PiggyBankIcon,
+  ProhibitIcon,
   RepeatIcon,
   TrashIcon,
   CreditCardIcon,
   HandCoinsIcon,
 } from "@phosphor-icons/react"
 import type {
+  Cofrinho,
   FinanceCard,
   FinanceCategory,
   LedgerEntry,
@@ -57,15 +61,54 @@ export interface InvoiceListItem {
   count: number
 }
 
+/** Synthetic "guardar no cofrinho" prompt (expected saving) shown on its day. */
+export interface CofrinhoListItem {
+  id: string // `${cofrinhoId}:${slotKey}`
+  cofrinhoId: string
+  cofrinhoName: string
+  cofrinhoColor: string
+  slotKey: string
+  date: string
+  period: string
+  source: "fixed" | "percent" | "rollover" | "repay"
+  expected: number
+  saved: number
+  pending: number
+  status: "pending" | "saved" | "partial" | "skipped"
+  /** For repay prompts: description of the purchase being repaid. */
+  description?: string | null
+}
+
+/** A manual "Adicionar valor" deposit, shown as a ledger line (neutral to the
+ *  day subtotal, like the cofrinho prompts). */
+export interface CofrinhoDepositItem {
+  id: string // entry id
+  cofrinhoId: string
+  cofrinhoName: string
+  cofrinhoColor: string
+  date: string
+  amount: number
+  description: string | null
+}
+
+export type CofrinhoAction = "save" | "partial" | "skip"
+
 interface Props {
   entries: LedgerEntry[]
   methodsById: Map<string, PaymentMethod>
   peopleById: Map<string, Person>
   categoriesById?: Map<string, FinanceCategory>
   cardsById?: Map<string, FinanceCard>
+  cofrinhosById?: Map<string, Cofrinho>
   /** Card invoices to interleave (grouped on their due date). */
   invoices?: InvoiceListItem[]
   onOpenInvoice?: (inv: InvoiceListItem) => void
+  /** Cofrinho savings prompts to interleave (grouped on their date). */
+  cofrinhos?: CofrinhoListItem[]
+  onCofrinhoAction?: (item: CofrinhoListItem, action: CofrinhoAction) => void
+  cofrinhoBusyKey?: string | null
+  /** Manual cofrinho deposits to interleave (grouped on their date). */
+  cofrinhoDeposits?: CofrinhoDepositItem[]
   /** Free-text filter over every field (description, value, tags, date…). */
   query?: string
   /** Empty-state text when there is no query (filter-aware wording). */
@@ -79,8 +122,13 @@ export function TransactionList({
   peopleById,
   categoriesById,
   cardsById,
+  cofrinhosById,
   invoices,
   onOpenInvoice,
+  cofrinhos,
+  onCofrinhoAction,
+  cofrinhoBusyKey,
+  cofrinhoDeposits,
   query,
   emptyLabel,
   onEdit,
@@ -114,8 +162,29 @@ export function TransactionList({
         q,
       ),
   )
+  const cofrinhoRows = (cofrinhos ?? []).filter(
+    (r) =>
+      !q ||
+      matchesTokens(
+        `cofrinho guardar ${r.cofrinhoName} ${formatBRL(r.expected)} ${r.date} ${r.status}`,
+        q,
+      ),
+  )
+  const cofrinhoDepositRows = (cofrinhoDeposits ?? []).filter(
+    (r) =>
+      !q ||
+      matchesTokens(
+        `cofrinho guardado avulso ${r.cofrinhoName} ${r.description ?? ""} ${formatBRL(r.amount)} ${r.date}`,
+        q,
+      ),
+  )
 
-  if (filtered.length === 0 && invoiceRows.length === 0) {
+  if (
+    filtered.length === 0 &&
+    invoiceRows.length === 0 &&
+    cofrinhoRows.length === 0 &&
+    cofrinhoDepositRows.length === 0
+  ) {
     return (
       <div className="grid place-items-center gap-2 rounded-xl border border-dashed border-border/60 py-14 text-center">
         <p className="text-sm font-medium text-muted-foreground">
@@ -132,21 +201,28 @@ export function TransactionList({
     )
   }
 
-  // group by day (descending); card invoices land on their due date
+  // group by day (descending); card invoices + cofrinho prompts land on their day
   const byDay = new Map<
     string,
-    { entries: LedgerEntry[]; invoices: InvoiceListItem[] }
+    {
+      entries: LedgerEntry[]
+      invoices: InvoiceListItem[]
+      cofrinhos: CofrinhoListItem[]
+      deposits: CofrinhoDepositItem[]
+    }
   >()
   const slotOf = (day: string) => {
     let s = byDay.get(day)
     if (!s) {
-      s = { entries: [], invoices: [] }
+      s = { entries: [], invoices: [], cofrinhos: [], deposits: [] }
       byDay.set(day, s)
     }
     return s
   }
   for (const e of filtered) slotOf(e.date).entries.push(e)
   for (const r of invoiceRows) slotOf(r.dueDate).invoices.push(r)
+  for (const r of cofrinhoRows) slotOf(r.date).cofrinhos.push(r)
+  for (const r of cofrinhoDepositRows) slotOf(r.date).deposits.push(r)
   const days = [...byDay.keys()].sort((a, b) => b.localeCompare(a))
 
   return (
@@ -174,6 +250,21 @@ export function TransactionList({
               </p>
             </div>
             <Card className="divide-y divide-border/40 overflow-hidden">
+              {slot.cofrinhos.map((r) => (
+                <CofrinhoRow
+                  key={r.id}
+                  item={r}
+                  busy={cofrinhoBusyKey === r.id}
+                  onAction={
+                    onCofrinhoAction
+                      ? (action) => onCofrinhoAction(r, action)
+                      : undefined
+                  }
+                />
+              ))}
+              {slot.deposits.map((r) => (
+                <CofrinhoDepositRow key={r.id} item={r} />
+              ))}
               {slot.invoices.map((r) => (
                 <InvoiceRow
                   key={r.id}
@@ -192,6 +283,9 @@ export function TransactionList({
                   }
                   person={e.personId ? peopleById.get(e.personId) : undefined}
                   card={e.cardId ? cardsById?.get(e.cardId) : undefined}
+                  cofrinho={
+                    e.cofrinhoId ? cofrinhosById?.get(e.cofrinhoId) : undefined
+                  }
                   toggling={togglingId === e.id}
                   deleting={deletingId === e.id}
                   categoryColor={
@@ -267,6 +361,7 @@ function Row({
   method,
   person,
   card,
+  cofrinho,
   categoryColor,
   toggling,
   deleting,
@@ -278,6 +373,7 @@ function Row({
   method?: PaymentMethod
   person?: Person
   card?: FinanceCard
+  cofrinho?: Cofrinho
   categoryColor?: string | null
   toggling?: boolean
   deleting?: boolean
@@ -378,6 +474,18 @@ function Row({
           )}
           {e.cardId && e.invoicePeriod && (
             <Chip>fatura {periodShort(e.invoicePeriod)}</Chip>
+          )}
+          {cofrinho && (
+            <Chip
+              className="bg-transparent"
+              style={{
+                color: cofrinho.color ?? undefined,
+                boxShadow: `inset 0 0 0 1px ${cofrinho.color ?? "hsl(var(--border))"}`,
+              }}
+            >
+              <PiggyBankIcon className="size-3" />
+              {cofrinho.name}
+            </Chip>
           )}
           {person && (
             <Chip className="bg-primary/10 text-primary/90">{person.name}</Chip>
@@ -500,5 +608,191 @@ function InvoiceRow({
         className="size-4 shrink-0 text-muted-foreground"
       />
     </button>
+  )
+}
+
+const COFRINHO_SOURCE_TAG: Record<CofrinhoListItem["source"], string> = {
+  fixed: "meta do mês",
+  percent: "% do faturamento",
+  rollover: "sobra do mês anterior",
+  repay: "repor o cofrinho",
+}
+
+/** Row background + icon-circle color per resolution status. */
+const COFRINHO_TONE: Record<
+  CofrinhoListItem["status"],
+  { bg: string; circle: string }
+> = {
+  pending: { bg: "bg-amber-500/[0.06]", circle: "" },
+  partial: { bg: "bg-amber-500/[0.08]", circle: "bg-amber-500" },
+  saved: { bg: "bg-emerald-500/[0.07]", circle: "bg-emerald-500" },
+  skipped: { bg: "bg-rose-500/[0.06]", circle: "bg-rose-500" },
+}
+
+/** "Guardar no cofrinho X" — an expected-saving prompt, styled by status:
+ *  pending = amber + actions; partial = amber + discreet edit; saved = green;
+ *  skipped = red. Repay prompts show the purchase being repaid. */
+function CofrinhoRow({
+  item: r,
+  busy,
+  onAction,
+}: {
+  item: CofrinhoListItem
+  busy?: boolean
+  onAction?: (action: CofrinhoAction) => void
+}) {
+  const tone = COFRINHO_TONE[r.status]
+  const title =
+    r.source === "repay"
+      ? `Repor o cofrinho ${r.cofrinhoName}`
+      : `Guardar no ${r.cofrinhoName}`
+
+  return (
+    <div className={cn("flex items-center gap-3 px-3 py-3 sm:px-4", tone.bg)}>
+      <span
+        className="grid size-9 shrink-0 place-items-center rounded-full text-white shadow-inner"
+        style={tone.circle ? undefined : { backgroundColor: r.cofrinhoColor }}
+      >
+        <span className={cn("grid size-9 place-items-center rounded-full", tone.circle)}>
+          {r.status === "skipped" ? (
+            <ProhibitIcon weight="bold" className="size-4" />
+          ) : r.status === "saved" ? (
+            <CheckIcon weight="bold" className="size-4" />
+          ) : (
+            <PiggyBankIcon weight="fill" className="size-4" />
+          )}
+        </span>
+      </span>
+
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">{title}</p>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          <Chip className="bg-amber-500/15 text-amber-200/90">
+            {COFRINHO_SOURCE_TAG[r.source]}
+          </Chip>
+          {r.source === "repay" && r.description ? (
+            <Chip className="max-w-[16rem] truncate">{r.description}</Chip>
+          ) : (
+            <Chip>meta {formatBRL(r.expected)}</Chip>
+          )}
+          {r.status === "partial" && (
+            <Chip className="bg-amber-500/20 text-amber-200">
+              parcial · {formatBRL(r.saved)} de {formatBRL(r.expected)}
+            </Chip>
+          )}
+        </div>
+      </div>
+
+      {onAction && r.status === "pending" ? (
+        <div className="flex shrink-0 items-center gap-1">
+          {busy ? (
+            <Spinner className="mr-1 size-4" />
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => onAction("save")}
+                className="rounded-md bg-amber-500/20 px-2.5 py-1 text-xs font-semibold text-amber-200 transition-colors hover:bg-amber-500/30"
+                title={`Guardar ${formatBRL(r.pending)}`}
+              >
+                Guardar
+              </button>
+              <button
+                type="button"
+                onClick={() => onAction("partial")}
+                className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+              >
+                Parcial
+              </button>
+              <button
+                type="button"
+                onClick={() => onAction("skip")}
+                className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+              >
+                Pular
+              </button>
+            </>
+          )}
+        </div>
+      ) : r.status === "partial" ? (
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-sm font-semibold tabular-nums text-amber-300">
+            {formatBRL(r.saved)}
+          </span>
+          {onAction &&
+            (busy ? (
+              <Spinner className="size-4" />
+            ) : (
+              <button
+                type="button"
+                onClick={() => onAction("partial")}
+                className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+                title="Editar / guardar o restante"
+              >
+                <PencilSimpleIcon weight="fill" className="size-3.5" />
+              </button>
+            ))}
+        </div>
+      ) : (
+        <div className="shrink-0 text-right">
+          {r.status === "saved" && (
+            <p className="text-sm font-semibold tabular-nums text-emerald-300">
+              +{formatBRL(r.saved)}
+            </p>
+          )}
+          <p
+            className={cn(
+              "text-[10px]",
+              r.status === "saved" && "text-emerald-300",
+              r.status === "skipped" && "text-rose-300",
+            )}
+          >
+            {r.status === "saved" ? "guardado" : "pulado"}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** "Guardado no cofrinho X" — a manual deposit ("Adicionar valor"), shown as a
+ *  ledger line. Neutral to the day subtotal; mirrors the cofrinho's own
+ *  movimentações. */
+function CofrinhoDepositRow({ item: r }: { item: CofrinhoDepositItem }) {
+  return (
+    <div className="flex items-center gap-3 px-3 py-3 sm:px-4">
+      <span
+        className="grid size-9 shrink-0 place-items-center rounded-full text-white shadow-inner"
+        style={{ backgroundColor: r.cofrinhoColor }}
+      >
+        <PiggyBankIcon weight="fill" className="size-4" />
+      </span>
+
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">
+          {r.description?.trim() || `Guardado em ${r.cofrinhoName}`}
+        </p>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          <Chip
+            className="bg-transparent"
+            style={{
+              color: r.cofrinhoColor,
+              boxShadow: `inset 0 0 0 1px ${r.cofrinhoColor}`,
+            }}
+          >
+            <PiggyBankIcon className="size-3" />
+            {r.cofrinhoName}
+          </Chip>
+          <Chip className="bg-emerald-500/10 text-emerald-200/90">avulso</Chip>
+        </div>
+      </div>
+
+      <div className="shrink-0 text-right">
+        <p className="text-sm font-semibold tabular-nums text-emerald-300">
+          +{formatBRL(r.amount)}
+        </p>
+        <p className="text-[10px] text-muted-foreground">no cofrinho</p>
+      </div>
+    </div>
   )
 }

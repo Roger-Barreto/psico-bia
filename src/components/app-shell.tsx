@@ -12,6 +12,7 @@ import {
   CaretRightIcon,
   ChartPieSliceIcon,
   CreditCardIcon,
+  PiggyBankIcon,
   ListIcon,
   ListBulletsIcon,
   ListChecksIcon,
@@ -86,6 +87,7 @@ const navItems: NavEntry[] = [
       { to: "/financeiro/dashboard", label: "Dashboard", icon: ChartPieSliceIcon },
       { to: "/financeiro/pessoas", label: "Pessoas", icon: UsersThreeIcon },
       { to: "/financeiro/cartoes", label: "Cartões", icon: CreditCardIcon },
+      { to: "/financeiro/cofrinhos", label: "Cofrinhos", icon: PiggyBankIcon },
       {
         id: "financeiro-cadastros",
         label: "Cadastros",

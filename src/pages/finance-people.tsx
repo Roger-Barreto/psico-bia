@@ -5,8 +5,20 @@ import {
   MagnifyingGlassIcon,
   PencilSimpleIcon,
   PlusIcon,
+  StackIcon,
   TrashIcon,
 } from "@phosphor-icons/react"
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
 import { toast } from "sonner"
 import type {
   FinanceCategory,
@@ -24,12 +36,15 @@ import {
   usePersonLedger,
 } from "@/api/queries"
 import {
+  addPeriod,
   formatBRL,
   periodLabel,
   periodOf,
+  periodShort,
   personBalance,
   todayPeriod,
 } from "@/domain/finance"
+import { brl, chartAxis, chartTooltip } from "@/lib/chart-theme"
 import { Breadcrumbs } from "@/components/breadcrumbs"
 import { PatientAvatar } from "@/components/patient/patient-avatar"
 import { MonthNav } from "@/components/finance/month-nav"
@@ -47,6 +62,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
+
+const ALL = "__all__"
 
 export function FinancePeoplePage() {
   const peopleQ = usePeople()
@@ -170,6 +187,30 @@ export function FinancePeoplePage() {
       <div className="grid gap-4 lg:grid-cols-[20rem_1fr]">
         <div className="space-y-1.5">
           {people.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setSelected(ALL)}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-lg border px-2 py-2 text-left transition-colors",
+                selected === ALL
+                  ? "border-primary/40 bg-primary/10"
+                  : "border-border/50 bg-card/40 hover:bg-muted/30",
+              )}
+            >
+              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
+                <StackIcon weight="fill" className="size-4" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold">
+                  Todas as pessoas
+                </span>
+                <span className="block text-[11px] text-muted-foreground">
+                  visão geral dos empréstimos
+                </span>
+              </span>
+            </button>
+          )}
+          {people.length > 0 && (
             <label className="flex cursor-pointer items-center gap-2 px-1 pb-1 text-xs text-muted-foreground">
               <input
                 type="checkbox"
@@ -277,7 +318,9 @@ export function FinancePeoplePage() {
         </div>
 
         <div>
-          {selected ? (
+          {selected === ALL ? (
+            <PeopleAllPanel people={people} balancesById={balancesById} />
+          ) : selected ? (
             <PersonDetail
               key={selected}
               personId={selected}
@@ -347,6 +390,29 @@ function PersonDetail({
   )
   const bal = personBalance(monthEntries)
 
+  // Loan flow over the last 6 months (they owe you vs you owe them).
+  const monthly = useMemo(() => {
+    const from = addPeriod(period, -5)
+    const by = new Map<string, { recv: number; pay: number }>()
+    let p = from
+    while (p <= period) {
+      by.set(p, { recv: 0, pay: 0 })
+      p = addPeriod(p, 1)
+    }
+    for (const e of all) {
+      const slot = by.get(periodOf(e.date))
+      if (!slot) continue
+      if (e.kind === "income") slot.recv += e.amount
+      else slot.pay += e.amount
+    }
+    return [...by.entries()].map(([per, v]) => ({
+      label: periodShort(per),
+      "Te devem": v.recv,
+      "Você deve": v.pay,
+    }))
+  }, [all, period])
+  const hasFlow = monthly.some((m) => m["Te devem"] > 0 || m["Você deve"] > 0)
+
   return (
     <div className="space-y-4">
       <Card>
@@ -380,6 +446,40 @@ function PersonDetail({
         </CardContent>
       </Card>
 
+      {hasFlow && (
+        <Card>
+          <CardContent className="p-4">
+            <p className="mb-3 text-sm font-semibold">
+              Empréstimos por mês (últimos 6)
+            </p>
+            <div style={{ width: "100%", height: 180 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={monthly}>
+                  <CartesianGrid
+                    stroke="hsl(var(--border))"
+                    strokeDasharray="3 3"
+                    vertical={false}
+                  />
+                  <XAxis dataKey="label" {...chartAxis} />
+                  <YAxis {...chartAxis} tickFormatter={(v) => `R$${v}`} />
+                  <Tooltip {...chartTooltip} formatter={brl} />
+                  <Bar
+                    dataKey="Te devem"
+                    fill="rgb(16, 185, 129)"
+                    radius={[4, 4, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="Você deve"
+                    fill="rgb(244, 63, 94)"
+                    radius={[4, 4, 0, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="flex items-center justify-between gap-3 px-1">
         <p className="text-sm font-semibold">Lançamentos de {periodLabel(period)}</p>
       </div>
@@ -405,6 +505,102 @@ function PersonDetail({
         query={query}
         onEdit={onEditTx}
       />
+    </div>
+  )
+}
+
+/** Combined "Todos" view: totals across all people + a per-person balance chart. */
+function PeopleAllPanel({
+  people,
+  balancesById,
+}: {
+  people: Person[]
+  balancesById: Map<string, { receivable: number; payable: number }>
+}) {
+  const rows = people.map((p) => {
+    const b = balancesById.get(p.id) ?? { receivable: 0, payable: 0 }
+    return {
+      name: p.name,
+      receivable: b.receivable,
+      payable: b.payable,
+      net: b.receivable - b.payable,
+    }
+  })
+  const totalRecv = rows.reduce((s, r) => s + r.receivable, 0)
+  const totalPay = rows.reduce((s, r) => s + r.payable, 0)
+  const net = totalRecv - totalPay
+  const chart = rows
+    .filter((r) => Math.abs(r.net) > 0.005)
+    .sort((a, b) => b.net - a.net)
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardContent className="grid grid-cols-3 gap-3 p-4">
+          <div>
+            <p className="text-xs text-muted-foreground">Te devem (total)</p>
+            <p className="mt-1 text-lg font-semibold text-emerald-300 tabular-nums">
+              {formatBRL(totalRecv)}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Você deve (total)</p>
+            <p className="mt-1 text-lg font-semibold text-rose-300 tabular-nums">
+              {formatBRL(totalPay)}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Saldo líquido</p>
+            <p
+              className={cn(
+                "mt-1 text-lg font-semibold tabular-nums",
+                net >= 0 ? "text-emerald-300" : "text-rose-300",
+              )}
+            >
+              {net >= 0 ? "+" : "−"}
+              {formatBRL(Math.abs(net))}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-4">
+          <p className="mb-1 text-sm font-semibold">Saldo por pessoa</p>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Verde = te devem · Vermelho = você deve (em aberto)
+          </p>
+          {chart.length === 0 ? (
+            <div className="grid h-[220px] place-items-center text-xs text-muted-foreground">
+              Nenhum empréstimo em aberto.
+            </div>
+          ) : (
+            <div style={{ width: "100%", height: Math.max(220, chart.length * 34) }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chart} layout="vertical">
+                  <CartesianGrid
+                    stroke="hsl(var(--border))"
+                    strokeDasharray="3 3"
+                    horizontal={false}
+                  />
+                  <XAxis type="number" {...chartAxis} tickFormatter={(v) => `R$${v}`} />
+                  <YAxis type="category" dataKey="name" width={110} {...chartAxis} />
+                  <Tooltip {...chartTooltip} formatter={brl} />
+                  <ReferenceLine x={0} stroke="hsl(var(--border))" />
+                  <Bar dataKey="net" radius={[0, 4, 4, 0]}>
+                    {chart.map((r, i) => (
+                      <Cell
+                        key={i}
+                        fill={r.net >= 0 ? "rgb(16, 185, 129)" : "rgb(244, 63, 94)"}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

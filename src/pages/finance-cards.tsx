@@ -63,6 +63,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { colorForKey } from "@/lib/finance-colors"
+import { brl, chartAxis, chartTooltip } from "@/lib/chart-theme"
 import { cn } from "@/lib/utils"
 
 /** Whole days from today until an ISO date (negative = past). */
@@ -557,24 +558,10 @@ function CardInvoicePanel({
               <div style={{ width: "100%", height: 140 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={recent}>
-                    <XAxis
-                      dataKey="label"
-                      stroke="hsl(var(--muted-foreground))"
-                      tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
-                      tickLine={false}
-                      axisLine={false}
-                    />
+                    <XAxis dataKey="label" {...chartAxis} />
                     <Tooltip
-                      cursor={{ fill: "hsl(var(--muted)/0.3)" }}
-                      contentStyle={{
-                        background: "hsl(var(--popover))",
-                        border: "1px solid hsl(var(--border))",
-                        borderRadius: 8,
-                        fontSize: 12,
-                      }}
-                      formatter={(v: unknown) =>
-                        typeof v === "number" ? formatBRL(v) : String(v)
-                      }
+                      {...chartTooltip}
+                      formatter={brl}
                       labelFormatter={(l) => `Fatura ${l}`}
                     />
                     <Bar dataKey="total" radius={[4, 4, 0, 0]}>

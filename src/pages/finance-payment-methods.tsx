@@ -25,7 +25,7 @@ export function FinancePaymentMethodsPage() {
         { label: "Formas de pagamento" },
       ]}
       title="Formas de pagamento"
-      description="Marque o tipo: “Empréstimo” pede uma pessoa e “Cartão de crédito” pede um cartão ao lançar. A cor é usada nos gráficos."
+      description="Marque o tipo: “Empréstimo” pede uma pessoa, “Cartão de crédito” pede um cartão e “Cofrinho” retira da reserva ao lançar. A cor é usada nos gráficos."
       placeholder="Nova forma…"
       showColor
       kinds={{
@@ -33,10 +33,17 @@ export function FinancePaymentMethodsPage() {
           { value: "plain", label: "Comum" },
           { value: "loan", label: "Empréstimo" },
           { value: "credit", label: "Cartão de crédito" },
+          { value: "savings", label: "Cofrinho" },
         ],
         valueOf: (item) => {
           const m = methodsById.get(item.id)
-          return m?.isLoan ? "loan" : m?.isCreditCard ? "credit" : "plain"
+          return m?.isLoan
+            ? "loan"
+            : m?.isCreditCard
+              ? "credit"
+              : m?.isCofrinho
+                ? "savings"
+                : "plain"
         },
         onChange: async (id, value) => {
           await update.mutateAsync({
@@ -44,6 +51,7 @@ export function FinancePaymentMethodsPage() {
             patch: {
               isLoan: value === "loan",
               isCreditCard: value === "credit",
+              isCofrinho: value === "savings",
             },
           })
           toast.success("Tipo atualizado")

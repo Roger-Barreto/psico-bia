@@ -133,9 +133,70 @@ export interface PaymentMethod {
   name: string
   isLoan: boolean
   isCreditCard: boolean
+  isCofrinho: boolean
   color: string | null
   active: boolean
   createdAt: string
+}
+
+export type CofrinhoGoalType = "percent" | "fixed"
+/** For percent goals: base the % on clinic revenue only, or on all income. */
+export type CofrinhoIncomeScope = "clinic" | "all"
+
+/**
+ * Savings reserve. A cofrinho has a running balance (deposits − withdrawals)
+ * and a monthly goal: a % of received revenue, or a fixed amount on a set day.
+ */
+export interface Cofrinho {
+  id: string
+  name: string
+  color: string | null
+  goalType: CofrinhoGoalType
+  percent: number | null // 0..100 (goalType='percent')
+  fixedAmount: number | null // valor mensal (goalType='fixed')
+  fixedDay: number | null // 1..31 (goalType='fixed')
+  incomeScope: CofrinhoIncomeScope // base da % (goalType='percent')
+  initialAmount: number // saldo com que o cofrinho começa
+  active: boolean
+  createdAt: string
+}
+
+export type CofrinhoEntryKind = "deposit" | "skip" | "plan"
+export type CofrinhoEntrySource =
+  | "fixed"
+  | "percent"
+  | "rollover"
+  | "repay"
+  | "manual"
+export type CofrinhoEntryStatus =
+  | "pending"
+  | "saved"
+  | "partial"
+  | "skipped"
+  | "done"
+
+/**
+ * A cofrinho movement. `deposit` = money saved in; `skip` = a dismissed goal
+ * slot; `plan` = a stored future obligation (replenishment of a "pay with
+ * cofrinho", or the leftover of a partial fixed goal carried to next month).
+ * Expected slots for %/fixed goals are computed client-side, not stored.
+ */
+export interface CofrinhoEntry {
+  id: string
+  cofrinhoId: string
+  kind: CofrinhoEntryKind
+  date: string // YYYY-MM-DD
+  period: string // YYYY-MM (generated)
+  slotKey: string | null // fixed:YYYY-MM | pct:YYYY-MM-DD | plan:<id> | manual
+  source: CofrinhoEntrySource
+  expected: number | null // alvo do slot (planos)
+  amount: number // depositado (0 p/ skip / plano pendente)
+  status: CofrinhoEntryStatus
+  purchaseTxId: string | null
+  parentId: string | null
+  description: string | null // livre, p/ depósitos avulsos aparecerem no ledger
+  createdAt: string
+  updatedAt: string
 }
 
 /**
@@ -186,6 +247,7 @@ export interface Transaction {
   invoicePeriod: string | null // YYYY-MM (mês de vencimento da fatura)
   invoiceCloseDate: string | null // YYYY-MM-DD
   invoiceDueDate: string | null // YYYY-MM-DD
+  cofrinhoId: string | null // reserva usada para pagar (retirada)
   settled: boolean
   settledAt: string | null
   recurringRuleId: string | null
@@ -217,6 +279,7 @@ export interface LedgerEntry {
   invoicePeriod: string | null // YYYY-MM (mês de vencimento da fatura)
   invoiceCloseDate: string | null // YYYY-MM-DD
   invoiceDueDate: string | null // YYYY-MM-DD
+  cofrinhoId: string | null // reserva usada para pagar (retirada)
   settled: boolean
   settledAt: string | null
   recurringRuleId: string | null
