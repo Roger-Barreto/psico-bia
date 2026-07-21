@@ -2185,29 +2185,42 @@ export function useCardsOpenTotals() {
   })
 }
 
-/** Net open-loan balance per person (receivable/payable), across all months. */
-export function usePeopleBalances() {
+/** One open (unsettled) loan entry per person, carrying its competence date. */
+export interface PersonOpenEntry {
+  personId: string
+  kind: TransactionKind
+  amount: number
+  date: string // YYYY-MM-DD (competência)
+}
+
+/**
+ * Every unsettled person-linked launch, with its date, so the People page can
+ * derive both the all-time balance and a balance scoped to the selected month.
+ */
+export function usePeopleOpenEntries() {
   return useQuery({
     queryKey: fqk.openLoans,
-    queryFn: async () => {
+    queryFn: async (): Promise<PersonOpenEntry[]> => {
       const { data, error } = await supabase
         .from("finance_ledger")
-        .select("person_id, kind, amount, settled")
+        .select("person_id, kind, amount, date")
         .not("person_id", "is", null)
         .eq("settled", false)
       if (error) throw error
-      const map = new Map<string, { receivable: number; payable: number }>()
-      for (const r of (data ?? []) as {
-        person_id: string
-        kind: TransactionKind
-        amount: number
-      }[]) {
-        const cur = map.get(r.person_id) ?? { receivable: 0, payable: 0 }
-        if (r.kind === "income") cur.receivable += Number(r.amount)
-        else cur.payable += Number(r.amount)
-        map.set(r.person_id, cur)
-      }
-      return map
+      return (data ?? []).map((r) => {
+        const row = r as {
+          person_id: string
+          kind: TransactionKind
+          amount: number
+          date: string
+        }
+        return {
+          personId: row.person_id,
+          kind: row.kind,
+          amount: Number(row.amount),
+          date: row.date,
+        }
+      })
     },
     staleTime: 15_000,
   })

@@ -28,9 +28,8 @@ import type {
 } from "@/db/types"
 import {
   countCardUsage,
-  useCardLedger,
+  useCardEntriesAll,
   useCards,
-  useCardsOpenTotals,
   useDeleteCard,
   useFinanceCategories,
   usePayInvoice,
@@ -45,6 +44,7 @@ import {
   periodLabel,
   periodShort,
   summarizeInvoice,
+  todayPeriod,
   type CardInvoice,
 } from "@/domain/finance"
 import { formatLongDateBR, todayISO } from "@/domain/dates"
@@ -75,7 +75,7 @@ function daysUntil(dueISO: string): number {
 
 export function FinanceCardsPage() {
   const cardsQ = useCards()
-  const openTotalsQ = useCardsOpenTotals()
+  const cardEntriesQ = useCardEntriesAll()
   const methodsQ = usePaymentMethods()
   const peopleQ = usePeople()
   const categoriesQ = useFinanceCategories()
@@ -90,6 +90,10 @@ export function FinanceCardsPage() {
     rawPeriod && /^\d{4}-\d{2}$/.test(rawPeriod) ? rawPeriod : null
 
   const [selected, setSelected] = useState<string | null>(urlCard)
+  // Shared invoice period across the whole page: the sidebar chips and the
+  // detail panel all reflect this month. `null` = each card's own current
+  // invoice (the default) until the user navigates to a specific month.
+  const [period, setPeriod] = useState<string | null>(urlPeriod)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<FinanceCard | null>(null)
 
@@ -97,7 +101,19 @@ export function FinanceCardsPage() {
   const [txEditing, setTxEditing] = useState<LedgerEntry | null>(null)
 
   const cards = (cardsQ.data ?? []).filter((c) => c.active)
-  const openTotals = openTotalsQ.data ?? new Map<string, number>()
+
+  // All card-linked entries grouped per card, so each sidebar chip can show
+  // that card's invoice total for the selected period.
+  const entriesByCard = useMemo(() => {
+    const m = new Map<string, LedgerEntry[]>()
+    for (const e of cardEntriesQ.data ?? []) {
+      if (!e.cardId) continue
+      const arr = m.get(e.cardId)
+      if (arr) arr.push(e)
+      else m.set(e.cardId, [e])
+    }
+    return m
+  }, [cardEntriesQ.data])
 
   const methodsById = useMemo(
     () => new Map((methodsQ.data ?? []).map((m) => [m.id, m] as const)),
@@ -120,6 +136,14 @@ export function FinanceCardsPage() {
   }, [cards, selected])
 
   const selectedCard = cards.find((c) => c.id === selected) ?? null
+
+  // Resolve the shared period: once the user navigates it sticks; otherwise
+  // fall back to the selected card's current invoice (or today's month).
+  const effectivePeriod =
+    period ??
+    (selectedCard
+      ? currentInvoicePeriod(selectedCard.closingDay, selectedCard.dueDay)
+      : todayPeriod())
 
   function openNew() {
     setEditing(null)
@@ -195,7 +219,12 @@ export function FinanceCardsPage() {
             </Card>
           )}
           {cards.map((c) => {
-            const open = openTotals.get(c.id) ?? 0
+            // Open amount of this card's invoice for the selected period.
+            const open = summarizeInvoice(
+              effectivePeriod,
+              entriesByCard.get(c.id) ?? [],
+              c,
+            ).openTotal
             const swatch = c.color ?? colorForKey(c.name)
             return (
               <div
@@ -265,9 +294,10 @@ export function FinanceCardsPage() {
             <CardInvoicePanel
               key={selectedCard.id}
               card={selectedCard}
-              initialPeriod={
-                selectedCard.id === urlCard ? (urlPeriod ?? undefined) : undefined
-              }
+              period={effectivePeriod}
+              onPeriodChange={setPeriod}
+              entries={entriesByCard.get(selectedCard.id) ?? []}
+              loading={cardEntriesQ.isLoading}
               methodsById={methodsById}
               peopleById={peopleById}
               categoriesById={categoriesById}
@@ -316,7 +346,10 @@ const STATUS_META: Record<
 
 function CardInvoicePanel({
   card,
-  initialPeriod,
+  period,
+  onPeriodChange,
+  entries,
+  loading,
   methodsById,
   peopleById,
   categoriesById,
@@ -324,19 +357,21 @@ function CardInvoicePanel({
   onNewTx,
 }: {
   card: FinanceCard
-  /** Invoice month to open on (deep link); defaults to the current one. */
-  initialPeriod?: string
+  /** Invoice month currently shown (shared with the sidebar chips). */
+  period: string
+  onPeriodChange: (period: string) => void
+  /** This card's ledger entries (all invoices), passed from the page. */
+  entries: LedgerEntry[]
+  loading: boolean
   methodsById: Map<string, PaymentMethod>
   peopleById: Map<string, Person>
   categoriesById: Map<string, FinanceCategory>
   onEditTx: (entry: LedgerEntry) => void
   onNewTx: () => void
 }) {
-  const ledgerQ = useCardLedger(card.id)
   const payInvoice = usePayInvoice()
-  const all = ledgerQ.data ?? []
+  const all = entries
   const currentPeriod = currentInvoicePeriod(card.closingDay, card.dueDay)
-  const [period, setPeriod] = useState(initialPeriod ?? currentPeriod)
   const [query, setQuery] = useState("")
 
   const invoice = useMemo(
@@ -422,7 +457,7 @@ function CardInvoicePanel({
               <Button
                 variant="outline"
                 size="icon"
-                onClick={() => setPeriod(addPeriod(period, -1))}
+                onClick={() => onPeriodChange(addPeriod(period, -1))}
                 aria-label="Fatura anterior"
               >
                 <CaretLeftIcon weight="bold" />
@@ -438,7 +473,7 @@ function CardInvoicePanel({
               <Button
                 variant="outline"
                 size="icon"
-                onClick={() => setPeriod(addPeriod(period, 1))}
+                onClick={() => onPeriodChange(addPeriod(period, 1))}
                 aria-label="Próxima fatura"
               >
                 <CaretRightIcon weight="bold" />
@@ -447,7 +482,7 @@ function CardInvoicePanel({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setPeriod(currentPeriod)}
+                  onClick={() => onPeriodChange(currentPeriod)}
                 >
                   Atual
                 </Button>
@@ -630,7 +665,7 @@ function CardInvoicePanel({
         </Button>
       </div>
 
-      {ledgerQ.isLoading ? (
+      {loading ? (
         <p className="py-8 text-center text-sm text-muted-foreground">
           Carregando…
         </p>

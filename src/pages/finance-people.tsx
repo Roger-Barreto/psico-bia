@@ -32,7 +32,7 @@ import {
   useFinanceCategories,
   usePaymentMethods,
   usePeople,
-  usePeopleBalances,
+  usePeopleOpenEntries,
   usePersonLedger,
 } from "@/api/queries"
 import {
@@ -65,11 +65,25 @@ import { cn } from "@/lib/utils"
 
 const ALL = "__all__"
 
+/** Sum open loans into a receivable/payable balance per person. */
+function reduceBalances(
+  entries: { personId: string; kind: LedgerEntry["kind"]; amount: number }[],
+): Map<string, { receivable: number; payable: number }> {
+  const map = new Map<string, { receivable: number; payable: number }>()
+  for (const e of entries) {
+    const cur = map.get(e.personId) ?? { receivable: 0, payable: 0 }
+    if (e.kind === "income") cur.receivable += e.amount
+    else cur.payable += e.amount
+    map.set(e.personId, cur)
+  }
+  return map
+}
+
 export function FinancePeoplePage() {
   const peopleQ = usePeople()
   const methodsQ = usePaymentMethods()
   const categoriesQ = useFinanceCategories()
-  const balancesQ = usePeopleBalances()
+  const openEntriesQ = usePeopleOpenEntries()
   const deletePerson = useDeletePerson()
   const [selected, setSelected] = useState<string | null>(null)
   const [period, setPeriod] = useState(todayPeriod())
@@ -87,11 +101,24 @@ export function FinancePeoplePage() {
   const [deleteBusy, setDeleteBusy] = useState(false)
 
   const people = (peopleQ.data ?? []).filter((p) => p.active)
-  const balancesById = balancesQ.data ?? new Map()
+  const openEntries = openEntriesQ.data ?? []
 
-  /** Net open balance (they owe − you owe). 0 when nothing is outstanding. */
+  // Two views of the same open loans: the all-time balance (drives the
+  // "hide zeroed" filter + the "Todas as pessoas" overview) and the balance
+  // scoped to the selected month (drives the per-person chip, matching the
+  // month-scoped detail panel).
+  const balancesById = useMemo(
+    () => reduceBalances(openEntries),
+    [openEntries],
+  )
+  const periodBalancesById = useMemo(
+    () => reduceBalances(openEntries.filter((e) => periodOf(e.date) === period)),
+    [openEntries, period],
+  )
+
+  /** Net open balance in the selected month (they owe − you owe). */
   function netOf(id: string): number {
-    const b = balancesById.get(id)
+    const b = periodBalancesById.get(id)
     if (!b) return 0
     return b.receivable - b.payable
   }

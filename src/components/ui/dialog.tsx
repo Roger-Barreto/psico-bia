@@ -56,6 +56,10 @@ const DialogContent = React.forwardRef<
           className,
         )}
         {...props}
+        // Only the X, a Cancel/action button, or Esc close the dialog —
+        // clicking the backdrop (or focus leaving) must not dismiss it,
+        // so half-filled forms aren't lost by an accidental outside click.
+        onInteractOutside={(e) => e.preventDefault()}
       >
         <DialogBodyContext.Provider value={node}>
           {children}

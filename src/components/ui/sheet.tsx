@@ -56,6 +56,10 @@ const SheetContent = React.forwardRef<
       ref={ref}
       className={cn(sheetVariants({ side }), className)}
       {...props}
+      // Only the X, a Cancel/action button, or Esc close the sheet — clicking
+      // the backdrop (or focus leaving) must not dismiss it, so half-filled
+      // forms aren't lost by an accidental outside click.
+      onInteractOutside={(e) => e.preventDefault()}
     >
       {children}
       <DialogPrimitive.Close className="absolute right-4 top-4 grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring">
