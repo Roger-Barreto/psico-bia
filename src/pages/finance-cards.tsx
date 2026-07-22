@@ -31,6 +31,7 @@ import {
   useCardEntriesAll,
   useCards,
   useDeleteCard,
+  useEnsureRecurring,
   useFinanceCategories,
   usePayInvoice,
   usePaymentMethods,
@@ -80,6 +81,7 @@ export function FinanceCardsPage() {
   const peopleQ = usePeople()
   const categoriesQ = useFinanceCategories()
   const deleteCard = useDeleteCard()
+  const ensure = useEnsureRecurring()
 
   // Deep-link from the ledger's "Fatura do cartão" item:
   // /financeiro/cartoes?cartao=<id>&fatura=<YYYY-MM>
@@ -144,6 +146,13 @@ export function FinanceCardsPage() {
     (selectedCard
       ? currentInvoicePeriod(selectedCard.closingDay, selectedCard.dueDay)
       : todayPeriod())
+
+  // Materialize recurring rows up to the viewed invoice month, so a recurring
+  // card expense shows in future invoices (they land 1–2 months after the buy).
+  useEffect(() => {
+    if (effectivePeriod > todayPeriod()) ensure.mutate(effectivePeriod)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectivePeriod])
 
   function openNew() {
     setEditing(null)

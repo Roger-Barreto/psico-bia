@@ -78,6 +78,18 @@ export function todayPeriod(): string {
   return todayISO().slice(0, 7)
 }
 
+/**
+ * Months materialized ahead of the current one, so recurring launches — and the
+ * card invoices they fall into (invoices land 1–2 months after competência) —
+ * show for the next few months without having to navigate there first.
+ */
+export const MATERIALIZE_AHEAD_MONTHS = 3
+
+/** The default period recurring rows are materialized up to (current + ahead). */
+export function materializeUntilPeriod(): string {
+  return addPeriod(todayPeriod(), MATERIALIZE_AHEAD_MONTHS)
+}
+
 /** Shift a YYYY-MM period by N months (can be negative). */
 export function addPeriod(period: string, months: number): string {
   const [y, m] = period.split("-").map(Number)

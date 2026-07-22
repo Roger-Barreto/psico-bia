@@ -13,22 +13,35 @@ import { addPeriod, periodOf } from "@/domain/finance"
 // rollover) are stored in finance_cofrinho_entries.
 // ════════════════════════════════════════════════════════════════
 
-/** Reserve balance = initial + deposits − withdrawals (purchases from the cofrinho). */
+/**
+ * Net of a cofrinho's own entries: deposits add, withdraws (cash-out / transfer
+ * out) subtract. Skips/plans don't move money. Not scoped by cofrinho — filter
+ * first if needed.
+ */
+export function entriesNet(entries: CofrinhoEntry[]): number {
+  let net = 0
+  for (const e of entries) {
+    if (e.kind === "deposit") net += e.amount
+    else if (e.kind === "withdraw") net -= e.amount
+  }
+  return net
+}
+
+/**
+ * Reserve balance = initial + deposits − entry-withdraws − ledger-withdrawals
+ * (purchases paid from the cofrinho).
+ */
 export function cofrinhoBalance(
   entries: CofrinhoEntry[],
   withdrawals: LedgerEntry[],
   initial = 0,
 ): number {
-  let deposited = 0
-  for (const e of entries) {
-    if (e.kind === "deposit") deposited += e.amount
-  }
   let withdrawn = 0
   for (const w of withdrawals) {
     // a purchase paid with the cofrinho is an expense funded by the reserve
     withdrawn += w.kind === "expense" ? w.amount : -w.amount
   }
-  return initial + deposited - withdrawn
+  return initial + entriesNet(entries) - withdrawn
 }
 
 /** Total deposited into a cofrinho in a given YYYY-MM. */
@@ -66,6 +79,7 @@ export type CofrinhoSlotSource =
   | "percent"
   | "rollover"
   | "repay"
+  | "repeat"
 export type CofrinhoSlotStatus = "pending" | "saved" | "partial" | "skipped"
 
 /** One expected-saving prompt for a cofrinho on a given day. */
@@ -161,44 +175,49 @@ export function cofrinhoSlots(
     })
   }
 
-  if (cofrinho.goalType === "fixed" && cofrinho.fixedAmount && cofrinho.fixedDay) {
-    const day = String(Math.min(31, cofrinho.fixedDay)).padStart(2, "0")
-    const date = `${period}-${day}`
-    if (date >= start) push(`fixed:${period}`, date, "fixed", cofrinho.fixedAmount)
-  }
+  // A paused cofrinho keeps its balance and stored plans, but its automatic
+  // monthly/percent goal prompts stop showing until it is resumed.
+  if (!cofrinho.paused) {
+    if (cofrinho.goalType === "fixed" && cofrinho.fixedAmount && cofrinho.fixedDay) {
+      const day = String(Math.min(31, cofrinho.fixedDay)).padStart(2, "0")
+      const date = `${period}-${day}`
+      if (date >= start) push(`fixed:${period}`, date, "fixed", cofrinho.fixedAmount)
+    }
 
-  // Target goal with an optional monthly saving: prompt like a fixed goal,
-  // capped at what is still missing to reach the target. The cap excludes
-  // this slot's own deposits so the expected value stays stable while the
-  // user saves against it; once the goal is met, no further prompts.
-  if (
-    cofrinho.goalType === "target" &&
-    cofrinho.fixedAmount &&
-    cofrinho.fixedDay
-  ) {
-    const day = String(Math.min(31, cofrinho.fixedDay)).padStart(2, "0")
-    const date = `${period}-${day}`
-    const slotKey = `fixed:${period}`
-    if (date >= start) {
-      const savedThisSlot = depositsBySlot.get(slotKey) ?? 0
-      const target = cofrinho.targetAmount ?? 0
-      const missing =
-        target > 0
-          ? Math.max(0, roundCents(target - (balance - savedThisSlot)))
-          : cofrinho.fixedAmount
-      push(slotKey, date, "fixed", Math.min(cofrinho.fixedAmount, missing))
+    // Target goal with an optional monthly saving: prompt like a fixed goal,
+    // capped at what is still missing to reach the target. The cap excludes
+    // this slot's own deposits so the expected value stays stable while the
+    // user saves against it; once the goal is met, no further prompts.
+    if (
+      cofrinho.goalType === "target" &&
+      cofrinho.fixedAmount &&
+      cofrinho.fixedDay
+    ) {
+      const day = String(Math.min(31, cofrinho.fixedDay)).padStart(2, "0")
+      const date = `${period}-${day}`
+      const slotKey = `fixed:${period}`
+      if (date >= start) {
+        const savedThisSlot = depositsBySlot.get(slotKey) ?? 0
+        const target = cofrinho.targetAmount ?? 0
+        const missing =
+          target > 0
+            ? Math.max(0, roundCents(target - (balance - savedThisSlot)))
+            : cofrinho.fixedAmount
+        push(slotKey, date, "fixed", Math.min(cofrinho.fixedAmount, missing))
+      }
+    }
+
+    if (cofrinho.goalType === "percent" && cofrinho.percent) {
+      for (const [date, amount] of income) {
+        if (periodOf(date) !== period || date < start) continue
+        const expected = (cofrinho.percent / 100) * amount
+        push(`pct:${date}`, date, "percent", expected)
+      }
     }
   }
 
-  if (cofrinho.goalType === "percent" && cofrinho.percent) {
-    for (const [date, amount] of income) {
-      if (periodOf(date) !== period || date < start) continue
-      const expected = (cofrinho.percent / 100) * amount
-      push(`pct:${date}`, date, "percent", expected)
-    }
-  }
-
-  // Stored plans (repay / rollover) due in this period.
+  // Stored plans (repay / rollover / scheduled repeat) due in this period.
+  // These are explicit commitments, so they show even while paused.
   for (const e of mine) {
     if (e.kind !== "plan" || e.period !== period) continue
     const slotKey = `plan:${e.id}`
@@ -217,7 +236,12 @@ export function cofrinhoSlots(
       slotKey,
       date: e.date,
       period,
-      source: e.source === "rollover" ? "rollover" : "repay",
+      source:
+        e.source === "rollover"
+          ? "rollover"
+          : e.source === "repeat"
+            ? "repeat"
+            : "repay",
       expected,
       saved,
       pending,
@@ -278,7 +302,10 @@ export function reserveTimeline(
   const delta = new Map<string, number>()
   const add = (period: string, v: number) =>
     delta.set(period, (delta.get(period) ?? 0) + v)
-  for (const e of entries) if (e.kind === "deposit") add(e.period, e.amount)
+  for (const e of entries) {
+    if (e.kind === "deposit") add(e.period, e.amount)
+    else if (e.kind === "withdraw") add(e.period, -e.amount)
+  }
   for (const w of withdrawals)
     add(w.period, -(w.kind === "expense" ? w.amount : -w.amount))
 

@@ -1431,6 +1431,7 @@ interface CofrinhoRow {
   income_scope: CofrinhoIncomeScope
   target_amount: number | null
   initial_amount: number | null
+  paused: boolean | null
   active: boolean
   created_at: string
 }
@@ -1446,6 +1447,7 @@ function rowToCofrinho(r: CofrinhoRow): Cofrinho {
     incomeScope: r.income_scope ?? "all",
     targetAmount: r.target_amount != null ? Number(r.target_amount) : null,
     initialAmount: r.initial_amount != null ? Number(r.initial_amount) : 0,
+    paused: r.paused ?? false,
     active: r.active,
     createdAt: r.created_at,
   }
@@ -1527,6 +1529,7 @@ interface RecurringRuleRow {
   card_id: string | null
   day_of_month: number
   start_period: string
+  occurrences: number | null
   active: boolean
   created_at: string
 }
@@ -1543,6 +1546,7 @@ function rowToRule(r: RecurringRuleRow): RecurringRule {
     cardId: r.card_id ?? null,
     dayOfMonth: r.day_of_month,
     startPeriod: r.start_period,
+    occurrences: r.occurrences ?? null,
     active: r.active,
     createdAt: r.created_at,
   }
@@ -2254,6 +2258,7 @@ export interface NewCofrinhoInput {
   incomeScope?: CofrinhoIncomeScope
   targetAmount?: number | null
   initialAmount?: number | null
+  paused?: boolean
 }
 
 export function useCreateCofrinho() {
@@ -2271,6 +2276,7 @@ export function useCreateCofrinho() {
         income_scope: input.incomeScope ?? "all",
         target_amount: input.targetAmount ?? null,
         initial_amount: input.initialAmount ?? 0,
+        paused: input.paused ?? false,
         active: true,
         created_at: nowIso(),
       }
@@ -2306,6 +2312,7 @@ export function useUpdateCofrinho() {
           | "incomeScope"
           | "targetAmount"
           | "initialAmount"
+          | "paused"
           | "active"
         >
       >
@@ -2322,6 +2329,7 @@ export function useUpdateCofrinho() {
         row.target_amount = patch.targetAmount
       if (patch.initialAmount !== undefined)
         row.initial_amount = patch.initialAmount
+      if (patch.paused !== undefined) row.paused = patch.paused
       if (patch.active !== undefined) row.active = patch.active
       const { data, error } = await supabase
         .from("finance_cofrinhos")
@@ -2599,6 +2607,141 @@ export function useAddCofrinhoDeposit() {
       const { error } = await supabase
         .from("finance_cofrinho_entries")
         .insert(row)
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => invalidateCofrinhoEntries(qc),
+  })
+}
+
+/** Take money out of a cofrinho's reserve (to cash). Neutral to the ledger —
+ *  just lowers the reserve balance (kind='withdraw'). */
+export function useWithdrawCofrinho() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      cofrinhoId: string
+      amount: number
+      date: string
+      description?: string | null
+    }) => {
+      const now = nowIso()
+      const row: CofrinhoEntryInsert = {
+        id: newId("ce"),
+        cofrinho_id: input.cofrinhoId,
+        kind: "withdraw",
+        date: input.date,
+        slot_key: null,
+        source: "manual",
+        expected: 0,
+        amount: input.amount,
+        status: "saved",
+        purchase_tx_id: null,
+        parent_id: null,
+        description: input.description?.trim() || null,
+        created_at: now,
+        updated_at: now,
+      }
+      const { error } = await supabase
+        .from("finance_cofrinho_entries")
+        .insert(row)
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => invalidateCofrinhoEntries(qc),
+  })
+}
+
+/** Move money between two cofrinhos: a withdraw on the source + a deposit on
+ *  the target, linked by a shared transfer id. Neutral to the ledger. */
+export function useTransferCofrinho() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      fromId: string
+      toId: string
+      fromName: string
+      toName: string
+      amount: number
+      date: string
+      note?: string | null
+    }) => {
+      const now = nowIso()
+      const transferId = newId("tr")
+      const note = input.note?.trim()
+      const rows: CofrinhoEntryInsert[] = [
+        {
+          id: newId("ce"),
+          cofrinho_id: input.fromId,
+          kind: "withdraw",
+          date: input.date,
+          slot_key: null,
+          source: "transfer",
+          expected: 0,
+          amount: input.amount,
+          status: "saved",
+          purchase_tx_id: null,
+          parent_id: transferId,
+          description: note || `Para ${input.toName}`,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: newId("ce"),
+          cofrinho_id: input.toId,
+          kind: "deposit",
+          date: input.date,
+          slot_key: null,
+          source: "transfer",
+          expected: 0,
+          amount: input.amount,
+          status: "saved",
+          purchase_tx_id: null,
+          parent_id: transferId,
+          description: note || `De ${input.fromName}`,
+          created_at: now,
+          updated_at: now,
+        },
+      ]
+      const { error } = await supabase
+        .from("finance_cofrinho_entries")
+        .insert(rows)
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => invalidateCofrinhoEntries(qc),
+  })
+}
+
+/** Schedule N monthly saving obligations into a cofrinho (repeat X times).
+ *  Each becomes a "guardar" prompt on its month (kind='plan', source='repeat'). */
+export function useScheduleCofrinhoRepeat() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      cofrinhoId: string
+      amount: number
+      dates: string[]
+    }) => {
+      const now = nowIso()
+      const rows: CofrinhoEntryInsert[] = input.dates.map((date) => ({
+        id: newId("ce"),
+        cofrinho_id: input.cofrinhoId,
+        kind: "plan",
+        date,
+        slot_key: null,
+        source: "repeat",
+        expected: input.amount,
+        amount: 0,
+        status: "pending",
+        purchase_tx_id: null,
+        parent_id: null,
+        created_at: now,
+        updated_at: now,
+      }))
+      const { error } = await supabase
+        .from("finance_cofrinho_entries")
+        .insert(rows)
       if (error) throw error
       return { ok: true as const }
     },
@@ -3104,6 +3247,7 @@ export function useCreateRecurringRule() {
       cardId?: string | null
       dayOfMonth: number
       startPeriod: string
+      occurrences?: number | null // repetir N vezes (null/omit = infinito)
       untilPeriod: string // materialize up to here on creation
     }) => {
       const row: RecurringRuleRow = {
@@ -3118,6 +3262,7 @@ export function useCreateRecurringRule() {
         card_id: input.cardId ?? null,
         day_of_month: input.dayOfMonth,
         start_period: input.startPeriod,
+        occurrences: input.occurrences ?? null,
         active: true,
         created_at: nowIso(),
       }

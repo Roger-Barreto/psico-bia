@@ -80,10 +80,12 @@ export function FinanceDashboardPage() {
   const cofEntriesQ = useAllCofrinhoEntries()
   const cofWithdrawalsQ = useCofrinhoWithdrawals()
   const cofrinhoBalances = useMemo<CofrinhoBalance[]>(() => {
-    const deposits = new Map<string, number>()
+    const net = new Map<string, number>()
     for (const e of cofEntriesQ.data ?? []) {
       if (e.kind === "deposit")
-        deposits.set(e.cofrinhoId, (deposits.get(e.cofrinhoId) ?? 0) + e.amount)
+        net.set(e.cofrinhoId, (net.get(e.cofrinhoId) ?? 0) + e.amount)
+      else if (e.kind === "withdraw")
+        net.set(e.cofrinhoId, (net.get(e.cofrinhoId) ?? 0) - e.amount)
     }
     const withdrawals = cofWithdrawalsQ.data ?? new Map<string, number>()
     return (cofrinhosQ.data ?? [])
@@ -92,7 +94,7 @@ export function FinanceDashboardPage() {
         name: c.name,
         value:
           (c.initialAmount ?? 0) +
-          (deposits.get(c.id) ?? 0) -
+          (net.get(c.id) ?? 0) -
           (withdrawals.get(c.id) ?? 0),
         color: c.color ?? colorForKey(c.name),
       }))
@@ -115,13 +117,13 @@ export function FinanceDashboardPage() {
     const incomeAll = incomeByDay(entries, "all")
     const incomeClinic = incomeByDay(entries, "clinic")
     // Reserve balance per cofrinho — caps the 'target' monthly slots.
-    const depositsById = new Map<string, number>()
-    for (const e of cofEntries)
+    const netById = new Map<string, number>()
+    for (const e of cofEntries) {
       if (e.kind === "deposit")
-        depositsById.set(
-          e.cofrinhoId,
-          (depositsById.get(e.cofrinhoId) ?? 0) + e.amount,
-        )
+        netById.set(e.cofrinhoId, (netById.get(e.cofrinhoId) ?? 0) + e.amount)
+      else if (e.kind === "withdraw")
+        netById.set(e.cofrinhoId, (netById.get(e.cofrinhoId) ?? 0) - e.amount)
+    }
     const withdrawals = cofWithdrawalsQ.data ?? new Map<string, number>()
     const periods: string[] = []
     let p = fromPeriod
@@ -134,7 +136,7 @@ export function FinanceDashboardPage() {
         const income = c.incomeScope === "clinic" ? incomeClinic : incomeAll
         const balance =
           (c.initialAmount ?? 0) +
-          (depositsById.get(c.id) ?? 0) -
+          (netById.get(c.id) ?? 0) -
           (withdrawals.get(c.id) ?? 0)
         let meta = 0
         let saved = 0

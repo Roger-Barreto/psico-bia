@@ -199,10 +199,13 @@ export function FinanceLedgerPage() {
 
   // Reserve balance per cofrinho — caps the 'target' monthly prompts.
   const cofrinhoBalances = useMemo(() => {
-    const deposits = new Map<string, number>()
-    for (const e of cofrinhoEntriesQ.data ?? [])
+    const net = new Map<string, number>()
+    for (const e of cofrinhoEntriesQ.data ?? []) {
       if (e.kind === "deposit")
-        deposits.set(e.cofrinhoId, (deposits.get(e.cofrinhoId) ?? 0) + e.amount)
+        net.set(e.cofrinhoId, (net.get(e.cofrinhoId) ?? 0) + e.amount)
+      else if (e.kind === "withdraw")
+        net.set(e.cofrinhoId, (net.get(e.cofrinhoId) ?? 0) - e.amount)
+    }
     const withdrawals =
       cofrinhoWithdrawalsQ.data ?? new Map<string, number>()
     const m = new Map<string, number>()
@@ -210,7 +213,7 @@ export function FinanceLedgerPage() {
       m.set(
         c.id,
         (c.initialAmount ?? 0) +
-          (deposits.get(c.id) ?? 0) -
+          (net.get(c.id) ?? 0) -
           (withdrawals.get(c.id) ?? 0),
       )
     return m
@@ -333,10 +336,17 @@ export function FinanceLedgerPage() {
     const withdrawals = cofrinhoWithdrawalsQ.data ?? new Map<string, number>()
     let deposited = 0
     let depositedMonth = 0
+    let entryWithdrawn = 0
     for (const e of cofEntries) {
-      if (e.kind !== "deposit") continue
-      deposited += e.amount
-      if (e.period === period) depositedMonth += e.amount
+      if (e.kind === "deposit") {
+        deposited += e.amount
+        // transfers between jars aren't new savings — keep them out of the
+        // month's "guardado" figure (they still count toward the balance).
+        if (e.period === period && e.source !== "transfer")
+          depositedMonth += e.amount
+      } else if (e.kind === "withdraw") {
+        entryWithdrawn += e.amount
+      }
     }
     let withdrawn = 0
     for (const v of withdrawals.values()) withdrawn += v
@@ -344,7 +354,7 @@ export function FinanceLedgerPage() {
     const initial = active.reduce((s, c) => s + (c.initialAmount ?? 0), 0)
     const pending = cofrinhoItems.reduce((s, r) => s + r.pending, 0)
     return {
-      reserved: initial + deposited - withdrawn,
+      reserved: initial + deposited - entryWithdrawn - withdrawn,
       savedMonth: depositedMonth,
       toSave: pending,
       hasCofrinhos: active.length > 0,

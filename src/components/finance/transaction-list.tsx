@@ -73,7 +73,7 @@ export interface CofrinhoListItem {
   slotKey: string
   date: string
   period: string
-  source: "fixed" | "percent" | "rollover" | "repay"
+  source: "fixed" | "percent" | "rollover" | "repay" | "repeat"
   expected: number
   saved: number
   pending: number
@@ -682,6 +682,7 @@ const COFRINHO_SOURCE_TAG: Record<CofrinhoListItem["source"], string> = {
   percent: "% do faturamento",
   rollover: "sobra do mês anterior",
   repay: "repor o cofrinho",
+  repeat: "guardar programado",
 }
 
 /** Row background + icon-circle color per resolution status. */

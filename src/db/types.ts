@@ -169,17 +169,20 @@ export interface Cofrinho {
   incomeScope: CofrinhoIncomeScope // base da % (goalType='percent')
   targetAmount: number | null // objetivo total (goalType='target')
   initialAmount: number // saldo com que o cofrinho começa
+  paused: boolean // pausado: não gera lembretes de guardar (mantém saldo)
   active: boolean
   createdAt: string
 }
 
-export type CofrinhoEntryKind = "deposit" | "skip" | "plan"
+export type CofrinhoEntryKind = "deposit" | "skip" | "plan" | "withdraw"
 export type CofrinhoEntrySource =
   | "fixed"
   | "percent"
   | "rollover"
   | "repay"
   | "manual"
+  | "transfer"
+  | "repeat"
 export type CofrinhoEntryStatus =
   | "pending"
   | "saved"
@@ -188,10 +191,11 @@ export type CofrinhoEntryStatus =
   | "done"
 
 /**
- * A cofrinho movement. `deposit` = money saved in; `skip` = a dismissed goal
- * slot; `plan` = a stored future obligation (replenishment of a "pay with
- * cofrinho", or the leftover of a partial fixed goal carried to next month).
- * Expected slots for %/fixed goals are computed client-side, not stored.
+ * A cofrinho movement. `deposit` = money saved in; `withdraw` = money taken out
+ * of the reserve (to cash, or the outgoing side of a transfer); `skip` = a
+ * dismissed goal slot; `plan` = a stored future obligation (replenishment of a
+ * "pay with cofrinho", the leftover of a partial fixed goal, or a scheduled
+ * repeat deposit). Expected slots for %/fixed goals are computed client-side.
  */
 export interface CofrinhoEntry {
   id: string
@@ -241,6 +245,7 @@ export interface RecurringRule {
   cardId: string | null
   dayOfMonth: number
   startPeriod: string // YYYY-MM
+  occurrences: number | null // repetir N vezes (null = infinito)
   active: boolean
   createdAt: string
 }

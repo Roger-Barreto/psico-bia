@@ -41,11 +41,12 @@ import {
 import type { FinanceScope, LedgerEntry, TransactionKind } from "@/db/types"
 import {
   addMonthsISO,
+  addPeriod,
   cardInvoiceFor,
   installmentDates,
+  materializeUntilPeriod,
   periodOf,
   splitInstallments,
-  todayPeriod,
 } from "@/domain/finance"
 import { formatLongDateBR, todayISO } from "@/domain/dates"
 import { PiggyBankIcon, PlusIcon } from "@phosphor-icons/react"
@@ -180,6 +181,11 @@ export function TransactionDialog({
   const [settled, setSettled] = useState(true)
   const [mode, setMode] = useState<Mode>("single")
   const [installments, setInstallments] = useState("2")
+  // recurring: repeat forever, or a bounded number of months
+  const [recurrenceKind, setRecurrenceKind] = useState<"forever" | "count">(
+    "forever",
+  )
+  const [occurrences, setOccurrences] = useState("6")
   // loan granted (income + loan): also record the cash outflow
   const [withOutflow, setWithOutflow] = useState(true)
   const [outflowMethodId, setOutflowMethodId] = useState<string | null>(null)
@@ -211,6 +217,8 @@ export function TransactionDialog({
       setPersonId(null)
       setMode("single")
       setInstallments("2")
+      setRecurrenceKind("forever")
+      setOccurrences("6")
       setReplenish(true)
       setRepayInstallments("1")
       setWithOutflow(true)
@@ -253,6 +261,7 @@ export function TransactionDialog({
   const amountNum = parseMoney(amount)
   const nInst = Math.max(2, Math.min(360, Number(installments) || 2))
   const nRepay = Math.max(1, Math.min(360, Number(repayInstallments) || 1))
+  const nOccur = Math.max(2, Math.min(360, Number(occurrences) || 2))
 
   const isLoanGranted = !isEdit && kind === "income" && isLoan && withOutflow
 
@@ -376,6 +385,16 @@ export function TransactionDialog({
         toast.success(`${nInst}x criadas`)
       } else if (mode === "recurring") {
         const dayOfMonth = Number(date.split("-")[2])
+        const startPeriod = periodOf(date)
+        const occ = recurrenceKind === "count" ? nOccur : null
+        const horizon = materializeUntilPeriod()
+        // Bounded repeats materialize all N months now; infinite rules go up to
+        // the viewed month or the default look-ahead horizon.
+        const untilPeriod = occ
+          ? addPeriod(startPeriod, occ - 1)
+          : viewPeriod > horizon
+            ? viewPeriod
+            : horizon
         await createRule.mutateAsync({
           kind,
           scope,
@@ -386,10 +405,11 @@ export function TransactionDialog({
           personId: isLoan ? personId : null,
           cardId: isCreditCard ? cardId : null,
           dayOfMonth,
-          startPeriod: periodOf(date),
-          untilPeriod: viewPeriod > todayPeriod() ? viewPeriod : todayPeriod(),
+          startPeriod,
+          occurrences: occ,
+          untilPeriod,
         })
-        toast.success("Recorrência criada")
+        toast.success(occ ? `Repetição criada (${occ}×)` : "Recorrência criada")
       } else {
         await createTx.mutateAsync({
           kind,
@@ -731,10 +751,34 @@ export function TransactionDialog({
           )}
 
           {!isEdit && mode === "recurring" && !isLoanGranted && (
-            <p className="text-xs text-muted-foreground">
-              Repete todo mês no dia {Number(date.split("-")[2])} até ser
-              cancelada.
-            </p>
+            <div className="space-y-3">
+              <Field label="Duração">
+                <Segmented
+                  value={recurrenceKind}
+                  onChange={setRecurrenceKind}
+                  options={[
+                    { value: "forever", label: "Sempre" },
+                    { value: "count", label: "Repetir Nº de vezes" },
+                  ]}
+                />
+              </Field>
+              {recurrenceKind === "count" && (
+                <Field label="Quantas vezes">
+                  <Input
+                    type="number"
+                    min={2}
+                    max={360}
+                    value={occurrences}
+                    onChange={(e) => setOccurrences(e.target.value)}
+                  />
+                </Field>
+              )}
+              <p className="text-xs text-muted-foreground">
+                {recurrenceKind === "forever"
+                  ? `Repete todo mês no dia ${Number(date.split("-")[2])} até ser cancelada.`
+                  : `Lança ${nOccur}× (uma por mês) no dia ${Number(date.split("-")[2])}.`}
+              </p>
+            </div>
           )}
 
           {(isEdit || (mode === "single" && !isLoanGranted)) &&

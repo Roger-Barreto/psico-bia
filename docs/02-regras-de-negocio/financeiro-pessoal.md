@@ -67,6 +67,16 @@ Um lançamento recorrente **aparece todo mês até a recorrência ser cancelada*
 
 Edições (`edit_recurring`) atingem só linhas **não quitadas** (as quitadas são histórico).
 
+**Repetir N vezes** (recorrência limitada, migration `027`): coluna `finance_recurring_rules.occurrences`
+(null = infinito). No diálogo de lançamento, o modo *Recorrente* oferece **Sempre** ou **Repetir Nº de
+vezes**; a materialização para depois de N meses a partir do início. Vale para despesa, receita, cartão
+e empréstimo (a regra já carrega `card_id`/`person_id`). Para o cofrinho, ver *Cofrinhos → programar*.
+
+**Horizonte de materialização** (correção do "recorrente no cartão some após 2 meses"): a competência é
+materializada até **hoje + 3 meses** (`materializeUntilPeriod()` em `FinanceLayout`), e a página de
+cartões materializa até o mês da fatura visualizada. Sem isso, faturas futuras (que caem 1–2 meses
+**depois** da competência) ficavam vazias por falta das linhas que as alimentam.
+
 ## Parcelamento
 
 N linhas com `installment_group` comum, `installment_no/total`. Valor `total/N` com a **última
@@ -104,9 +114,25 @@ não quitadas; a-receber de empréstimo nasce não quitado. `settledAt` guarda o
 | `fixed` (Mensal) | Valor fixo todo mês, sem data para acabar. |
 | `percent` (% receita) | A cada recebimento, % vira meta de guardar no dia (base: toda receita ou só clínica). |
 
-Saldo = inicial + depósitos − retiradas (compras "pagar com cofrinho"). Slots esperados são
-computados no client (`src/domain/cofrinhos.ts`); só resoluções (guardar/pular) e planos
-(reposição/rollover) são persistidos.
+Saldo = inicial + depósitos − retiradas. Slots esperados são computados no client
+(`src/domain/cofrinhos.ts`); só resoluções (guardar/pular) e planos (reposição/rollover/programado)
+são persistidos.
+
+**Controles (migration `027`)** — o usuário organiza como quiser:
+
+- **Movimentar** (diálogo Guardar/Retirar): *Guardar* deposita (imediato, ou abatendo a meta do mês);
+  *Retirar* tira da reserva de volta para o caixa (kind `withdraw`, neutro ao ledger). Retiradas e
+  transferências reduzem o saldo (`entriesNet` = depósitos − withdraws).
+- **Transferir entre cofrinhos**: 2 entries ligadas por um `parent_id` de transferência — um
+  `withdraw` na origem + um `deposit` na destino (source `transfer`). Neutro ao total reservado;
+  não conta como "guardado no mês".
+- **Programar** (repetir N meses): *Guardar → repetir* grava N planos mensais (kind `plan`,
+  source `repeat`) que aparecem como lembretes de guardar até serem resolvidos.
+- **Pausar / Retomar** (`finance_cofrinhos.paused`): um cofrinho pausado **não gera lembretes
+  automáticos** (fixo/percent/objetivo), mas mantém saldo, histórico e planos gravados. Retomar
+  volta a gerar.
+
+Novos valores: `finance_cofrinho_entries.kind` += `withdraw`; `source` += `transfer`, `repeat`.
 
 ## Dashboard financeiro
 

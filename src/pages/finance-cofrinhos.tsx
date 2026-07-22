@@ -2,9 +2,12 @@ import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import {
   ArrowDownLeftIcon,
+  ArrowsLeftRightIcon,
   DotsThreeVerticalIcon,
+  PauseIcon,
   PencilSimpleIcon,
   PiggyBankIcon,
+  PlayIcon,
   PlusIcon,
   StackIcon,
   TrashIcon,
@@ -32,6 +35,7 @@ import {
   useCofrinhoWithdrawals,
   useDeleteCofrinho,
   useLedgerMonth,
+  useUpdateCofrinho,
 } from "@/api/queries"
 import {
   cofrinhoSlots,
@@ -50,6 +54,7 @@ import { formatLongDateBR } from "@/domain/dates"
 import { Breadcrumbs } from "@/components/breadcrumbs"
 import { CofrinhoDialog } from "@/components/finance/cofrinho-dialog"
 import { CofrinhoDepositDialog } from "@/components/finance/cofrinho-deposit-dialog"
+import { CofrinhoTransferDialog } from "@/components/finance/cofrinho-transfer-dialog"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -72,6 +77,8 @@ const SOURCE_LABEL: Record<string, string> = {
   rollover: "Rollover",
   repay: "Reposição",
   manual: "Avulso",
+  transfer: "Transferência",
+  repeat: "Programado",
 }
 
 function goalLabel(c: Cofrinho): string {
@@ -100,6 +107,7 @@ export function FinanceCofrinhosPage() {
   const withdrawalsMapQ = useCofrinhoWithdrawals()
   const allTxQ = useAllCofrinhoTransactions()
   const deleteCofrinho = useDeleteCofrinho()
+  const updateCofrinho = useUpdateCofrinho()
 
   const [searchParams] = useSearchParams()
   const urlCofrinho = searchParams.get("cofrinho")
@@ -111,24 +119,33 @@ export function FinanceCofrinhosPage() {
   const [depositCofrinhoId, setDepositCofrinhoId] = useState<string | undefined>(
     undefined,
   )
+  const [transferOpen, setTransferOpen] = useState(false)
+  const [transferFromId, setTransferFromId] = useState<string | undefined>(
+    undefined,
+  )
 
   const cofrinhos = (cofrinhosQ.data ?? []).filter((c) => c.active)
   const allEntries = allEntriesQ.data ?? []
   const allTx = allTxQ.data ?? []
   const withdrawalsMap = withdrawalsMapQ.data ?? new Map<string, number>()
 
-  const depositsByCofrinho = useMemo(() => {
+  // Net of each cofrinho's own entries: deposits add, withdraws (cash-out /
+  // transfer out) subtract.
+  const netByCofrinho = useMemo(() => {
     const m = new Map<string, number>()
-    for (const e of allEntries)
+    for (const e of allEntries) {
       if (e.kind === "deposit")
         m.set(e.cofrinhoId, (m.get(e.cofrinhoId) ?? 0) + e.amount)
+      else if (e.kind === "withdraw")
+        m.set(e.cofrinhoId, (m.get(e.cofrinhoId) ?? 0) - e.amount)
+    }
     return m
   }, [allEntries])
 
   function balanceOf(c: Cofrinho): number {
     return (
       (c.initialAmount ?? 0) +
-      (depositsByCofrinho.get(c.id) ?? 0) -
+      (netByCofrinho.get(c.id) ?? 0) -
       (withdrawalsMap.get(c.id) ?? 0)
     )
   }
@@ -152,6 +169,18 @@ export function FinanceCofrinhosPage() {
   function openDeposit(id: string) {
     setDepositCofrinhoId(id)
     setDepositOpen(true)
+  }
+  function openTransfer(id?: string) {
+    setTransferFromId(id)
+    setTransferOpen(true)
+  }
+  async function togglePause(c: Cofrinho) {
+    try {
+      await updateCofrinho.mutateAsync({ id: c.id, patch: { paused: !c.paused } })
+      toast.success(c.paused ? "Cofrinho retomado" : "Cofrinho pausado")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro")
+    }
   }
   async function askDelete(c: Cofrinho) {
     let count = 0
@@ -266,8 +295,16 @@ export function FinanceCofrinhosPage() {
                     <PiggyBankIcon weight="fill" className="size-4" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">
-                      {c.name}
+                    <span className="flex items-center gap-1.5">
+                      <span className="truncate text-sm font-medium">
+                        {c.name}
+                      </span>
+                      {c.paused && (
+                        <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-muted/60 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          <PauseIcon weight="fill" className="size-2.5" />
+                          pausado
+                        </span>
+                      )}
                     </span>
                     <span className="block truncate text-[11px] text-muted-foreground">
                       {goalLabel(c)}
@@ -290,6 +327,26 @@ export function FinanceCofrinhosPage() {
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onClick={() => openEdit(c)}>
                       <PencilSimpleIcon weight="fill" /> Editar
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => openDeposit(c.id)}>
+                      <PlusIcon weight="bold" /> Movimentar
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => openTransfer(c.id)}
+                      disabled={cofrinhos.length < 2}
+                    >
+                      <ArrowsLeftRightIcon weight="bold" /> Transferir
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => togglePause(c)}>
+                      {c.paused ? (
+                        <>
+                          <PlayIcon weight="fill" /> Retomar
+                        </>
+                      ) : (
+                        <>
+                          <PauseIcon weight="fill" /> Pausar
+                        </>
+                      )}
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => askDelete(c)}
@@ -321,7 +378,10 @@ export function FinanceCofrinhosPage() {
               )}
               tx={allTx.filter((t) => t.cofrinhoId === selectedCofrinho.id)}
               balance={balanceOf(selectedCofrinho)}
+              canTransfer={cofrinhos.length >= 2}
               onAddValue={() => openDeposit(selectedCofrinho.id)}
+              onTransfer={() => openTransfer(selectedCofrinho.id)}
+              onTogglePause={() => togglePause(selectedCofrinho)}
             />
           ) : (
             <CombinedPanel
@@ -346,6 +406,11 @@ export function FinanceCofrinhosPage() {
         onOpenChange={setDepositOpen}
         cofrinhoId={depositCofrinhoId}
       />
+      <CofrinhoTransferDialog
+        open={transferOpen}
+        onOpenChange={setTransferOpen}
+        fromId={transferFromId}
+      />
     </div>
   )
 }
@@ -369,11 +434,18 @@ function CombinedPanel({
   const ledger = ledgerQ.data ?? []
 
   const savedMonth = entries
-    .filter((e) => e.kind === "deposit" && e.period === period)
+    .filter(
+      (e) =>
+        e.kind === "deposit" &&
+        e.period === period &&
+        e.source !== "transfer",
+    )
     .reduce((s, e) => s + e.amount, 0)
-  const withdrawnMonth = withdrawnOf(
-    tx.filter((t) => t.period === period),
-  )
+  const withdrawnMonth =
+    withdrawnOf(tx.filter((t) => t.period === period)) +
+    entries
+      .filter((e) => e.kind === "withdraw" && e.period === period)
+      .reduce((s, e) => s + e.amount, 0)
   const toSave = useMemo(() => {
     let sum = 0
     for (const c of cofrinhos) {
@@ -460,22 +532,37 @@ function CofrinhoPanel({
   entries,
   tx,
   balance,
+  canTransfer,
   onAddValue,
+  onTransfer,
+  onTogglePause,
 }: {
   cofrinho: Cofrinho
   entries: CofrinhoEntry[]
   tx: LedgerEntry[]
   balance: number
+  canTransfer: boolean
   onAddValue: () => void
+  onTransfer: () => void
+  onTogglePause: () => void
 }) {
   const [period, setPeriod] = useState(todayPeriod())
   const ledgerQ = useLedgerMonth(period)
   const ledger = ledgerQ.data ?? []
 
   const savedMonth = entries
-    .filter((e) => e.kind === "deposit" && e.period === period)
+    .filter(
+      (e) =>
+        e.kind === "deposit" &&
+        e.period === period &&
+        e.source !== "transfer",
+    )
     .reduce((s, e) => s + e.amount, 0)
-  const withdrawnMonth = withdrawnOf(tx.filter((t) => t.period === period))
+  const withdrawnMonth =
+    withdrawnOf(tx.filter((t) => t.period === period)) +
+    entries
+      .filter((e) => e.kind === "withdraw" && e.period === period)
+      .reduce((s, e) => s + e.amount, 0)
   const toSave = useMemo(() => {
     const income = incomeByDay(ledger, cofrinho.incomeScope)
     return cofrinhoSlots(cofrinho, period, income, entries, balance).reduce(
@@ -496,8 +583,14 @@ function CofrinhoPanel({
         <CardContent className="space-y-4 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-lg font-semibold tracking-tight">
+              <p className="flex items-center gap-2 text-lg font-semibold tracking-tight">
                 {cofrinho.name}
+                {cofrinho.paused && (
+                  <span className="inline-flex items-center gap-1 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    <PauseIcon weight="fill" className="size-2.5" />
+                    pausado
+                  </span>
+                )}
               </p>
               <p className="text-xs text-muted-foreground">
                 {cofrinho.goalType === "percent"
@@ -509,14 +602,33 @@ function CofrinhoPanel({
                       : "Reserva livre — guarde quando quiser"}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button size="sm" variant="outline" onClick={onAddValue}>
                 <PlusIcon weight="bold" />
-                Adicionar valor
+                Movimentar
               </Button>
+              {canTransfer && (
+                <Button size="sm" variant="outline" onClick={onTransfer}>
+                  <ArrowsLeftRightIcon weight="bold" />
+                  Transferir
+                </Button>
+              )}
               <MonthNav period={period} onChange={setPeriod} />
             </div>
           </div>
+
+          {cofrinho.paused && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+              <span>
+                Cofrinho pausado — não gera lembretes de guardar. O saldo e o
+                histórico continuam.
+              </span>
+              <Button size="sm" variant="ghost" onClick={onTogglePause}>
+                <PlayIcon weight="fill" />
+                Retomar
+              </Button>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Stat label="Saldo reservado" value={balance} tone="amber" />
@@ -745,9 +857,22 @@ function HistoryList({
       rows.push({
         id: e.id,
         date: e.date,
-        label: e.description?.trim() || "Guardado",
+        label:
+          e.description?.trim() ||
+          (e.source === "transfer" ? "Transferência recebida" : "Guardado"),
         amount: e.amount,
         tone: "saved",
+        tag: SOURCE_LABEL[e.source] ?? e.source,
+      })
+    else if (e.kind === "withdraw")
+      rows.push({
+        id: e.id,
+        date: e.date,
+        label:
+          e.description?.trim() ||
+          (e.source === "transfer" ? "Transferência enviada" : "Retirada"),
+        amount: e.amount,
+        tone: "withdraw",
         tag: SOURCE_LABEL[e.source] ?? e.source,
       })
     else if (e.kind === "skip")

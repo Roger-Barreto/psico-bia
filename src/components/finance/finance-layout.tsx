@@ -6,7 +6,7 @@ import {
   usePaymentMethods,
   useSeedFinanceDefaults,
 } from "@/api/queries"
-import { todayPeriod } from "@/domain/finance"
+import { materializeUntilPeriod } from "@/domain/finance"
 
 /**
  * Shared shell for all /financeiro/* pages: seeds default categories/payment
@@ -34,7 +34,9 @@ export function FinanceLayout() {
   useEffect(() => {
     if (ensuredRef.current) return
     ensuredRef.current = true
-    ensure.mutate(todayPeriod())
+    // Materialize a few months ahead so recurring items already show in the
+    // next card invoices (which land 1–2 months after the purchase month).
+    ensure.mutate(materializeUntilPeriod())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
