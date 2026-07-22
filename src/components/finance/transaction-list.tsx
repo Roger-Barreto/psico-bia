@@ -770,9 +770,11 @@ function CofrinhoRow({
           </Chip>
           {r.source === "repay" && r.description ? (
             <Chip className="max-w-[16rem] truncate">{r.description}</Chip>
-          ) : (
+          ) : r.status !== "pending" ? (
+            // While pending the amount shows big next to the actions; the
+            // chip keeps it visible after the slot is resolved (saved/skipped).
             <Chip>meta {formatBRL(r.expected)}</Chip>
-          )}
+          ) : null}
           {r.status === "partial" && (
             <Chip className="bg-amber-500/20 text-amber-200">
               parcial · {formatBRL(r.saved)} de {formatBRL(r.expected)}
@@ -783,13 +785,9 @@ function CofrinhoRow({
 
       {onAction && r.status === "pending" ? (
         <div className="flex shrink-0 items-center gap-1">
-          {/* Repay prompts carry the purchase description where the "meta" chip
-              would go, so the missing amount shows here, next to the actions. */}
-          {r.source === "repay" && (
-            <span className="mr-1.5 text-sm font-semibold tabular-nums text-amber-300">
-              −{formatBRL(r.pending)}
-            </span>
-          )}
+          <span className="mr-1.5 text-sm font-semibold tabular-nums text-amber-300">
+            −{formatBRL(r.pending)}
+          </span>
           {busy ? (
             <Spinner className="mr-1 size-4" />
           ) : (
