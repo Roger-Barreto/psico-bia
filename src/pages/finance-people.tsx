@@ -38,10 +38,10 @@ import {
 import {
   addPeriod,
   formatBRL,
+  ledgerTotals,
   periodLabel,
   periodOf,
   periodShort,
-  personBalance,
   todayPeriod,
 } from "@/domain/finance"
 import { brl, chartAxis, chartTooltip } from "@/lib/chart-theme"
@@ -65,7 +65,7 @@ import { cn } from "@/lib/utils"
 
 const ALL = "__all__"
 
-/** Sum open loans into a receivable/payable balance per person. */
+/** Sum open (unsettled) launches into a receivable/payable balance per person. */
 function reduceBalances(
   entries: { personId: string; kind: LedgerEntry["kind"]; amount: number }[],
 ): Map<string, { receivable: number; payable: number }> {
@@ -103,37 +103,20 @@ export function FinancePeoplePage() {
   const people = (peopleQ.data ?? []).filter((p) => p.active)
   const openEntries = openEntriesQ.data ?? []
 
-  // Only loans count toward the balance — a plain "recipient" tag on a non-loan
-  // launch shows in the statement but isn't a debt.
-  const loanMethodIds = useMemo(
-    () =>
-      new Set(
-        (methodsQ.data ?? []).filter((m) => m.isLoan).map((m) => m.id),
-      ),
-    [methodsQ.data],
-  )
-  const loanOpenEntries = useMemo(
-    () =>
-      openEntries.filter(
-        (e) => e.paymentMethodId && loanMethodIds.has(e.paymentMethodId),
-      ),
-    [openEntries, loanMethodIds],
-  )
-
-  // Two views of the same open loans: the all-time balance (drives the
+  // Every open launch tied to the person counts toward the balance — loans and
+  // plain recipient tags alike (an unpaid launch is still money owed one way).
+  // Two views of the same open launches: the all-time balance (drives the
   // "hide zeroed" filter + the "Todas as pessoas" overview) and the balance
   // scoped to the selected month (drives the per-person chip, matching the
   // month-scoped detail panel).
   const balancesById = useMemo(
-    () => reduceBalances(loanOpenEntries),
-    [loanOpenEntries],
+    () => reduceBalances(openEntries),
+    [openEntries],
   )
   const periodBalancesById = useMemo(
     () =>
-      reduceBalances(
-        loanOpenEntries.filter((e) => periodOf(e.date) === period),
-      ),
-    [loanOpenEntries, period],
+      reduceBalances(openEntries.filter((e) => periodOf(e.date) === period)),
+    [openEntries, period],
   )
 
   /** Net open balance in the selected month (they owe − you owe). */
@@ -219,7 +202,7 @@ export function FinancePeoplePage() {
           <Breadcrumbs items={[{ label: "Financeiro" }, { label: "Pessoas" }]} />
           <h1 className="text-2xl font-semibold tracking-tight">Pessoas</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Lançamentos por pessoa e saldo de empréstimos em aberto.
+            Lançamentos por pessoa e saldos em aberto.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -252,7 +235,7 @@ export function FinancePeoplePage() {
                   Todas as pessoas
                 </span>
                 <span className="block text-[11px] text-muted-foreground">
-                  visão geral dos empréstimos
+                  visão geral do que está em aberto
                 </span>
               </span>
             </button>
@@ -439,14 +422,15 @@ function PersonDetail({
       ),
     [all, methodsById],
   )
-  // Both the totals and the list are scoped to the selected month.
+  // Both the totals and the list are scoped to the selected month. Every
+  // launch tied to the person counts (loans + recipient tags): expected =
+  // everything, effective = settled; open = what is still unsettled.
   const monthEntries = useMemo(
     () => all.filter((e) => periodOf(e.date) === period),
     [all, period],
   )
-  const bal = personBalance(
-    loanEntries.filter((e) => periodOf(e.date) === period),
-  )
+  const totals = useMemo(() => ledgerTotals(monthEntries), [monthEntries])
+  const openNet = totals.receivable - totals.payable
 
   // Loan flow over the last 6 months (they owe you vs you owe them).
   const monthly = useMemo(() => {
@@ -476,29 +460,38 @@ function PersonDetail({
       <Card>
         <CardContent className="grid grid-cols-3 gap-3 p-4">
           <div>
-            <p className="text-xs text-muted-foreground">Te devem</p>
-            <p className="mt-1 text-lg font-semibold text-emerald-300 tabular-nums">
-              {formatBRL(bal.receivable)}
+            <p className="text-xs text-muted-foreground">Recebido</p>
+            <p className="mt-1 text-[11px] tabular-nums text-muted-foreground/70">
+              esperado {formatBRL(totals.income)}
+            </p>
+            <p className="text-lg font-semibold text-emerald-300 tabular-nums">
+              {formatBRL(totals.income - totals.receivable)}
             </p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Você deve</p>
-            <p className="mt-1 text-lg font-semibold text-rose-300 tabular-nums">
-              {formatBRL(bal.payable)}
+            <p className="text-xs text-muted-foreground">Pago</p>
+            <p className="mt-1 text-[11px] tabular-nums text-muted-foreground/70">
+              esperado {formatBRL(totals.expense)}
+            </p>
+            <p className="text-lg font-semibold text-rose-300 tabular-nums">
+              {formatBRL(totals.expense - totals.payable)}
             </p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground">
-              {bal.net >= 0 ? "Você vai receber" : "Você precisa pagar"}
+              {openNet >= 0 ? "Você vai receber" : "Você precisa pagar"}
+            </p>
+            <p className="mt-1 text-[11px] text-muted-foreground/70">
+              em aberto no mês
             </p>
             <p
               className={cn(
-                "mt-1 text-lg font-semibold tabular-nums",
-                bal.net >= 0 ? "text-emerald-300" : "text-rose-300",
+                "text-lg font-semibold tabular-nums",
+                openNet >= 0 ? "text-emerald-300" : "text-rose-300",
               )}
             >
-              {bal.net >= 0 ? "+" : "−"}
-              {formatBRL(Math.abs(bal.net))}
+              {openNet >= 0 ? "+" : "−"}
+              {formatBRL(Math.abs(openNet))}
             </p>
           </div>
         </CardContent>
@@ -630,7 +623,7 @@ function PeopleAllPanel({
           </p>
           {chart.length === 0 ? (
             <div className="grid h-[220px] place-items-center text-xs text-muted-foreground">
-              Nenhum empréstimo em aberto.
+              Nada em aberto com pessoas.
             </div>
           ) : (
             <div style={{ width: "100%", height: Math.max(220, chart.length * 34) }}>

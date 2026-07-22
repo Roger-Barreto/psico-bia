@@ -2197,14 +2197,13 @@ export interface PersonOpenEntry {
   kind: TransactionKind
   amount: number
   date: string // YYYY-MM-DD (competência)
-  paymentMethodId: string | null // used to tell loans from plain recipient tags
 }
 
 /**
  * Every unsettled person-linked launch, with its date, so the People page can
  * derive both the all-time balance and a balance scoped to the selected month.
- * Carries the payment method so the balance can count loans only (a plain
- * recipient tag on a non-loan launch shows in the statement but isn't a debt).
+ * Every launch counts (loans and plain recipient tags alike — an unpaid
+ * launch tied to a person is money still owed one way or the other).
  */
 export function usePeopleOpenEntries() {
   return useQuery({
@@ -2212,7 +2211,7 @@ export function usePeopleOpenEntries() {
     queryFn: async (): Promise<PersonOpenEntry[]> => {
       const { data, error } = await supabase
         .from("finance_ledger")
-        .select("person_id, kind, amount, date, payment_method_id")
+        .select("person_id, kind, amount, date")
         .not("person_id", "is", null)
         .eq("settled", false)
       if (error) throw error
@@ -2222,14 +2221,12 @@ export function usePeopleOpenEntries() {
           kind: TransactionKind
           amount: number
           date: string
-          payment_method_id: string | null
         }
         return {
           personId: row.person_id,
           kind: row.kind,
           amount: Number(row.amount),
           date: row.date,
-          paymentMethodId: row.payment_method_id,
         }
       })
     },

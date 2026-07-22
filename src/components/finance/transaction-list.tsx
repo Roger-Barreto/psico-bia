@@ -587,16 +587,27 @@ function Row({
         <p
           className={cn(
             "text-sm font-semibold tabular-nums",
-            income ? "text-emerald-300" : "text-rose-300",
+            income
+              ? "text-emerald-300"
+              : e.cofrinhoId
+                ? "text-amber-300"
+                : "text-rose-300",
           )}
         >
           {income ? "+" : "−"}
           {formatBRL(e.amount)}
         </p>
-        {!e.settled && (
+        {!e.settled ? (
           <p className="text-[10px] text-amber-400/90">
             {invoiceLocked ? "na fatura" : income ? "a receber" : "a pagar"}
           </p>
+        ) : (
+          e.cofrinhoId &&
+          !income && (
+            <p className="text-[10px] text-amber-400/80">
+              retirado dos cofrinhos
+            </p>
+          )
         )}
       </div>
 
@@ -772,6 +783,13 @@ function CofrinhoRow({
 
       {onAction && r.status === "pending" ? (
         <div className="flex shrink-0 items-center gap-1">
+          {/* Repay prompts carry the purchase description where the "meta" chip
+              would go, so the missing amount shows here, next to the actions. */}
+          {r.source === "repay" && (
+            <span className="mr-1.5 text-sm font-semibold tabular-nums text-amber-300">
+              −{formatBRL(r.pending)}
+            </span>
+          )}
           {busy ? (
             <Spinner className="mr-1 size-4" />
           ) : (

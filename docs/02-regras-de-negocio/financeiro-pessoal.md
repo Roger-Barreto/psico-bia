@@ -96,13 +96,14 @@ Forma de pagamento com `is_loan=true` **exige `person_id`** (trigger
 
 **Pessoa recebedora (não empréstimo):** qualquer lançamento pode marcar uma **pessoa** como
 recebedor/beneficiário mesmo com forma **não** empréstimo (campo *Pessoa (opcional)* no diálogo; o
-trigger só exige pessoa para empréstimos, não a proíbe nos demais). Esses lançamentos **aparecem na
-página da pessoa** (extrato), mas **não entram no saldo** — o saldo em aberto conta apenas lançamentos
-com forma `is_loan` (a página filtra por isso).
+trigger só exige pessoa para empréstimos, não a proíbe nos demais). Esses lançamentos aparecem na
+página da pessoa (extrato) **e contam nos saldos/indicadores** como qualquer outro.
 
 **Extrato da pessoa** (aba Pessoas): lista **todas** as movimentações com a pessoa (empréstimos +
-recebedor) + **saldo em aberto** = `(me devem) − (eu devo)`, contando apenas **empréstimos não
-quitados**. Quitar parcelas reduz o saldo.
+recebedor). Indicadores do mês: **Recebido** e **Pago** (esperado = tudo, efetivo = quitados) +
+**saldo em aberto** = `(a receber) − (a pagar)` contando **todo lançamento não quitado** ligado à
+pessoa (não só empréstimos — igual à flag "ocultar pessoas zeradas" e à visão "Todas as pessoas").
+Quitar parcelas reduz o saldo. O gráfico "Empréstimos por mês" segue só com empréstimos.
 
 ## Flags pago/recebido
 
@@ -112,12 +113,13 @@ não quitadas; a-receber de empréstimo nasce não quitado. `settledAt` guarda o
 ## Indicadores da tela de Lançamentos
 
 Seis indicadores: **Entradas**, **Saídas**, **Guardado**, **Retirado do cofrinho**,
-**Saldo do mês**, **Acumulado desde jan.** Cada um mostra **duas linhas**:
+**Saldo do mês**, **Acumulado desde jan.** Um seletor **Efetivo | Esperado** acima do quadro
+alterna a visão de todos ao mesmo tempo (um único valor grande e colorido por indicador):
 
-- **esperado** (letras menores, acima): considera **tudo** do mês — inclusive o que ainda não foi
-  marcado como pago/recebido/guardado (a receber, a pagar, faturas em aberto, "a guardar" dos
-  cofrinhos pendente).
-- **efetivo** (valor grande): só o que foi **efetivamente** marcado — recebido, pago, guardado.
+- **Efetivo** (padrão): só o que foi **efetivamente** marcado — recebido, pago, guardado.
+- **Esperado**: considera **tudo** do mês — inclusive o que ainda não foi marcado como
+  pago/recebido/guardado (a receber, a pagar, faturas em aberto, "a guardar" dos cofrinhos
+  pendente).
 
 Regras por indicador:
 
@@ -128,7 +130,8 @@ Regras por indicador:
 - **Pagamentos com cofrinho** (`cofrinho_id`) saem da **reserva**, não do caixa: ficam fora de
   **Saídas** e do saldo; contam no indicador **"Retirado do cofrinho"** (estornos abatem;
   esperado = todos, efetivo = quitados). Nos **agrupadores por dia** da lista eles não entram no
-  subtotal — quando houver, aparece abaixo, em letras miúdas, "retirado dos cofrinhos: X".
+  subtotal — quando houver, aparece abaixo, em letras miúdas, "retirado dos cofrinhos: X". Na
+  linha do lançamento, o valor fica **âmbar** (não rosa) com a nota "retirado dos cofrinhos".
 - **Guardado** = quanto foi movido para os cofrinhos no mês = `Σ depósitos − Σ retiradas` das
   atividades do cofrinho, **excluindo transferências** entre cofrinhos (neutras) e **sem** contar
   compras "pagar com cofrinho" (essas viram "Retirado do cofrinho"). Esperado soma o

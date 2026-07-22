@@ -69,6 +69,11 @@ export function FinanceLedgerPage() {
   const [period, setPeriod] = useState(todayPeriod())
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [filter, setFilter] = useState<LedgerFilter>("all")
+  // Indicators show one figure at a time: what actually happened (marked
+  // paid/received/saved) or the expected view (everything, settled or not).
+  const [statsView, setStatsView] = useState<"actual" | "expected">("actual")
+  const pick = (actual: number, expected: number) =>
+    statsView === "expected" ? expected : actual
   const [query, setQuery] = useState("")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<LedgerEntry | null>(null)
@@ -539,46 +544,72 @@ export function FinanceLedgerPage() {
       </div>
 
       <div className="space-y-4">
-        <Card>
-          <CardContent className="grid grid-cols-2 gap-4 p-4 sm:grid-cols-3 lg:grid-cols-6 sm:divide-x sm:divide-border/40 [&>*:nth-child(n+2)]:sm:pl-4">
-            <Stat
-              label="Entradas"
-              expected={totals.income}
-              value={totals.income - totals.receivable}
-              tone="income"
-            />
-            <Stat
-              label="Saídas"
-              expected={totals.expense}
-              value={totals.expense - totals.payable}
-              tone="expense"
-            />
-            <Stat
-              label="Guardado"
-              expected={savedNetMonth + pendingMonth}
-              value={savedNetMonth}
-              tone="saved"
-            />
-            <Stat
-              label="Retirado do cofrinho"
-              expected={cofrinhoOutMonth.expected}
-              value={cofrinhoOutMonth.actual}
-              tone="saved"
-            />
-            <Stat
-              label="Saldo do mês"
-              expected={totals.balance - savedNetMonth - pendingMonth}
-              value={totals.realizedBalance - savedNetMonth}
-              tone="auto"
-            />
-            <Stat
-              label="Acumulado desde jan."
-              expected={ytdTotals.balance - savedNetYTD - pendingYTD}
-              value={ytdTotals.realizedBalance - savedNetYTD}
-              tone="auto"
-            />
-          </CardContent>
-        </Card>
+        <div className="space-y-1.5">
+          <div className="flex justify-end">
+            <div className="flex gap-0.5 rounded-lg border border-border/60 bg-background/40 p-0.5">
+              {(
+                [
+                  { id: "actual", label: "Efetivo" },
+                  { id: "expected", label: "Esperado" },
+                ] as const
+              ).map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => setStatsView(v.id)}
+                  className={cn(
+                    "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                    statsView === v.id
+                      ? "bg-primary/15 text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {v.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <Card>
+            <CardContent className="grid grid-cols-2 gap-4 p-4 sm:grid-cols-3 lg:grid-cols-6 sm:divide-x sm:divide-border/40 [&>*:nth-child(n+2)]:sm:pl-4">
+              <Stat
+                label="Entradas"
+                value={pick(totals.income - totals.receivable, totals.income)}
+                tone="income"
+              />
+              <Stat
+                label="Saídas"
+                value={pick(totals.expense - totals.payable, totals.expense)}
+                tone="expense"
+              />
+              <Stat
+                label="Guardado"
+                value={pick(savedNetMonth, savedNetMonth + pendingMonth)}
+                tone="saved"
+              />
+              <Stat
+                label="Retirado do cofrinho"
+                value={pick(cofrinhoOutMonth.actual, cofrinhoOutMonth.expected)}
+                tone="saved"
+              />
+              <Stat
+                label="Saldo do mês"
+                value={pick(
+                  totals.realizedBalance - savedNetMonth,
+                  totals.balance - savedNetMonth - pendingMonth,
+                )}
+                tone="auto"
+              />
+              <Stat
+                label="Acumulado desde jan."
+                value={pick(
+                  ytdTotals.realizedBalance - savedNetYTD,
+                  ytdTotals.balance - savedNetYTD - pendingYTD,
+                )}
+                tone="auto"
+              />
+            </CardContent>
+          </Card>
+        </div>
 
         <div className="flex flex-col gap-2 @3xl:flex-row @3xl:items-center">
           <div className="flex flex-wrap gap-1 self-start rounded-lg border border-border/60 bg-background/40 p-1">
@@ -671,28 +702,23 @@ export function FinanceLedgerPage() {
   )
 }
 
-/** Indicator: expected (everything, settled or not) in small type above the
- *  effective value (only what was actually marked paid/received/saved). */
+/** One indicator figure — the Efetivo | Esperado switch above the card
+ *  decides which of the two views every Stat shows. */
 function Stat({
   label,
-  expected,
   value,
   tone,
 }: {
   label: string
-  expected: number
   value: number
   tone: "income" | "expense" | "saved" | "auto"
 }) {
   return (
     <div>
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-[11px] tabular-nums text-muted-foreground/70">
-        esperado {formatBRL(expected)}
-      </p>
       <p
         className={cn(
-          "text-lg font-semibold tabular-nums",
+          "mt-1 text-lg font-semibold tabular-nums",
           tone === "income" && "text-emerald-300",
           tone === "expense" && "text-rose-300",
           tone === "saved" && "text-amber-300",
