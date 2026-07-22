@@ -24,6 +24,7 @@ import {
 } from "@/api/queries"
 import type { LedgerEntry } from "@/db/types"
 import {
+  addPeriod,
   cardInvoiceSummaries,
   formatBRL,
   invoiceDatesForPeriod,
@@ -123,11 +124,13 @@ export function FinanceLedgerPage() {
   )
 
   // Indicadores: compras no cartão ficam de fora (uma a uma); no lugar delas
-  // entra a fatura do mês como uma única saída (paga ou a pagar).
+  // entra a fatura do mês como uma única saída (paga ou a pagar). Pagamentos
+  // com cofrinho também ficam de fora das saídas — saem da reserva, não do
+  // caixa do mês (contam no indicador próprio "Retirado do cofrinho").
   const totals = useMemo(
     () =>
       ledgerTotals([
-        ...entries.filter((e) => !e.cardId),
+        ...entries.filter((e) => !e.cardId && !e.cofrinhoId),
         ...monthInvoices.map((r) => ({
           kind: "expense" as const,
           amount: r.amount,
@@ -137,13 +140,27 @@ export function FinanceLedgerPage() {
     [entries, monthInvoices],
   )
 
-  // Accumulated balance from January of the viewed year up to this month,
-  // with the same card treatment (invoices due in the window, not purchases).
+  // Retirado do cofrinho no mês: compras pagas com a reserva (estornos abatem).
+  const cofrinhoOutMonth = useMemo(() => {
+    let expected = 0
+    let actual = 0
+    for (const e of entries) {
+      if (!e.cofrinhoId) continue
+      const v = e.kind === "expense" ? e.amount : -e.amount
+      expected += v
+      if (e.settled) actual += v
+    }
+    return { expected, actual }
+  }, [entries])
+
+  // Accumulated totals from January of the viewed year up to this month,
+  // with the same card/cofrinho treatment (invoices due in the window, not
+  // purchases; reserve-paid expenses out).
   const ytdQ = useLedgerRange(yearStartPeriod(period), period)
-  const accumulated = useMemo(() => {
+  const ytdTotals = useMemo(() => {
     const jan = yearStartPeriod(period)
     return ledgerTotals([
-      ...(ytdQ.data ?? []).filter((e) => !e.cardId),
+      ...(ytdQ.data ?? []).filter((e) => !e.cardId && !e.cofrinhoId),
       ...invoicesAll
         .filter((r) => r.period >= jan && r.period <= period && r.amount > 0.005)
         .map((r) => ({
@@ -151,7 +168,7 @@ export function FinanceLedgerPage() {
           amount: r.amount,
           settled: r.settled,
         })),
-    ]).balance
+    ])
   }, [ytdQ.data, invoicesAll, period])
 
   // Synthetic "Fatura do cartão X" rows, grouped on the invoice due date.
@@ -330,47 +347,39 @@ export function FinanceLedgerPage() {
     }
   }
 
-  // Cofrinho insight figures for the indicator strip.
-  const cofrinhoInsights = useMemo(() => {
+  const hasActiveCofrinhos = (cofrinhosQ.data ?? []).some((c) => c.active)
+
+  // "A guardar" do mês visto — entra no lado esperado de Guardado/Saldo.
+  const pendingMonth = useMemo(
+    () => cofrinhoItems.reduce((s, r) => s + r.pending, 0),
+    [cofrinhoItems],
+  )
+
+  // Same thing across jan..period, for the accumulated's expected side.
+  const pendingYTD = useMemo(() => {
+    const jan = yearStartPeriod(period)
     const cofEntries = cofrinhoEntriesQ.data ?? []
-    const withdrawals = cofrinhoWithdrawalsQ.data ?? new Map<string, number>()
-    let deposited = 0
-    let depositedMonth = 0
-    let entryWithdrawn = 0
-    for (const e of cofEntries) {
-      if (e.kind === "deposit") {
-        deposited += e.amount
-        // transfers between jars aren't new savings — keep them out of the
-        // month's "guardado" figure (they still count toward the balance).
-        if (e.period === period && e.source !== "transfer")
-          depositedMonth += e.amount
-      } else if (e.kind === "withdraw") {
-        entryWithdrawn += e.amount
+    let sum = 0
+    for (const c of (cofrinhosQ.data ?? []).filter((c) => c.active)) {
+      const income = incomeByDay(ytdQ.data ?? [], c.incomeScope)
+      for (let p = jan; p <= period; p = addPeriod(p, 1)) {
+        for (const s of cofrinhoSlots(
+          c,
+          p,
+          income,
+          cofEntries,
+          cofrinhoBalances.get(c.id) ?? 0,
+        ))
+          sum += s.pending
       }
     }
-    let withdrawn = 0
-    for (const v of withdrawals.values()) withdrawn += v
-    const active = (cofrinhosQ.data ?? []).filter((c) => c.active)
-    const initial = active.reduce((s, c) => s + (c.initialAmount ?? 0), 0)
-    const pending = cofrinhoItems.reduce((s, r) => s + r.pending, 0)
-    return {
-      reserved: initial + deposited - entryWithdrawn - withdrawn,
-      savedMonth: depositedMonth,
-      toSave: pending,
-      hasCofrinhos: active.length > 0,
-    }
-  }, [
-    cofrinhoEntriesQ.data,
-    cofrinhoWithdrawalsQ.data,
-    cofrinhoItems,
-    cofrinhosQ.data,
-    period,
-  ])
+    return sum
+  }, [cofrinhosQ.data, cofrinhoEntriesQ.data, cofrinhoBalances, ytdQ.data, period])
 
   // Money moved into savings (guardar − retirar, excluding transfers between
   // jars). It counts as an outflow of available cash for the month balance —
-  // pay-with-cofrinho purchases are already ledger expenses, so they're not
-  // counted here (this is only the guardar/retirar/programar flow).
+  // pay-with-cofrinho purchases have their own indicator ("Retirado do
+  // cofrinho"), so they're not counted here (only guardar/retirar/programar).
   const savedNetMonth = useMemo(() => {
     let net = 0
     for (const e of cofrinhoEntriesQ.data ?? []) {
@@ -438,7 +447,10 @@ export function FinanceLedgerPage() {
       case "cofrinho":
         return entries.filter((e) => !!e.cofrinhoId)
       default:
-        return entries
+        // Compras no cartão não saem do caixa no mês da compra — no "Todos"
+        // só a fatura aparece (linha sintética no vencimento); as compras,
+        // uma a uma, ficam na visão "Compras no cartão" e na página do cartão.
+        return entries.filter((e) => !e.cardId)
     }
   }, [entries, filter])
 
@@ -512,51 +524,61 @@ export function FinanceLedgerPage() {
             Compras no cartão de crédito entram pela fatura.
           </p>
         </div>
-        <Button onClick={openNew}>
-          <PlusIcon weight="bold" />
-          Novo lançamento
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {hasActiveCofrinhos && (
+            <Button variant="outline" onClick={() => setDepositOpen(true)}>
+              <PiggyBankIcon weight="fill" />
+              Guardar no cofrinho
+            </Button>
+          )}
+          <Button onClick={openNew}>
+            <PlusIcon weight="bold" />
+            Novo lançamento
+          </Button>
+        </div>
       </div>
 
       <div className="space-y-4">
         <Card>
-          <CardContent className="grid grid-cols-2 gap-4 p-4 sm:grid-cols-3 lg:grid-cols-5 sm:divide-x sm:divide-border/40 [&>*:nth-child(n+2)]:sm:pl-4">
-            <Stat label="Entradas" value={totals.income} tone="income" />
-            <Stat label="Saídas" value={totals.expense} tone="expense" />
-            <Stat label="Guardado" value={savedNetMonth} tone="saved" />
+          <CardContent className="grid grid-cols-2 gap-4 p-4 sm:grid-cols-3 lg:grid-cols-6 sm:divide-x sm:divide-border/40 [&>*:nth-child(n+2)]:sm:pl-4">
+            <Stat
+              label="Entradas"
+              expected={totals.income}
+              value={totals.income - totals.receivable}
+              tone="income"
+            />
+            <Stat
+              label="Saídas"
+              expected={totals.expense}
+              value={totals.expense - totals.payable}
+              tone="expense"
+            />
+            <Stat
+              label="Guardado"
+              expected={savedNetMonth + pendingMonth}
+              value={savedNetMonth}
+              tone="saved"
+            />
+            <Stat
+              label="Retirado do cofrinho"
+              expected={cofrinhoOutMonth.expected}
+              value={cofrinhoOutMonth.actual}
+              tone="saved"
+            />
             <Stat
               label="Saldo do mês"
-              value={totals.balance - savedNetMonth}
+              expected={totals.balance - savedNetMonth - pendingMonth}
+              value={totals.realizedBalance - savedNetMonth}
               tone="auto"
             />
             <Stat
               label="Acumulado desde jan."
-              value={accumulated - savedNetYTD}
+              expected={ytdTotals.balance - savedNetYTD - pendingYTD}
+              value={ytdTotals.realizedBalance - savedNetYTD}
               tone="auto"
             />
           </CardContent>
         </Card>
-
-        {cofrinhoInsights.hasCofrinhos && (
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-4 py-2.5 text-sm">
-            <span className="flex items-center gap-1.5 text-amber-300">
-              <PiggyBankIcon weight="fill" className="size-4" />
-              <span className="font-medium">Cofrinhos</span>
-            </span>
-            <CofStat label="Total guardado" value={cofrinhoInsights.reserved} />
-            <CofStat label="Guardado no mês" value={cofrinhoInsights.savedMonth} />
-            <CofStat label="A guardar" value={cofrinhoInsights.toSave} muted />
-            <Button
-              size="sm"
-              variant="outline"
-              className="ml-auto"
-              onClick={() => setDepositOpen(true)}
-            >
-              <PlusIcon weight="bold" />
-              Adicionar valor
-            </Button>
-          </div>
-        )}
 
         <div className="flex flex-col gap-2 @3xl:flex-row @3xl:items-center">
           <div className="flex flex-wrap gap-1 self-start rounded-lg border border-border/60 bg-background/40 p-1">
@@ -649,21 +671,28 @@ export function FinanceLedgerPage() {
   )
 }
 
+/** Indicator: expected (everything, settled or not) in small type above the
+ *  effective value (only what was actually marked paid/received/saved). */
 function Stat({
   label,
+  expected,
   value,
   tone,
 }: {
   label: string
+  expected: number
   value: number
   tone: "income" | "expense" | "saved" | "auto"
 }) {
   return (
     <div>
       <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 text-[11px] tabular-nums text-muted-foreground/70">
+        esperado {formatBRL(expected)}
+      </p>
       <p
         className={cn(
-          "mt-1 text-lg font-semibold tabular-nums",
+          "text-lg font-semibold tabular-nums",
           tone === "income" && "text-emerald-300",
           tone === "expense" && "text-rose-300",
           tone === "saved" && "text-amber-300",
@@ -673,29 +702,5 @@ function Stat({
         {formatBRL(value)}
       </p>
     </div>
-  )
-}
-
-function CofStat({
-  label,
-  value,
-  muted,
-}: {
-  label: string
-  value: number
-  muted?: boolean
-}) {
-  return (
-    <span className="flex items-baseline gap-1.5">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span
-        className={cn(
-          "text-sm font-semibold tabular-nums",
-          muted ? "text-amber-300/90" : "text-foreground",
-        )}
-      >
-        {formatBRL(value)}
-      </span>
-    </span>
   )
 }

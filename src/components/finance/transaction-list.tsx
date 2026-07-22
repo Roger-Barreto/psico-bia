@@ -265,8 +265,17 @@ export function TransactionList({
       {days.map((day) => {
         const slot = byDay.get(day)!
         const items = slot.entries
+        // Pagamentos com cofrinho saem da reserva, não do caixa do dia: ficam
+        // fora do subtotal e viram a nota "retirado dos cofrinhos" abaixo.
+        const cofrinhoOut = items.reduce(
+          (s, e) =>
+            e.cofrinhoId
+              ? s + (e.kind === "expense" ? e.amount : -e.amount)
+              : s,
+          0,
+        )
         const subtotal =
-          items.reduce((s, e) => s + signedAmount(e), 0) -
+          items.reduce((s, e) => (e.cofrinhoId ? s : s + signedAmount(e)), 0) -
           slot.invoices.reduce((s, r) => s + r.amount, 0)
         return (
           <section key={day}>
@@ -274,15 +283,26 @@ export function TransactionList({
               <p className="text-xs font-medium text-muted-foreground">
                 {formatLongDateBR(day)}
               </p>
-              <p
-                className={cn(
-                  "text-xs font-medium tabular-nums",
-                  subtotal < 0 ? "text-rose-300/80" : "text-emerald-300/80",
+              <div className="text-right">
+                <p
+                  className={cn(
+                    "text-xs font-medium tabular-nums",
+                    subtotal < -0.005
+                      ? "text-rose-300/80"
+                      : subtotal > 0.005
+                        ? "text-emerald-300/80"
+                        : "text-muted-foreground",
+                  )}
+                >
+                  {subtotal < -0.005 ? "−" : "+"}
+                  {formatBRL(Math.abs(subtotal))}
+                </p>
+                {cofrinhoOut > 0.005 && (
+                  <p className="text-[10px] tabular-nums text-amber-300/80">
+                    retirado dos cofrinhos: {formatBRL(cofrinhoOut)}
+                  </p>
                 )}
-              >
-                {subtotal >= 0 ? "+" : "−"}
-                {formatBRL(Math.abs(subtotal))}
-              </p>
+              </div>
             </div>
             <Card className="divide-y divide-border/40 overflow-hidden">
               {slot.cofrinhos.map((r) => (

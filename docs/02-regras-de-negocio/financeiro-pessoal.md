@@ -111,14 +111,34 @@ não quitadas; a-receber de empréstimo nasce não quitado. `settledAt` guarda o
 
 ## Indicadores da tela de Lançamentos
 
-Cinco indicadores: **Entradas**, **Saídas**, **Guardado**, **Saldo do mês**, **Acumulado desde jan.**
+Seis indicadores: **Entradas**, **Saídas**, **Guardado**, **Retirado do cofrinho**,
+**Saldo do mês**, **Acumulado desde jan.** Cada um mostra **duas linhas**:
 
+- **esperado** (letras menores, acima): considera **tudo** do mês — inclusive o que ainda não foi
+  marcado como pago/recebido/guardado (a receber, a pagar, faturas em aberto, "a guardar" dos
+  cofrinhos pendente).
+- **efetivo** (valor grande): só o que foi **efetivamente** marcado — recebido, pago, guardado.
+
+Regras por indicador:
+
+- **Compras no cartão não são saída do mês da compra**: ficam fora de Entradas/Saídas/Saldo e
+  **fora da lista "Todos"** — no mês só aparece a **fatura** (linha sintética no vencimento,
+  que conta como uma única saída, paga ou a pagar). As compras uma a uma ficam na visão
+  "Compras no cartão" e na página do cartão.
+- **Pagamentos com cofrinho** (`cofrinho_id`) saem da **reserva**, não do caixa: ficam fora de
+  **Saídas** e do saldo; contam no indicador **"Retirado do cofrinho"** (estornos abatem;
+  esperado = todos, efetivo = quitados). Nos **agrupadores por dia** da lista eles não entram no
+  subtotal — quando houver, aparece abaixo, em letras miúdas, "retirado dos cofrinhos: X".
 - **Guardado** = quanto foi movido para os cofrinhos no mês = `Σ depósitos − Σ retiradas` das
   atividades do cofrinho, **excluindo transferências** entre cofrinhos (neutras) e **sem** contar
-  compras "pagar com cofrinho" (essas já são despesa no ledger).
+  compras "pagar com cofrinho" (essas viram "Retirado do cofrinho"). Esperado soma o
+  **"a guardar"** pendente do mês.
 - **Saldo do mês** e **Acumulado** subtraem o guardado (ele conta como **saída** de caixa
   disponível): `entradas − saídas − guardado`. Retirar de um cofrinho volta como entrada.
-- No quadro **Cofrinhos** o rótulo do saldo total é **"Total guardado"**.
+  No esperado, o guardado inclui os lembretes pendentes (no acumulado, de jan. até o mês visto).
+
+O quadro de indicadores dos cofrinhos foi removido; o botão **"Guardar no cofrinho"** (abre o
+diálogo Movimentar) fica no topo da página, ao lado de "Novo lançamento".
 
 ## Cofrinhos (reservas)
 
