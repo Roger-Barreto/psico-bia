@@ -2,6 +2,7 @@ import * as React from "react"
 import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { cva, type VariantProps } from "class-variance-authority"
 import { XIcon } from "@phosphor-icons/react"
+import { DialogBodyContext } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 
 const Sheet = DialogPrimitive.Root
@@ -49,26 +50,44 @@ interface SheetContentProps
 const SheetContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   SheetContentProps
->(({ side = "right", className, children, ...props }, ref) => (
-  <SheetPortal>
-    <SheetOverlay />
-    <DialogPrimitive.Content
-      ref={ref}
-      className={cn(sheetVariants({ side }), className)}
-      {...props}
-      // Only the X, a Cancel/action button, or Esc close the sheet — clicking
-      // the backdrop (or focus leaving) must not dismiss it, so half-filled
-      // forms aren't lost by an accidental outside click.
-      onInteractOutside={(e) => e.preventDefault()}
-    >
-      {children}
-      <DialogPrimitive.Close className="absolute right-4 top-4 grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring">
-        <XIcon weight="bold" className="size-4" />
-        <span className="sr-only">Fechar</span>
-      </DialogPrimitive.Close>
-    </DialogPrimitive.Content>
-  </SheetPortal>
-))
+>(({ side = "right", className, children, ...props }, ref) => {
+  // Expose the sheet node so portaled popovers/selects render *inside* it and
+  // stay scrollable within the modal's react-remove-scroll lock (same trick as
+  // DialogContent — without it, e.g. the TimePicker lists can't scroll at all).
+  const [node, setNode] = React.useState<React.ElementRef<
+    typeof DialogPrimitive.Content
+  > | null>(null)
+  const setRefs = React.useCallback(
+    (el: React.ElementRef<typeof DialogPrimitive.Content> | null) => {
+      setNode(el)
+      if (typeof ref === "function") ref(el)
+      else if (ref) ref.current = el
+    },
+    [ref],
+  )
+  return (
+    <SheetPortal>
+      <SheetOverlay />
+      <DialogPrimitive.Content
+        ref={setRefs}
+        className={cn(sheetVariants({ side }), className)}
+        {...props}
+        // Only the X, a Cancel/action button, or Esc close the sheet — clicking
+        // the backdrop (or focus leaving) must not dismiss it, so half-filled
+        // forms aren't lost by an accidental outside click.
+        onInteractOutside={(e) => e.preventDefault()}
+      >
+        <DialogBodyContext.Provider value={node}>
+          {children}
+        </DialogBodyContext.Provider>
+        <DialogPrimitive.Close className="absolute right-4 top-4 grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring">
+          <XIcon weight="bold" className="size-4" />
+          <span className="sr-only">Fechar</span>
+        </DialogPrimitive.Close>
+      </DialogPrimitive.Content>
+    </SheetPortal>
+  )
+})
 SheetContent.displayName = "SheetContent"
 
 const SheetHeader = ({

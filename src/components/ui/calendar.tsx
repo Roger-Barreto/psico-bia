@@ -18,7 +18,10 @@ function Calendar({ className, classNames, captionLayout, ...props }: CalendarPr
       captionLayout={captionLayout}
       className={cn("p-1 text-sm", className)}
       classNames={{
-        months: "flex flex-col gap-3",
+        // `relative` anchors the absolute nav to this box (the rdp default
+        // stylesheet isn't imported, so nothing else positions it) — without
+        // it the nav floats up to the popover edge, misaligned with the caption.
+        months: "relative flex flex-col gap-3",
         month: "space-y-3",
         month_caption: cn(
           "flex h-9 items-center relative",
@@ -34,7 +37,9 @@ function Calendar({ className, classNames, captionLayout, ...props }: CalendarPr
           "cursor-pointer bg-transparent text-sm font-medium capitalize text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring [&>option]:bg-popover [&>option]:text-foreground",
         years_dropdown: "",
         months_dropdown: "",
-        nav: "absolute inset-x-0 top-0 flex h-9 items-center justify-between px-1 pointer-events-none",
+        // z-10 keeps the whole 7×7 buttons above the (positioned, full-width)
+        // caption row — otherwise it overlaps them and eats part of the click.
+        nav: "absolute inset-x-0 top-0 z-10 flex h-9 items-center justify-between px-1 pointer-events-none",
         button_previous:
           "pointer-events-auto inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/60 bg-background/40 text-foreground/70 hover:bg-muted/40 hover:text-foreground transition",
         button_next:

@@ -12,8 +12,9 @@ const DialogPortal = DialogPrimitive.Portal
  * Exposes the DialogContent DOM node to descendants. Portaled popovers/selects
  * read this and render *inside* the dialog so they sit within the modal's
  * react-remove-scroll lock — otherwise their scroll areas can't be touch-scrolled.
+ * Sheets (drawers) share the same primitive and provide this context too.
  */
-const DialogBodyContext = React.createContext<HTMLElement | null>(null)
+export const DialogBodyContext = React.createContext<HTMLElement | null>(null)
 export const useDialogBody = () => React.useContext(DialogBodyContext)
 
 const DialogOverlay = React.forwardRef<
