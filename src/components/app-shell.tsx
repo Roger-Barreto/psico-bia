@@ -12,6 +12,7 @@ import {
   CaretRightIcon,
   ChartPieSliceIcon,
   CreditCardIcon,
+  HeartbeatIcon,
   PiggyBankIcon,
   ListIcon,
   ListBulletsIcon,
@@ -67,6 +68,8 @@ type NavGroup = {
   label: string
   icon: Icon
   children: NavEntry[]
+  /** Start closed in the expanded sidebar (still opens when it holds the active page). */
+  defaultCollapsed?: boolean
 }
 
 type NavEntry = NavItem | NavGroup
@@ -76,8 +79,35 @@ function isGroup(e: NavEntry): e is NavGroup {
 }
 
 const navItems: NavEntry[] = [
-  { to: "/", label: "Dashboard", icon: ChartLineIcon, end: true },
-  { to: "/agenda", label: "Agenda", icon: CalendarBlankIcon },
+  {
+    id: "clinica",
+    label: "Clínica",
+    icon: HeartbeatIcon,
+    children: [
+      { to: "/", label: "Dashboard", icon: ChartLineIcon, end: true },
+      { to: "/agenda", label: "Agenda", icon: CalendarBlankIcon },
+      {
+        id: "clinica-cadastros",
+        label: "Cadastros",
+        icon: FolderIcon,
+        defaultCollapsed: true,
+        children: [
+          { to: "/patients", label: "Pacientes", icon: UsersThreeIcon },
+          {
+            to: "/insurances",
+            label: "Convênios",
+            icon: IdentificationCardIcon,
+          },
+          {
+            to: "/discharge-reasons",
+            label: "Motivos de encerramento",
+            icon: XCircleIcon,
+          },
+          { to: "/checklist", label: "Checklist", icon: ListChecksIcon },
+        ],
+      },
+    ],
+  },
   {
     id: "financeiro",
     label: "Financeiro",
@@ -92,6 +122,7 @@ const navItems: NavEntry[] = [
         id: "financeiro-cadastros",
         label: "Cadastros",
         icon: FolderIcon,
+        defaultCollapsed: true,
         children: [
           {
             to: "/financeiro/cadastros/categorias",
@@ -116,21 +147,6 @@ const navItems: NavEntry[] = [
       { to: "/leituras/dashboard", label: "Dashboard", icon: ChartLineIcon },
     ],
   },
-  {
-    id: "cadastros",
-    label: "Cadastros",
-    icon: FolderIcon,
-    children: [
-      { to: "/patients", label: "Pacientes", icon: UsersThreeIcon },
-      { to: "/insurances", label: "Convênios", icon: IdentificationCardIcon },
-      {
-        to: "/discharge-reasons",
-        label: "Motivos de encerramento",
-        icon: XCircleIcon,
-      },
-      { to: "/checklist", label: "Checklist", icon: ListChecksIcon },
-    ],
-  },
 ]
 
 /** Does this entry (or any descendant) match the current pathname? */
@@ -139,13 +155,13 @@ function entryContains(entry: NavEntry, pathname: string): boolean {
   return entry.end ? pathname === entry.to : pathname.startsWith(entry.to)
 }
 
-/** All group ids, including nested — used to open every group by default. */
-function allGroupIds(entries: NavEntry[]): string[] {
-  const out: string[] = []
+/** All groups, including nested — used to seed the open/closed state. */
+function allGroups(entries: NavEntry[]): NavGroup[] {
+  const out: NavGroup[] = []
   for (const e of entries) {
     if (isGroup(e)) {
-      out.push(e.id)
-      out.push(...allGroupIds(e.children))
+      out.push(e)
+      out.push(...allGroups(e.children))
     }
   }
   return out
@@ -408,10 +424,13 @@ function SidebarNav({
   onNavigate?: () => void
 }) {
   const location = useLocation()
-  // Groups start expanded so every destination is visible on first paint.
+  // Groups start expanded, except the ones flagged defaultCollapsed (Cadastros).
+  // A collapsed group still opens when it holds the current page, so the
+  // active item is never hidden.
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const o: Record<string, boolean> = {}
-    for (const id of allGroupIds(navItems)) o[id] = true
+    for (const g of allGroups(navItems))
+      o[g.id] = !g.defaultCollapsed || entryContains(g, location.pathname)
     return o
   })
   const toggle = (id: string) =>
