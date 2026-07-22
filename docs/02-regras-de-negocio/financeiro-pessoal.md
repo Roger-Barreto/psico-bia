@@ -51,9 +51,21 @@ demanda**: ao abrir/navegar até um mês, o RPC `ensure_recurring_materialized(p
 as linhas faltantes (idempotente via `unique(recurring_rule_id, period)`). Cada mês é uma linha
 própria, com flag de pago independente. Dia do mês com **fallback ao último dia** (31 → 28/29/30).
 
-Editar/excluir com escopos **este / este e futuros / todos** (`edit_recurring`, `delete_recurring`).
-Edições atingem só linhas **não quitadas** (as quitadas são histórico); exclusão "todos" preserva
-quitadas (desvincula via FK).
+Um lançamento recorrente **aparece todo mês até a recorrência ser cancelada**. Ações na UI
+(lista de lançamentos e fatura do cartão — migration `025`):
+
+- **Cancelar recorrência** (menu da linha) → `delete_recurring(scope='future')`: remove os
+  lançamentos **não quitados daquele mês em diante** e desativa a regra; quitados e meses
+  anteriores ficam como histórico.
+- **Excluir** numa linha recorrente abre duas opções:
+  - **Excluir somente este** → `scope='one'`: apaga só aquele mês **e grava um tombstone** em
+    `finance_recurring_skips (rule_id, period)` — a materialização pula esse mês e a linha
+    **não volta mais** (era o bug: o delete simples era recriado no próximo acesso).
+  - **Excluir e cancelar recorrência** → `scope='one_and_future'`: apaga o mês clicado (mesmo
+    quitado) + futuros não quitados e desativa a regra.
+- `scope='all'` (sem UI hoje) apaga não quitados de todos os meses e remove a regra.
+
+Edições (`edit_recurring`) atingem só linhas **não quitadas** (as quitadas são histórico).
 
 ## Parcelamento
 
@@ -79,6 +91,22 @@ Forma de pagamento com `is_loan=true` **exige `person_id`** (trigger
 
 Default do manual: já pago/recebido se a data ≤ hoje (ajustável); parcelas e recorrências nascem
 não quitadas; a-receber de empréstimo nasce não quitado. `settledAt` guarda o momento.
+
+## Cofrinhos (reservas)
+
+`finance_cofrinhos` + `finance_cofrinho_entries` (migrations `022`–`024`, `026`). Tipos de meta
+(`goal_type`):
+
+| Tipo | Comportamento |
+|---|---|
+| `none` (Livre) | Sem meta, sem valor predefinido e sem lembretes; guarda quando quiser. |
+| `target` (Objetivo) | Juntar um **valor total fixo** (`target_amount`), ex.: R$ 2.000 p/ viagem. Aporte mensal **opcional** (`fixed_amount`/`fixed_day`) gera lembretes até a meta ser atingida (último lembrete limitado ao que falta). O guardado **pode passar da meta**; a meta permanece fixa. Barra de progresso saldo/objetivo. |
+| `fixed` (Mensal) | Valor fixo todo mês, sem data para acabar. |
+| `percent` (% receita) | A cada recebimento, % vira meta de guardar no dia (base: toda receita ou só clínica). |
+
+Saldo = inicial + depósitos − retiradas (compras "pagar com cofrinho"). Slots esperados são
+computados no client (`src/domain/cofrinhos.ts`); só resoluções (guardar/pular) e planos
+(reposição/rollover) são persistidos.
 
 ## Dashboard financeiro
 

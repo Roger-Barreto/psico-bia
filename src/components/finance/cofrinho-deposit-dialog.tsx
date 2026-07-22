@@ -70,13 +70,20 @@ export function CofrinhoDepositDialog({
     ? (selected.color ?? colorForKey(selected.name))
     : "#eab308"
 
+  // Livre ('none') e objetivo sem aporte mensal não têm meta para abater.
+  const hasGoalSlot =
+    !!selected &&
+    (selected.goalType === "fixed" ||
+      selected.goalType === "percent" ||
+      (selected.goalType === "target" && selected.fixedAmount != null))
+
   // Which slot the deposit lands on decides whether it abates a goal.
   const slotKey =
-    dest === "extra" || !selected
+    dest === "extra" || !selected || !hasGoalSlot
       ? null
-      : selected.goalType === "fixed"
-        ? `fixed:${date.slice(0, 7)}`
-        : `pct:${date}`
+      : selected.goalType === "percent"
+        ? `pct:${date}`
+        : `fixed:${date.slice(0, 7)}`
 
   async function submit() {
     const amountNum = parseMoney(amount)
@@ -187,38 +194,40 @@ export function CofrinhoDepositDialog({
             />
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              Destino
-            </label>
-            <div className="grid grid-flow-col gap-1 rounded-lg border border-border/60 bg-background/40 p-1">
-              {(
-                [
-                  { value: "abater", label: "Abater da meta" },
-                  { value: "extra", label: "Somar como extra" },
-                ] as { value: Dest; label: string }[]
-              ).map((o) => (
-                <button
-                  key={o.value}
-                  type="button"
-                  onClick={() => setDest(o.value)}
-                  className={cn(
-                    "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                    dest === o.value
-                      ? "bg-amber-500/15 text-amber-300"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {o.label}
-                </button>
-              ))}
+          {hasGoalSlot && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">
+                Destino
+              </label>
+              <div className="grid grid-flow-col gap-1 rounded-lg border border-border/60 bg-background/40 p-1">
+                {(
+                  [
+                    { value: "abater", label: "Abater da meta" },
+                    { value: "extra", label: "Somar como extra" },
+                  ] as { value: Dest; label: string }[]
+                ).map((o) => (
+                  <button
+                    key={o.value}
+                    type="button"
+                    onClick={() => setDest(o.value)}
+                    className={cn(
+                      "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                      dest === o.value
+                        ? "bg-amber-500/15 text-amber-300"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground/80">
+                {dest === "abater"
+                  ? "Conta para o que você precisa guardar no mês (reduz “A guardar”)."
+                  : "Vai direto para a reserva, sem mexer na meta do mês."}
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground/80">
-              {dest === "abater"
-                ? "Conta para o que você precisa guardar no mês (reduz “A guardar”)."
-                : "Vai direto para a reserva, sem mexer na meta do mês."}
-            </p>
-          </div>
+          )}
         </div>
 
         <DialogFooter>

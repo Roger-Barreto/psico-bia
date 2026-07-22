@@ -102,10 +102,13 @@ function statusOf(expected: number, saved: number, skipped: boolean): CofrinhoSl
 
 /**
  * Compute the cofrinho's expected-saving slots for one month, reconciled
- * against stored deposits/skips. Handles the three goal sources:
+ * against stored deposits/skips. Handles the goal sources:
  * - fixed  → one slot on `fixedDay` (expected = fixedAmount)
  * - percent→ one slot per day with received income (expected = %·income),
  *   which recomputes live and shows a "complemento" when income grows
+ * - target → like fixed when a monthly saving is set, but capped at what is
+ *   still missing to reach `targetAmount` — needs `balance`; once the goal
+ *   is met, no more prompts (goalType 'none' never prompts)
  * - plans  → repay/rollover obligations stored as entries (kind='plan')
  */
 export function cofrinhoSlots(
@@ -113,6 +116,8 @@ export function cofrinhoSlots(
   period: string,
   income: Map<string, number>,
   entries: CofrinhoEntry[],
+  /** Current reserve balance — required to cap 'target' monthly slots. */
+  balance = 0,
 ): CofrinhoSlot[] {
   const mine = entries.filter((e) => e.cofrinhoId === cofrinho.id)
   // Goals only apply from the cofrinho's creation date onward (no retroactive).
@@ -160,6 +165,29 @@ export function cofrinhoSlots(
     const day = String(Math.min(31, cofrinho.fixedDay)).padStart(2, "0")
     const date = `${period}-${day}`
     if (date >= start) push(`fixed:${period}`, date, "fixed", cofrinho.fixedAmount)
+  }
+
+  // Target goal with an optional monthly saving: prompt like a fixed goal,
+  // capped at what is still missing to reach the target. The cap excludes
+  // this slot's own deposits so the expected value stays stable while the
+  // user saves against it; once the goal is met, no further prompts.
+  if (
+    cofrinho.goalType === "target" &&
+    cofrinho.fixedAmount &&
+    cofrinho.fixedDay
+  ) {
+    const day = String(Math.min(31, cofrinho.fixedDay)).padStart(2, "0")
+    const date = `${period}-${day}`
+    const slotKey = `fixed:${period}`
+    if (date >= start) {
+      const savedThisSlot = depositsBySlot.get(slotKey) ?? 0
+      const target = cofrinho.targetAmount ?? 0
+      const missing =
+        target > 0
+          ? Math.max(0, roundCents(target - (balance - savedThisSlot)))
+          : cofrinho.fixedAmount
+      push(slotKey, date, "fixed", Math.min(cofrinho.fixedAmount, missing))
+    }
   }
 
   if (cofrinho.goalType === "percent" && cofrinho.percent) {

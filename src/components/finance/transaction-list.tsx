@@ -24,6 +24,7 @@ import type {
   Person,
 } from "@/db/types"
 import {
+  useDeleteRecurring,
   useDeleteTransaction,
   useSetTransactionSettled,
 } from "@/api/queries"
@@ -31,12 +32,14 @@ import {
   formatBRL,
   matchesLedgerQuery,
   matchesTokens,
+  periodLabel,
   periodShort,
   signedAmount,
 } from "@/domain/finance"
 import { formatLongDateBR } from "@/domain/dates"
 import { colorForKey } from "@/lib/finance-colors"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
+import { RecurringDeleteDialog } from "@/components/finance/recurring-delete-dialog"
 import { Card } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 import {
@@ -135,6 +138,11 @@ export function TransactionList({
 }: Props) {
   const setSettled = useSetTransactionSettled()
   const del = useDeleteTransaction()
+  const delRecurring = useDeleteRecurring()
+  const [recurringDelete, setRecurringDelete] = useState<LedgerEntry | null>(
+    null,
+  )
+  const [cancelingRuleId, setCancelingRuleId] = useState<string | null>(null)
 
   const togglingId = setSettled.isPending
     ? (setSettled.variables as { id: string } | undefined)?.id
@@ -142,6 +150,33 @@ export function TransactionList({
   const deletingId = del.isPending
     ? (del.variables as string | undefined)
     : undefined
+
+  /** "Cancelar recorrência": from this month on it stops showing up —
+   *  unsettled rows (this month included) are removed, settled ones stay. */
+  async function cancelRecurrence(e: LedgerEntry) {
+    if (!e.recurringRuleId) return
+    const ok = await confirmDialog({
+      title: "Cancelar recorrência",
+      description: `“${e.description}” deixa de se repetir a partir de ${periodLabel(e.period)}. Lançamentos deste mês em diante ainda não pagos serão removidos; os já pagos e os meses anteriores são mantidos.`,
+      confirmLabel: "Cancelar recorrência",
+      cancelLabel: "Voltar",
+      destructive: true,
+    })
+    if (!ok) return
+    setCancelingRuleId(e.recurringRuleId)
+    try {
+      await delRecurring.mutateAsync({
+        ruleId: e.recurringRuleId,
+        scope: "future",
+        fromPeriod: e.period,
+      })
+      toast.success("Recorrência cancelada")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro")
+    } finally {
+      setCancelingRuleId(null)
+    }
+  }
 
   const q = query?.trim() ?? ""
   const filtered = q
@@ -287,7 +322,11 @@ export function TransactionList({
                     e.cofrinhoId ? cofrinhosById?.get(e.cofrinhoId) : undefined
                   }
                   toggling={togglingId === e.id}
-                  deleting={deletingId === e.id}
+                  deleting={
+                    deletingId === e.id ||
+                    (!!e.recurringRuleId &&
+                      cancelingRuleId === e.recurringRuleId)
+                  }
                   categoryColor={
                     (e.categoryId
                       ? categoriesById?.get(e.categoryId)?.color
@@ -307,8 +346,19 @@ export function TransactionList({
                       toast.error(err instanceof Error ? err.message : "Erro")
                     }
                   }}
+                  onCancelRecurrence={
+                    e.recurringRuleId
+                      ? () => cancelRecurrence(e)
+                      : undefined
+                  }
                   onDelete={async () => {
                     if (!e.editable) return
+                    // Recurring rows get the two-choice dialog: only this
+                    // month, or this one + cancel the recurrence.
+                    if (e.recurringRuleId) {
+                      setRecurringDelete(e)
+                      return
+                    }
                     if (
                       !(await confirmDialog({
                         title: "Excluir lançamento",
@@ -330,6 +380,14 @@ export function TransactionList({
           </section>
         )
       })}
+
+      <RecurringDeleteDialog
+        open={!!recurringDelete}
+        onOpenChange={(v) => {
+          if (!v) setRecurringDelete(null)
+        }}
+        entry={recurringDelete}
+      />
     </div>
   )
 }
@@ -368,6 +426,7 @@ function Row({
   onEdit,
   onToggle,
   onDelete,
+  onCancelRecurrence,
 }: {
   entry: LedgerEntry
   method?: PaymentMethod
@@ -380,6 +439,8 @@ function Row({
   onEdit?: () => void
   onToggle: () => void
   onDelete: () => void
+  /** Recurring rows only: stop the recurrence from this month onward. */
+  onCancelRecurrence?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const income = e.kind === "income"
@@ -539,6 +600,11 @@ function Row({
             {onEdit && (
               <DropdownMenuItem onClick={onEdit}>
                 <PencilSimpleIcon weight="fill" /> Editar
+              </DropdownMenuItem>
+            )}
+            {onCancelRecurrence && (
+              <DropdownMenuItem onClick={onCancelRecurrence}>
+                <ProhibitIcon weight="bold" /> Cancelar recorrência
               </DropdownMenuItem>
             )}
             <DropdownMenuItem

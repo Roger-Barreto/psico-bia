@@ -188,6 +188,7 @@ export function FinanceLedgerPage() {
     [cofrinhosQ.data],
   )
   const cofrinhoEntriesQ = useAllCofrinhoEntries()
+  const cofrinhoWithdrawalsQ = useCofrinhoWithdrawals()
   const repayDescQ = useCofrinhoPurchaseDescriptions()
   const resolveSlot = useResolveCofrinhoSlot()
   const skipSlot = useSkipCofrinhoSlot()
@@ -196,6 +197,25 @@ export function FinanceLedgerPage() {
   const [depositOpen, setDepositOpen] = useState(false)
   const [cofrinhoBusyKey, setCofrinhoBusyKey] = useState<string | null>(null)
 
+  // Reserve balance per cofrinho — caps the 'target' monthly prompts.
+  const cofrinhoBalances = useMemo(() => {
+    const deposits = new Map<string, number>()
+    for (const e of cofrinhoEntriesQ.data ?? [])
+      if (e.kind === "deposit")
+        deposits.set(e.cofrinhoId, (deposits.get(e.cofrinhoId) ?? 0) + e.amount)
+    const withdrawals =
+      cofrinhoWithdrawalsQ.data ?? new Map<string, number>()
+    const m = new Map<string, number>()
+    for (const c of cofrinhosQ.data ?? [])
+      m.set(
+        c.id,
+        (c.initialAmount ?? 0) +
+          (deposits.get(c.id) ?? 0) -
+          (withdrawals.get(c.id) ?? 0),
+      )
+    return m
+  }, [cofrinhosQ.data, cofrinhoEntriesQ.data, cofrinhoWithdrawalsQ.data])
+
   const cofrinhoItems: CofrinhoListItem[] = useMemo(() => {
     const active = (cofrinhosQ.data ?? []).filter((c) => c.active)
     const cofEntries = cofrinhoEntriesQ.data ?? []
@@ -203,7 +223,13 @@ export function FinanceLedgerPage() {
     const out: CofrinhoListItem[] = []
     for (const c of active) {
       const income = incomeByDay(entries, c.incomeScope)
-      for (const s of cofrinhoSlots(c, period, income, cofEntries)) {
+      for (const s of cofrinhoSlots(
+        c,
+        period,
+        income,
+        cofEntries,
+        cofrinhoBalances.get(c.id) ?? 0,
+      )) {
         out.push({
           id: `${c.id}:${s.slotKey}`,
           cofrinhoId: c.id,
@@ -224,7 +250,14 @@ export function FinanceLedgerPage() {
       }
     }
     return out
-  }, [cofrinhosQ.data, cofrinhoEntriesQ.data, repayDescQ.data, entries, period])
+  }, [
+    cofrinhosQ.data,
+    cofrinhoEntriesQ.data,
+    cofrinhoBalances,
+    repayDescQ.data,
+    entries,
+    period,
+  ])
 
   // Manual "Adicionar valor" deposits for the month, shown as ledger lines.
   const cofrinhoDepositItems: CofrinhoDepositItem[] = useMemo(() => {
@@ -295,7 +328,6 @@ export function FinanceLedgerPage() {
   }
 
   // Cofrinho insight figures for the indicator strip.
-  const cofrinhoWithdrawalsQ = useCofrinhoWithdrawals()
   const cofrinhoInsights = useMemo(() => {
     const cofEntries = cofrinhoEntriesQ.data ?? []
     const withdrawals = cofrinhoWithdrawalsQ.data ?? new Map<string, number>()

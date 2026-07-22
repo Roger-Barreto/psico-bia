@@ -108,8 +108,13 @@ export interface PatientAnnotation {
 export type TransactionKind = "income" | "expense"
 export type FinanceScope = "clinic" | "personal"
 export type LedgerSource = "manual" | "clinic"
-/** Edit/delete scope for recurring rules (mirrors appointment "undo" scopes). */
-export type RecurringScope = "one" | "future" | "all"
+/**
+ * Edit/delete scope for recurring rules (mirrors appointment "undo" scopes).
+ * `one` deletes a single month and tombstones it (never re-materialized);
+ * `future` cancels the recurrence from a month on (settled rows stay);
+ * `one_and_future` deletes the clicked month (even settled) + cancels.
+ */
+export type RecurringScope = "one" | "future" | "one_and_future" | "all"
 
 export interface Person {
   id: string
@@ -139,13 +144,19 @@ export interface PaymentMethod {
   createdAt: string
 }
 
-export type CofrinhoGoalType = "percent" | "fixed"
+/**
+ * `percent` — save a % of each received income; `fixed` — fixed amount every
+ * month, forever; `target` — reach a total amount (optionally with a monthly
+ * saving until it's met); `none` — free reserve, no goal and no prompts.
+ */
+export type CofrinhoGoalType = "percent" | "fixed" | "target" | "none"
 /** For percent goals: base the % on clinic revenue only, or on all income. */
 export type CofrinhoIncomeScope = "clinic" | "all"
 
 /**
  * Savings reserve. A cofrinho has a running balance (deposits − withdrawals)
- * and a monthly goal: a % of received revenue, or a fixed amount on a set day.
+ * and a goal: a % of received revenue, a fixed monthly amount, a total target
+ * (the balance may exceed it; the target stays fixed), or no goal at all.
  */
 export interface Cofrinho {
   id: string
@@ -153,9 +164,10 @@ export interface Cofrinho {
   color: string | null
   goalType: CofrinhoGoalType
   percent: number | null // 0..100 (goalType='percent')
-  fixedAmount: number | null // valor mensal (goalType='fixed')
-  fixedDay: number | null // 1..31 (goalType='fixed')
+  fixedAmount: number | null // valor mensal (goalType='fixed' | 'target' opcional)
+  fixedDay: number | null // 1..31 (goalType='fixed' | 'target' opcional)
   incomeScope: CofrinhoIncomeScope // base da % (goalType='percent')
+  targetAmount: number | null // objetivo total (goalType='target')
   initialAmount: number // saldo com que o cofrinho começa
   active: boolean
   createdAt: string

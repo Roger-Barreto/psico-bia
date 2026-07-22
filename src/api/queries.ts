@@ -1429,6 +1429,7 @@ interface CofrinhoRow {
   fixed_amount: number | null
   fixed_day: number | null
   income_scope: CofrinhoIncomeScope
+  target_amount: number | null
   initial_amount: number | null
   active: boolean
   created_at: string
@@ -1443,6 +1444,7 @@ function rowToCofrinho(r: CofrinhoRow): Cofrinho {
     fixedAmount: r.fixed_amount != null ? Number(r.fixed_amount) : null,
     fixedDay: r.fixed_day,
     incomeScope: r.income_scope ?? "all",
+    targetAmount: r.target_amount != null ? Number(r.target_amount) : null,
     initialAmount: r.initial_amount != null ? Number(r.initial_amount) : 0,
     active: r.active,
     createdAt: r.created_at,
@@ -2250,6 +2252,7 @@ export interface NewCofrinhoInput {
   fixedAmount?: number | null
   fixedDay?: number | null
   incomeScope?: CofrinhoIncomeScope
+  targetAmount?: number | null
   initialAmount?: number | null
 }
 
@@ -2266,6 +2269,7 @@ export function useCreateCofrinho() {
         fixed_amount: input.fixedAmount ?? null,
         fixed_day: input.fixedDay ?? null,
         income_scope: input.incomeScope ?? "all",
+        target_amount: input.targetAmount ?? null,
         initial_amount: input.initialAmount ?? 0,
         active: true,
         created_at: nowIso(),
@@ -2300,6 +2304,7 @@ export function useUpdateCofrinho() {
           | "fixedAmount"
           | "fixedDay"
           | "incomeScope"
+          | "targetAmount"
           | "initialAmount"
           | "active"
         >
@@ -2313,6 +2318,8 @@ export function useUpdateCofrinho() {
       if (patch.fixedAmount !== undefined) row.fixed_amount = patch.fixedAmount
       if (patch.fixedDay !== undefined) row.fixed_day = patch.fixedDay
       if (patch.incomeScope !== undefined) row.income_scope = patch.incomeScope
+      if (patch.targetAmount !== undefined)
+        row.target_amount = patch.targetAmount
       if (patch.initialAmount !== undefined)
         row.initial_amount = patch.initialAmount
       if (patch.active !== undefined) row.active = patch.active

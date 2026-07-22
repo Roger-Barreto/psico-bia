@@ -114,6 +114,15 @@ export function FinanceDashboardPage() {
     const cofEntries = cofEntriesQ.data ?? []
     const incomeAll = incomeByDay(entries, "all")
     const incomeClinic = incomeByDay(entries, "clinic")
+    // Reserve balance per cofrinho — caps the 'target' monthly slots.
+    const depositsById = new Map<string, number>()
+    for (const e of cofEntries)
+      if (e.kind === "deposit")
+        depositsById.set(
+          e.cofrinhoId,
+          (depositsById.get(e.cofrinhoId) ?? 0) + e.amount,
+        )
+    const withdrawals = cofWithdrawalsQ.data ?? new Map<string, number>()
     const periods: string[] = []
     let p = fromPeriod
     while (p <= toPeriod) {
@@ -123,10 +132,14 @@ export function FinanceDashboardPage() {
     return active
       .map((c) => {
         const income = c.incomeScope === "clinic" ? incomeClinic : incomeAll
+        const balance =
+          (c.initialAmount ?? 0) +
+          (depositsById.get(c.id) ?? 0) -
+          (withdrawals.get(c.id) ?? 0)
         let meta = 0
         let saved = 0
         for (const per of periods) {
-          for (const s of cofrinhoSlots(c, per, income, cofEntries)) {
+          for (const s of cofrinhoSlots(c, per, income, cofEntries, balance)) {
             meta += s.expected
             saved += s.saved
           }
@@ -139,7 +152,14 @@ export function FinanceDashboardPage() {
         }
       })
       .filter((x) => x.meta > 0.005 || x.saved > 0.005)
-  }, [cofrinhosQ.data, cofEntriesQ.data, entries, fromPeriod, toPeriod])
+  }, [
+    cofrinhosQ.data,
+    cofEntriesQ.data,
+    cofWithdrawalsQ.data,
+    entries,
+    fromPeriod,
+    toPeriod,
+  ])
 
   return (
     <div className="space-y-6">

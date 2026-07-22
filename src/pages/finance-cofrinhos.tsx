@@ -75,9 +75,18 @@ const SOURCE_LABEL: Record<string, string> = {
 }
 
 function goalLabel(c: Cofrinho): string {
-  if (c.goalType === "percent")
-    return `${c.percent ?? 0}% ${c.incomeScope === "clinic" ? "da clínica" : "da receita"}`
-  return `${formatBRL(c.fixedAmount ?? 0)} no dia ${c.fixedDay ?? 1}`
+  switch (c.goalType) {
+    case "percent":
+      return `${c.percent ?? 0}% ${c.incomeScope === "clinic" ? "da clínica" : "da receita"}`
+    case "fixed":
+      return `${formatBRL(c.fixedAmount ?? 0)} no dia ${c.fixedDay ?? 1}`
+    case "target":
+      return c.fixedAmount
+        ? `Juntar ${formatBRL(c.targetAmount ?? 0)} · ${formatBRL(c.fixedAmount)}/mês`
+        : `Juntar ${formatBRL(c.targetAmount ?? 0)}`
+    default:
+      return "Livre, sem meta"
+  }
 }
 
 /** Net withdrawn (expenses funded by the cofrinho) among ledger rows. */
@@ -369,10 +378,11 @@ function CombinedPanel({
     let sum = 0
     for (const c of cofrinhos) {
       const income = incomeByDay(ledger, c.incomeScope)
-      for (const s of cofrinhoSlots(c, period, income, entries)) sum += s.pending
+      for (const s of cofrinhoSlots(c, period, income, entries, balanceOf(c)))
+        sum += s.pending
     }
     return sum
-  }, [cofrinhos, ledger, entries, period])
+  }, [cofrinhos, ledger, entries, period, balanceOf])
 
   const perCofrinho = cofrinhos
     .map((c) => ({
@@ -468,14 +478,17 @@ function CofrinhoPanel({
   const withdrawnMonth = withdrawnOf(tx.filter((t) => t.period === period))
   const toSave = useMemo(() => {
     const income = incomeByDay(ledger, cofrinho.incomeScope)
-    return cofrinhoSlots(cofrinho, period, income, entries).reduce(
+    return cofrinhoSlots(cofrinho, period, income, entries, balance).reduce(
       (s, x) => s + x.pending,
       0,
     )
-  }, [cofrinho, ledger, entries, period])
+  }, [cofrinho, ledger, entries, period, balance])
 
   const fixedTarget =
     cofrinho.goalType === "fixed" ? (cofrinho.fixedAmount ?? 0) : 0
+  const goalTarget =
+    cofrinho.goalType === "target" ? (cofrinho.targetAmount ?? 0) : 0
+  const goalPct = goalTarget > 0 ? (balance / goalTarget) * 100 : 0
 
   return (
     <div className="space-y-4">
@@ -487,10 +500,13 @@ function CofrinhoPanel({
                 {cofrinho.name}
               </p>
               <p className="text-xs text-muted-foreground">
-                Meta:{" "}
                 {cofrinho.goalType === "percent"
-                  ? `${cofrinho.percent}% ${cofrinho.incomeScope === "clinic" ? "da clínica recebida" : "de toda receita recebida"}`
-                  : `${formatBRL(cofrinho.fixedAmount ?? 0)} todo dia ${cofrinho.fixedDay}`}
+                  ? `Meta: ${cofrinho.percent}% ${cofrinho.incomeScope === "clinic" ? "da clínica recebida" : "de toda receita recebida"}`
+                  : cofrinho.goalType === "fixed"
+                    ? `Meta: ${formatBRL(cofrinho.fixedAmount ?? 0)} todo dia ${cofrinho.fixedDay}`
+                    : cofrinho.goalType === "target"
+                      ? `Objetivo: juntar ${formatBRL(goalTarget)}${cofrinho.fixedAmount ? ` · ${formatBRL(cofrinho.fixedAmount)}/mês (dia ${cofrinho.fixedDay})` : ""}`
+                      : "Reserva livre — guarde quando quiser"}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -523,6 +539,35 @@ function CofrinhoPanel({
                   style={{
                     width: `${Math.min(100, Math.max(0, (savedMonth / fixedTarget) * 100))}%`,
                   }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Objective progress — the balance may exceed the (fixed) target. */}
+          {goalTarget > 0 && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>
+                  Objetivo
+                  {goalPct >= 100 && (
+                    <span className="ml-1.5 font-medium text-emerald-300">
+                      atingido ✓
+                    </span>
+                  )}
+                </span>
+                <span className="tabular-nums">
+                  {formatBRL(balance)} / {formatBRL(goalTarget)} ·{" "}
+                  {Math.round(goalPct)}%
+                </span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-muted/40">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all",
+                    goalPct >= 100 ? "bg-emerald-500" : "bg-amber-500",
+                  )}
+                  style={{ width: `${Math.min(100, Math.max(0, goalPct))}%` }}
                 />
               </div>
             </div>

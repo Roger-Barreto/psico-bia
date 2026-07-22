@@ -73,7 +73,7 @@ function Segmented<T extends string>({
           type="button"
           onClick={() => onChange(o.value)}
           className={cn(
-            "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+            "rounded-md px-2 py-1.5 text-sm font-medium transition-colors",
             value === o.value
               ? "bg-amber-500/15 text-amber-300"
               : "text-muted-foreground hover:text-foreground",
@@ -100,17 +100,27 @@ function clampPercent(v: string): string {
   return String(Math.max(0, Math.min(100, num)))
 }
 
+const GOAL_HINT: Record<CofrinhoGoalType, string> = {
+  none: "Guarde quando quiser. Sem meta e sem lembretes mensais.",
+  target:
+    "Junte um valor total, ex.: R$ 2.000 para uma viagem. O guardado pode passar da meta.",
+  fixed: "Guardar um valor fixo todo mês, sem data para acabar.",
+  percent: "A cada recebimento, uma % vira meta de guardar no dia.",
+}
+
 export function CofrinhoDialog({ open, onOpenChange, editing, onCreated }: Props) {
   const create = useCreateCofrinho()
   const update = useUpdateCofrinho()
 
   const [name, setName] = useState("")
   const [color, setColor] = useState<string | null>(null)
-  const [goalType, setGoalType] = useState<CofrinhoGoalType>("fixed")
+  const [goalType, setGoalType] = useState<CofrinhoGoalType>("none")
   const [percent, setPercent] = useState("")
   const [incomeScope, setIncomeScope] = useState<CofrinhoIncomeScope>("all")
   const [fixedAmount, setFixedAmount] = useState("")
   const [fixedDay, setFixedDay] = useState("5")
+  const [targetAmount, setTargetAmount] = useState("")
+  const [monthly, setMonthly] = useState(false) // target: aporte mensal opcional
   const [initialAmount, setInitialAmount] = useState("")
 
   useEffect(() => {
@@ -125,17 +135,25 @@ export function CofrinhoDialog({ open, onOpenChange, editing, onCreated }: Props
         editing.fixedAmount != null ? formatMoneyValue(editing.fixedAmount) : "",
       )
       setFixedDay(editing.fixedDay != null ? String(editing.fixedDay) : "5")
+      setTargetAmount(
+        editing.targetAmount != null
+          ? formatMoneyValue(editing.targetAmount)
+          : "",
+      )
+      setMonthly(editing.goalType === "target" && editing.fixedAmount != null)
       setInitialAmount(
         editing.initialAmount ? formatMoneyValue(editing.initialAmount) : "",
       )
     } else {
       setName("")
       setColor("#eab308")
-      setGoalType("fixed")
+      setGoalType("none")
       setPercent("")
       setIncomeScope("all")
       setFixedAmount("")
       setFixedDay("5")
+      setTargetAmount("")
+      setMonthly(false)
       setInitialAmount("")
     }
   }, [open, editing])
@@ -143,6 +161,7 @@ export function CofrinhoDialog({ open, onOpenChange, editing, onCreated }: Props
   const busy = create.isPending || update.isPending
   const percentNum = Math.max(0, Math.min(100, Number(percent) || 0))
   const fixedDayNum = Math.max(1, Math.min(31, Number(fixedDay) || 1))
+  const withMonthly = goalType === "fixed" || (goalType === "target" && monthly)
 
   async function save() {
     if (!name.trim()) return toast.error("Informe um nome")
@@ -150,15 +169,20 @@ export function CofrinhoDialog({ open, onOpenChange, editing, onCreated }: Props
       return toast.error("Informe a porcentagem")
     if (goalType === "fixed" && parseMoney(fixedAmount) <= 0)
       return toast.error("Informe o valor mensal")
+    if (goalType === "target" && parseMoney(targetAmount) <= 0)
+      return toast.error("Informe o valor do objetivo")
+    if (goalType === "target" && monthly && parseMoney(fixedAmount) <= 0)
+      return toast.error("Informe o valor a guardar por mês")
     try {
       const payload = {
         name: name.trim(),
         color,
         goalType,
         percent: goalType === "percent" ? percentNum : null,
-        fixedAmount: goalType === "fixed" ? parseMoney(fixedAmount) : null,
-        fixedDay: goalType === "fixed" ? fixedDayNum : null,
+        fixedAmount: withMonthly ? parseMoney(fixedAmount) : null,
+        fixedDay: withMonthly ? fixedDayNum : null,
         incomeScope,
+        targetAmount: goalType === "target" ? parseMoney(targetAmount) : null,
         initialAmount: initialAmount ? parseMoney(initialAmount) : 0,
       }
       if (editing) {
@@ -183,8 +207,8 @@ export function CofrinhoDialog({ open, onOpenChange, editing, onCreated }: Props
         <DialogHeader>
           <DialogTitle>{editing ? "Editar cofrinho" : "Novo cofrinho"}</DialogTitle>
           <DialogDescription>
-            Uma reserva com meta mensal: uma % do que você recebe, ou um valor
-            fixo num dia do mês.
+            Uma reserva de dinheiro: livre, com objetivo de valor, meta mensal
+            ou % do faturamento.
           </DialogDescription>
         </DialogHeader>
 
@@ -214,18 +238,60 @@ export function CofrinhoDialog({ open, onOpenChange, editing, onCreated }: Props
             </div>
           </div>
 
-          <Field label="Tipo de meta">
+          <Field label="Tipo de meta" hint={GOAL_HINT[goalType]}>
             <Segmented
               value={goalType}
               onChange={setGoalType}
               options={[
-                { value: "fixed", label: "Valor fixo mensal" },
-                { value: "percent", label: "% do faturamento" },
+                { value: "none", label: "Livre" },
+                { value: "target", label: "Objetivo" },
+                { value: "fixed", label: "Mensal" },
+                { value: "percent", label: "% receita" },
               ]}
             />
           </Field>
 
-          {goalType === "fixed" ? (
+          {goalType === "target" && (
+            <div className="space-y-3">
+              <Field label="Objetivo (quanto juntar)">
+                <MoneyInput value={targetAmount} onChange={setTargetAmount} />
+              </Field>
+              <div className="space-y-3 rounded-lg border border-border/60 bg-muted/20 p-3">
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={monthly}
+                    onChange={(e) => setMonthly(e.target.checked)}
+                    className="size-4 rounded border-border accent-amber-500"
+                  />
+                  Guardar um valor por mês até atingir
+                </label>
+                {monthly && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Valor por mês">
+                      <MoneyInput value={fixedAmount} onChange={setFixedAmount} />
+                    </Field>
+                    <Field label="Dia do mês" hint="Quando o lembrete aparece.">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={31}
+                        value={fixedDay}
+                        onChange={(e) => setFixedDay(clampDay(e.target.value))}
+                      />
+                    </Field>
+                  </div>
+                )}
+                {!monthly && (
+                  <p className="text-xs text-muted-foreground/80">
+                    Sem aporte mensal: você adiciona valores quando quiser.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {goalType === "fixed" && (
             <div className="grid grid-cols-2 gap-3">
               <Field label="Valor mensal">
                 <MoneyInput value={fixedAmount} onChange={setFixedAmount} />
@@ -240,7 +306,9 @@ export function CofrinhoDialog({ open, onOpenChange, editing, onCreated }: Props
                 />
               </Field>
             </div>
-          ) : (
+          )}
+
+          {goalType === "percent" && (
             <div className="space-y-4">
               <Field
                 label="Porcentagem"
