@@ -481,7 +481,7 @@ function CombinedPanel({
             <MonthNav period={period} onChange={setPeriod} />
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Stat label="Total reservado" value={totalReserved} tone="amber" />
+            <Stat label="Total guardado" value={totalReserved} tone="amber" />
             <Stat label="Guardado no mês" value={savedMonth} tone="income" />
             <Stat label="A guardar no mês" value={toSave} tone="muted" />
             <Stat label="Retirado no mês" value={withdrawnMonth} tone="expense" />
@@ -631,7 +631,7 @@ function CofrinhoPanel({
           )}
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Stat label="Saldo reservado" value={balance} tone="amber" />
+            <Stat label="Total guardado" value={balance} tone="amber" />
             <Stat label="Guardado no mês" value={savedMonth} tone="income" />
             <Stat label="A guardar no mês" value={toSave} tone="muted" />
             <Stat label="Retirado no mês" value={withdrawnMonth} tone="expense" />

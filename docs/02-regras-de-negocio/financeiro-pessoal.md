@@ -94,13 +94,31 @@ Forma de pagamento com `is_loan=true` **exige `person_id`** (trigger
 - **Emprestei / paguei por alguém** (caso 3b) → **2 lançamentos ligados por `link_id`**: a saída
   real de caixa (despesa, forma real) **+** o a-receber (receita, forma Empréstimo).
 
-**Extrato da pessoa** (aba Pessoas): lista todas as movimentações + **saldo em aberto** =
-`(me devem) − (eu devo)`, contando apenas **não quitados**. Quitar parcelas reduz o saldo.
+**Pessoa recebedora (não empréstimo):** qualquer lançamento pode marcar uma **pessoa** como
+recebedor/beneficiário mesmo com forma **não** empréstimo (campo *Pessoa (opcional)* no diálogo; o
+trigger só exige pessoa para empréstimos, não a proíbe nos demais). Esses lançamentos **aparecem na
+página da pessoa** (extrato), mas **não entram no saldo** — o saldo em aberto conta apenas lançamentos
+com forma `is_loan` (a página filtra por isso).
+
+**Extrato da pessoa** (aba Pessoas): lista **todas** as movimentações com a pessoa (empréstimos +
+recebedor) + **saldo em aberto** = `(me devem) − (eu devo)`, contando apenas **empréstimos não
+quitados**. Quitar parcelas reduz o saldo.
 
 ## Flags pago/recebido
 
 Default do manual: já pago/recebido se a data ≤ hoje (ajustável); parcelas e recorrências nascem
 não quitadas; a-receber de empréstimo nasce não quitado. `settledAt` guarda o momento.
+
+## Indicadores da tela de Lançamentos
+
+Cinco indicadores: **Entradas**, **Saídas**, **Guardado**, **Saldo do mês**, **Acumulado desde jan.**
+
+- **Guardado** = quanto foi movido para os cofrinhos no mês = `Σ depósitos − Σ retiradas` das
+  atividades do cofrinho, **excluindo transferências** entre cofrinhos (neutras) e **sem** contar
+  compras "pagar com cofrinho" (essas já são despesa no ledger).
+- **Saldo do mês** e **Acumulado** subtraem o guardado (ele conta como **saída** de caixa
+  disponível): `entradas − saídas − guardado`. Retirar de um cofrinho volta como entrada.
+- No quadro **Cofrinhos** o rótulo do saldo total é **"Total guardado"**.
 
 ## Cofrinhos (reservas)
 

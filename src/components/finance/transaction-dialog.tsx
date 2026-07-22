@@ -49,7 +49,7 @@ import {
   splitInstallments,
 } from "@/domain/finance"
 import { formatLongDateBR, todayISO } from "@/domain/dates"
-import { PiggyBankIcon, PlusIcon } from "@phosphor-icons/react"
+import { PiggyBankIcon, PlusIcon, XIcon } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 
 type Mode = "single" | "installment" | "recurring"
@@ -311,7 +311,7 @@ export function TransactionDialog({
             date,
             categoryId,
             paymentMethodId: methodId,
-            personId: isLoan ? personId : null,
+            personId: isCofrinho ? null : personId,
             cardId: isCreditCard ? cardId : null,
             cofrinhoId: isCofrinho ? cofrinhoId : null,
             settled,
@@ -376,7 +376,7 @@ export function TransactionDialog({
             description: description.trim(),
             categoryId,
             paymentMethodId: methodId,
-            personId: isLoan ? personId : null,
+            personId: isCofrinho ? null : personId,
             cardId: isCreditCard ? cardId : null,
           },
           amounts,
@@ -402,7 +402,7 @@ export function TransactionDialog({
           amount: amountNum,
           categoryId,
           paymentMethodId: methodId,
-          personId: isLoan ? personId : null,
+          personId: isCofrinho ? null : personId,
           cardId: isCreditCard ? cardId : null,
           dayOfMonth,
           startPeriod,
@@ -419,7 +419,7 @@ export function TransactionDialog({
           date,
           categoryId,
           paymentMethodId: methodId,
-          personId: isLoan ? personId : null,
+          personId: isCofrinho ? null : personId,
           cardId: isCreditCard ? cardId : null,
           settled,
         })
@@ -655,19 +655,41 @@ export function TransactionDialog({
             </div>
           )}
 
-          {isLoan && (
-            <Field label="Pessoa">
-              <AddableSelect
-                value={personId}
-                onChange={setPersonId}
-                options={people}
-                placeholder="Selecionar pessoa"
-                addLabel="Nova pessoa…"
-                onCreate={async (name) => {
-                  const p = await createPerson.mutateAsync({ name })
-                  return { id: p.id, name: p.name }
-                }}
-              />
+          {!isCofrinho && (
+            <Field
+              label={isLoan ? "Pessoa" : "Pessoa (opcional)"}
+              hint={
+                isLoan
+                  ? undefined
+                  : "Quem recebeu o pagamento ou o beneficiário. Aparece na página da pessoa."
+              }
+            >
+              <div className="flex items-center gap-1.5">
+                <div className="min-w-0 flex-1">
+                  <AddableSelect
+                    value={personId}
+                    onChange={setPersonId}
+                    options={people}
+                    placeholder={isLoan ? "Selecionar pessoa" : "Sem pessoa"}
+                    addLabel="Nova pessoa…"
+                    onCreate={async (name) => {
+                      const p = await createPerson.mutateAsync({ name })
+                      return { id: p.id, name: p.name }
+                    }}
+                  />
+                </div>
+                {!isLoan && personId && (
+                  <button
+                    type="button"
+                    onClick={() => setPersonId(null)}
+                    className="grid size-9 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted/40"
+                    aria-label="Remover pessoa"
+                    title="Remover pessoa"
+                  >
+                    <XIcon weight="bold" className="size-4" />
+                  </button>
+                )}
+              </div>
             </Field>
           )}
 

@@ -367,6 +367,32 @@ export function FinanceLedgerPage() {
     period,
   ])
 
+  // Money moved into savings (guardar − retirar, excluding transfers between
+  // jars). It counts as an outflow of available cash for the month balance —
+  // pay-with-cofrinho purchases are already ledger expenses, so they're not
+  // counted here (this is only the guardar/retirar/programar flow).
+  const savedNetMonth = useMemo(() => {
+    let net = 0
+    for (const e of cofrinhoEntriesQ.data ?? []) {
+      if (e.source === "transfer" || e.period !== period) continue
+      if (e.kind === "deposit") net += e.amount
+      else if (e.kind === "withdraw") net -= e.amount
+    }
+    return net
+  }, [cofrinhoEntriesQ.data, period])
+
+  const savedNetYTD = useMemo(() => {
+    const jan = yearStartPeriod(period)
+    let net = 0
+    for (const e of cofrinhoEntriesQ.data ?? []) {
+      if (e.source === "transfer" || e.period < jan || e.period > period)
+        continue
+      if (e.kind === "deposit") net += e.amount
+      else if (e.kind === "withdraw") net -= e.amount
+    }
+    return net
+  }, [cofrinhoEntriesQ.data, period])
+
   // Cofrinho prompts show in "Todos" and in the dedicated "Cofrinho" view.
   const typeCofrinhos = useMemo(
     () =>
@@ -494,13 +520,18 @@ export function FinanceLedgerPage() {
 
       <div className="space-y-4">
         <Card>
-          <CardContent className="grid grid-cols-2 gap-4 p-4 sm:grid-cols-4 sm:divide-x sm:divide-border/40 [&>*:nth-child(n+2)]:sm:pl-4">
+          <CardContent className="grid grid-cols-2 gap-4 p-4 sm:grid-cols-3 lg:grid-cols-5 sm:divide-x sm:divide-border/40 [&>*:nth-child(n+2)]:sm:pl-4">
             <Stat label="Entradas" value={totals.income} tone="income" />
             <Stat label="Saídas" value={totals.expense} tone="expense" />
-            <Stat label="Saldo do mês" value={totals.balance} tone="auto" />
+            <Stat label="Guardado" value={savedNetMonth} tone="saved" />
+            <Stat
+              label="Saldo do mês"
+              value={totals.balance - savedNetMonth}
+              tone="auto"
+            />
             <Stat
               label="Acumulado desde jan."
-              value={accumulated}
+              value={accumulated - savedNetYTD}
               tone="auto"
             />
           </CardContent>
@@ -512,7 +543,7 @@ export function FinanceLedgerPage() {
               <PiggyBankIcon weight="fill" className="size-4" />
               <span className="font-medium">Cofrinhos</span>
             </span>
-            <CofStat label="Reservado" value={cofrinhoInsights.reserved} />
+            <CofStat label="Total guardado" value={cofrinhoInsights.reserved} />
             <CofStat label="Guardado no mês" value={cofrinhoInsights.savedMonth} />
             <CofStat label="A guardar" value={cofrinhoInsights.toSave} muted />
             <Button
@@ -625,7 +656,7 @@ function Stat({
 }: {
   label: string
   value: number
-  tone: "income" | "expense" | "auto"
+  tone: "income" | "expense" | "saved" | "auto"
 }) {
   return (
     <div>
@@ -635,6 +666,7 @@ function Stat({
           "mt-1 text-lg font-semibold tabular-nums",
           tone === "income" && "text-emerald-300",
           tone === "expense" && "text-rose-300",
+          tone === "saved" && "text-amber-300",
           tone === "auto" && (value < 0 ? "text-rose-300" : "text-emerald-300"),
         )}
       >

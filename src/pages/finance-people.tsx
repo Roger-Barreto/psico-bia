@@ -103,17 +103,37 @@ export function FinancePeoplePage() {
   const people = (peopleQ.data ?? []).filter((p) => p.active)
   const openEntries = openEntriesQ.data ?? []
 
+  // Only loans count toward the balance — a plain "recipient" tag on a non-loan
+  // launch shows in the statement but isn't a debt.
+  const loanMethodIds = useMemo(
+    () =>
+      new Set(
+        (methodsQ.data ?? []).filter((m) => m.isLoan).map((m) => m.id),
+      ),
+    [methodsQ.data],
+  )
+  const loanOpenEntries = useMemo(
+    () =>
+      openEntries.filter(
+        (e) => e.paymentMethodId && loanMethodIds.has(e.paymentMethodId),
+      ),
+    [openEntries, loanMethodIds],
+  )
+
   // Two views of the same open loans: the all-time balance (drives the
   // "hide zeroed" filter + the "Todas as pessoas" overview) and the balance
   // scoped to the selected month (drives the per-person chip, matching the
   // month-scoped detail panel).
   const balancesById = useMemo(
-    () => reduceBalances(openEntries),
-    [openEntries],
+    () => reduceBalances(loanOpenEntries),
+    [loanOpenEntries],
   )
   const periodBalancesById = useMemo(
-    () => reduceBalances(openEntries.filter((e) => periodOf(e.date) === period)),
-    [openEntries, period],
+    () =>
+      reduceBalances(
+        loanOpenEntries.filter((e) => periodOf(e.date) === period),
+      ),
+    [loanOpenEntries, period],
   )
 
   /** Net open balance in the selected month (they owe − you owe). */
@@ -199,7 +219,7 @@ export function FinancePeoplePage() {
           <Breadcrumbs items={[{ label: "Financeiro" }, { label: "Pessoas" }]} />
           <h1 className="text-2xl font-semibold tracking-tight">Pessoas</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Extrato de empréstimos e saldo em aberto por pessoa.
+            Lançamentos por pessoa e saldo de empréstimos em aberto.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -410,12 +430,23 @@ function PersonDetail({
   const ledgerQ = usePersonLedger(personId)
   const all = ledgerQ.data ?? []
   const [query, setQuery] = useState("")
+  // Loans drive the balance and the loan chart; the statement lists every
+  // launch tied to this person (loans + plain recipient tags).
+  const loanEntries = useMemo(
+    () =>
+      all.filter(
+        (e) => e.paymentMethodId && methodsById.get(e.paymentMethodId)?.isLoan,
+      ),
+    [all, methodsById],
+  )
   // Both the totals and the list are scoped to the selected month.
   const monthEntries = useMemo(
     () => all.filter((e) => periodOf(e.date) === period),
     [all, period],
   )
-  const bal = personBalance(monthEntries)
+  const bal = personBalance(
+    loanEntries.filter((e) => periodOf(e.date) === period),
+  )
 
   // Loan flow over the last 6 months (they owe you vs you owe them).
   const monthly = useMemo(() => {
@@ -426,7 +457,7 @@ function PersonDetail({
       by.set(p, { recv: 0, pay: 0 })
       p = addPeriod(p, 1)
     }
-    for (const e of all) {
+    for (const e of loanEntries) {
       const slot = by.get(periodOf(e.date))
       if (!slot) continue
       if (e.kind === "income") slot.recv += e.amount
@@ -437,7 +468,7 @@ function PersonDetail({
       "Te devem": v.recv,
       "Você deve": v.pay,
     }))
-  }, [all, period])
+  }, [loanEntries, period])
   const hasFlow = monthly.some((m) => m["Te devem"] > 0 || m["Você deve"] > 0)
 
   return (
