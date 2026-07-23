@@ -13,6 +13,7 @@ import {
   useCofrinhos,
   useCofrinhoPurchaseDescriptions,
   useCofrinhoWithdrawals,
+  useDeleteCofrinhoEntry,
   useDeleteCofrinhoPlan,
   useEnsureRecurring,
   useFinanceCategories,
@@ -24,7 +25,7 @@ import {
   useSkipCofrinhoSlot,
   useUndoCofrinhoSlot,
 } from "@/api/queries"
-import type { LedgerEntry } from "@/db/types"
+import type { CofrinhoEntry, LedgerEntry } from "@/db/types"
 import {
   addPeriod,
   cardInvoiceSummaries,
@@ -53,6 +54,7 @@ import {
   type ResolveTarget,
 } from "@/components/finance/cofrinho-resolve-dialog"
 import { CofrinhoDepositDialog } from "@/components/finance/cofrinho-deposit-dialog"
+import { CofrinhoEntryDialog } from "@/components/finance/cofrinho-entry-dialog"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
 import { colorForKey } from "@/lib/finance-colors"
 import { cn } from "@/lib/utils"
@@ -219,6 +221,9 @@ export function FinanceLedgerPage() {
   const skipSlot = useSkipCofrinhoSlot()
   const undoSlot = useUndoCofrinhoSlot()
   const deletePlan = useDeleteCofrinhoPlan()
+  const deleteEntry = useDeleteCofrinhoEntry()
+  const [editingEntry, setEditingEntry] = useState<CofrinhoEntry | null>(null)
+  const [entryDialogOpen, setEntryDialogOpen] = useState(false)
   const [resolveTarget, setResolveTarget] = useState<ResolveTarget | null>(null)
   const [resolveOpen, setResolveOpen] = useState(false)
   const [depositOpen, setDepositOpen] = useState(false)
@@ -401,6 +406,28 @@ export function FinanceLedgerPage() {
       toast.error(err instanceof Error ? err.message : "Erro")
     } finally {
       setCofrinhoBusyKey(null)
+    }
+  }
+
+  // Edit/delete a manual ("avulso") deposit straight from the ledger row.
+  function handleDepositEdit(item: CofrinhoDepositItem) {
+    const entry = (cofrinhoEntriesQ.data ?? []).find((e) => e.id === item.id)
+    if (!entry) return
+    setEditingEntry(entry)
+    setEntryDialogOpen(true)
+  }
+  async function handleDepositDelete(item: CofrinhoDepositItem) {
+    const ok = await confirmDialog({
+      title: "Excluir registro?",
+      description: "O valor deste registro deixa de contar no saldo do cofrinho.",
+      destructive: true,
+    })
+    if (!ok) return
+    try {
+      await deleteEntry.mutateAsync(item.id)
+      toast.success("Registro excluído")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro")
     }
   }
 
@@ -732,6 +759,8 @@ export function FinanceLedgerPage() {
                 onCofrinhoDeletePlan={handleCofrinhoDeletePlan}
                 cofrinhoBusyKey={cofrinhoBusyKey}
                 cofrinhoDeposits={shownCofrinhoDeposits}
+                onCofrinhoDepositEdit={handleDepositEdit}
+                onCofrinhoDepositDelete={handleDepositDelete}
                 query={query}
                 onEdit={openEdit}
               />
@@ -752,6 +781,11 @@ export function FinanceLedgerPage() {
         target={resolveTarget}
       />
       <CofrinhoDepositDialog open={depositOpen} onOpenChange={setDepositOpen} />
+      <CofrinhoEntryDialog
+        open={entryDialogOpen}
+        onOpenChange={setEntryDialogOpen}
+        entry={editingEntry}
+      />
     </div>
   )
 }

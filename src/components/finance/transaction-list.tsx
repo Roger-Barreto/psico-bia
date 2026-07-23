@@ -121,6 +121,9 @@ interface Props {
   cofrinhoBusyKey?: string | null
   /** Manual cofrinho deposits to interleave (grouped on their date). */
   cofrinhoDeposits?: CofrinhoDepositItem[]
+  /** Edit/delete a manual ("avulso") cofrinho deposit from the ledger. */
+  onCofrinhoDepositEdit?: (item: CofrinhoDepositItem) => void
+  onCofrinhoDepositDelete?: (item: CofrinhoDepositItem) => void
   /** Free-text filter over every field (description, value, tags, date…). */
   query?: string
   /** Empty-state text when there is no query (filter-aware wording). */
@@ -143,6 +146,8 @@ export function TransactionList({
   onCofrinhoDeletePlan,
   cofrinhoBusyKey,
   cofrinhoDeposits,
+  onCofrinhoDepositEdit,
+  onCofrinhoDepositDelete,
   query,
   emptyLabel,
   onEdit,
@@ -337,7 +342,20 @@ export function TransactionList({
                 />
               ))}
               {slot.deposits.map((r) => (
-                <CofrinhoDepositRow key={r.id} item={r} />
+                <CofrinhoDepositRow
+                  key={r.id}
+                  item={r}
+                  onEdit={
+                    onCofrinhoDepositEdit
+                      ? () => onCofrinhoDepositEdit(r)
+                      : undefined
+                  }
+                  onDelete={
+                    onCofrinhoDepositDelete
+                      ? () => onCofrinhoDepositDelete(r)
+                      : undefined
+                  }
+                />
               ))}
               {slot.invoices.map((r) => (
                 <InvoiceRow
@@ -921,7 +939,15 @@ function CofrinhoRow({
 /** "Guardado no cofrinho X" — a manual deposit ("Adicionar valor"), shown as a
  *  ledger line. Neutral to the day subtotal; mirrors the cofrinho's own
  *  movimentações. */
-function CofrinhoDepositRow({ item: r }: { item: CofrinhoDepositItem }) {
+function CofrinhoDepositRow({
+  item: r,
+  onEdit,
+  onDelete,
+}: {
+  item: CofrinhoDepositItem
+  onEdit?: () => void
+  onDelete?: () => void
+}) {
   return (
     <div className="flex items-center gap-3 px-3 py-3 sm:px-4">
       <span
@@ -956,6 +982,35 @@ function CofrinhoDepositRow({ item: r }: { item: CofrinhoDepositItem }) {
         </p>
         <p className="text-[10px] text-muted-foreground">no cofrinho</p>
       </div>
+
+      {(onEdit || onDelete) && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted/40"
+              aria-label="Ações do registro"
+            >
+              <DotsThreeVerticalIcon weight="bold" className="size-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {onEdit && (
+              <DropdownMenuItem onClick={onEdit}>
+                <PencilSimpleIcon weight="fill" /> Editar
+              </DropdownMenuItem>
+            )}
+            {onDelete && (
+              <DropdownMenuItem
+                onClick={onDelete}
+                className="text-destructive focus:bg-destructive/15"
+              >
+                <TrashIcon weight="fill" /> Excluir
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   )
 }
