@@ -34,6 +34,7 @@ import {
   useCofrinhos,
   useCofrinhoWithdrawals,
   useDeleteCofrinho,
+  useDeleteCofrinhoEntry,
   useLedgerMonth,
   useUpdateCofrinho,
 } from "@/api/queries"
@@ -54,6 +55,7 @@ import { formatLongDateBR } from "@/domain/dates"
 import { Breadcrumbs } from "@/components/breadcrumbs"
 import { CofrinhoDialog } from "@/components/finance/cofrinho-dialog"
 import { CofrinhoDepositDialog } from "@/components/finance/cofrinho-deposit-dialog"
+import { CofrinhoEntryDialog } from "@/components/finance/cofrinho-entry-dialog"
 import { CofrinhoTransferDialog } from "@/components/finance/cofrinho-transfer-dialog"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
 import { Card, CardContent } from "@/components/ui/card"
@@ -108,6 +110,7 @@ export function FinanceCofrinhosPage() {
   const allTxQ = useAllCofrinhoTransactions()
   const deleteCofrinho = useDeleteCofrinho()
   const updateCofrinho = useUpdateCofrinho()
+  const deleteEntry = useDeleteCofrinhoEntry()
 
   const [searchParams] = useSearchParams()
   const urlCofrinho = searchParams.get("cofrinho")
@@ -123,6 +126,8 @@ export function FinanceCofrinhosPage() {
   const [transferFromId, setTransferFromId] = useState<string | undefined>(
     undefined,
   )
+  const [entryDialogOpen, setEntryDialogOpen] = useState(false)
+  const [editingEntry, setEditingEntry] = useState<CofrinhoEntry | null>(null)
 
   const cofrinhos = (cofrinhosQ.data ?? []).filter((c) => c.active)
   const allEntries = allEntriesQ.data ?? []
@@ -173,6 +178,27 @@ export function FinanceCofrinhosPage() {
   function openTransfer(id?: string) {
     setTransferFromId(id)
     setTransferOpen(true)
+  }
+  function openEditEntry(e: CofrinhoEntry) {
+    setEditingEntry(e)
+    setEntryDialogOpen(true)
+  }
+  async function askDeleteEntry(e: CofrinhoEntry) {
+    const isTransfer = e.source === "transfer"
+    const ok = await confirmDialog({
+      title: "Excluir registro?",
+      description: isTransfer
+        ? "Este é um lado de uma transferência entre cofrinhos. O outro lado permanece — o saldo pode ficar desbalanceado."
+        : "O valor deste registro deixa de contar no saldo do cofrinho.",
+      destructive: true,
+    })
+    if (!ok) return
+    try {
+      await deleteEntry.mutateAsync(e.id)
+      toast.success("Registro excluído")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro")
+    }
   }
   async function togglePause(c: Cofrinho) {
     try {
@@ -382,6 +408,8 @@ export function FinanceCofrinhosPage() {
               onAddValue={() => openDeposit(selectedCofrinho.id)}
               onTransfer={() => openTransfer(selectedCofrinho.id)}
               onTogglePause={() => togglePause(selectedCofrinho)}
+              onEditEntry={openEditEntry}
+              onDeleteEntry={askDeleteEntry}
             />
           ) : (
             <CombinedPanel
@@ -390,6 +418,8 @@ export function FinanceCofrinhosPage() {
               tx={allTx}
               balanceOf={balanceOf}
               totalReserved={totalReserved}
+              onEditEntry={openEditEntry}
+              onDeleteEntry={askDeleteEntry}
             />
           )}
         </div>
@@ -411,6 +441,11 @@ export function FinanceCofrinhosPage() {
         onOpenChange={setTransferOpen}
         fromId={transferFromId}
       />
+      <CofrinhoEntryDialog
+        open={entryDialogOpen}
+        onOpenChange={setEntryDialogOpen}
+        entry={editingEntry}
+      />
     </div>
   )
 }
@@ -422,12 +457,16 @@ function CombinedPanel({
   tx,
   balanceOf,
   totalReserved,
+  onEditEntry,
+  onDeleteEntry,
 }: {
   cofrinhos: Cofrinho[]
   entries: CofrinhoEntry[]
   tx: LedgerEntry[]
   balanceOf: (c: Cofrinho) => number
   totalReserved: number
+  onEditEntry: (e: CofrinhoEntry) => void
+  onDeleteEntry: (e: CofrinhoEntry) => void
 }) {
   const [period, setPeriod] = useState(todayPeriod())
   const ledgerQ = useLedgerMonth(period)
@@ -520,6 +559,8 @@ function CombinedPanel({
         <HistoryList
           entries={entries.filter((e) => e.period === period)}
           withdrawals={tx.filter((t) => t.period === period)}
+          onEditEntry={onEditEntry}
+          onDeleteEntry={onDeleteEntry}
         />
       </div>
     </div>
@@ -536,6 +577,8 @@ function CofrinhoPanel({
   onAddValue,
   onTransfer,
   onTogglePause,
+  onEditEntry,
+  onDeleteEntry,
 }: {
   cofrinho: Cofrinho
   entries: CofrinhoEntry[]
@@ -545,6 +588,8 @@ function CofrinhoPanel({
   onAddValue: () => void
   onTransfer: () => void
   onTogglePause: () => void
+  onEditEntry: (e: CofrinhoEntry) => void
+  onDeleteEntry: (e: CofrinhoEntry) => void
 }) {
   const [period, setPeriod] = useState(todayPeriod())
   const ledgerQ = useLedgerMonth(period)
@@ -705,6 +750,8 @@ function CofrinhoPanel({
         <HistoryList
           entries={entries.filter((e) => e.period === period)}
           withdrawals={tx.filter((t) => t.period === period)}
+          onEditEntry={onEditEntry}
+          onDeleteEntry={onDeleteEntry}
         />
       </div>
     </div>
@@ -837,21 +884,28 @@ function ReserveByMonthChart({
 }
 
 // ─── History list ────────────────────────────────────────────
+interface HistoryRow {
+  id: string
+  date: string
+  label: string
+  amount: number
+  tone: "saved" | "skipped" | "withdraw"
+  tag: string
+  entry?: CofrinhoEntry // present for cofrinho movements (editable/deletable)
+}
+
 function HistoryList({
   entries,
   withdrawals,
+  onEditEntry,
+  onDeleteEntry,
 }: {
   entries: CofrinhoEntry[]
   withdrawals: LedgerEntry[]
+  onEditEntry?: (e: CofrinhoEntry) => void
+  onDeleteEntry?: (e: CofrinhoEntry) => void
 }) {
-  const rows: {
-    id: string
-    date: string
-    label: string
-    amount: number
-    tone: "saved" | "skipped" | "withdraw"
-    tag: string
-  }[] = []
+  const rows: HistoryRow[] = []
   for (const e of entries) {
     if (e.kind === "deposit")
       rows.push({
@@ -863,6 +917,7 @@ function HistoryList({
         amount: e.amount,
         tone: "saved",
         tag: SOURCE_LABEL[e.source] ?? e.source,
+        entry: e,
       })
     else if (e.kind === "withdraw")
       rows.push({
@@ -874,6 +929,7 @@ function HistoryList({
         amount: e.amount,
         tone: "withdraw",
         tag: SOURCE_LABEL[e.source] ?? e.source,
+        entry: e,
       })
     else if (e.kind === "skip")
       rows.push({
@@ -883,6 +939,7 @@ function HistoryList({
         amount: 0,
         tone: "skipped",
         tag: SOURCE_LABEL[e.source] ?? e.source,
+        entry: e,
       })
   }
   for (const w of withdrawals) {
@@ -907,45 +964,82 @@ function HistoryList({
 
   return (
     <Card className="divide-y divide-border/40 overflow-hidden">
-      {rows.map((r) => (
-        <div key={r.id} className="flex items-center gap-3 px-4 py-3">
-          <span
-            className={cn(
-              "grid size-9 shrink-0 place-items-center rounded-full border",
-              r.tone === "saved" &&
-                "border-emerald-500/40 bg-emerald-500/15 text-emerald-300",
-              r.tone === "skipped" &&
-                "border-rose-500/40 bg-rose-500/15 text-rose-300",
-              r.tone === "withdraw" &&
-                "border-amber-500/40 bg-amber-500/15 text-amber-300",
-            )}
-          >
-            {r.tone === "withdraw" ? (
-              <ArrowDownLeftIcon weight="bold" className="size-4" />
-            ) : (
-              <PiggyBankIcon weight="fill" className="size-4" />
-            )}
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium">{r.label}</p>
-            <p className="text-[11px] text-muted-foreground">
-              {formatLongDateBR(r.date)} · {r.tag}
+      {rows.map((r) => {
+        // Transfers are two linked halves — editing one alone would desync the
+        // pair, so only value-neutral records get inline edit; all cofrinho
+        // records can be deleted. Purchases (no entry) are managed em Lançamentos.
+        const editable =
+          !!r.entry &&
+          r.entry.source !== "transfer" &&
+          (r.entry.kind === "deposit" || r.entry.kind === "withdraw")
+        return (
+          <div key={r.id} className="flex items-center gap-3 px-4 py-3">
+            <span
+              className={cn(
+                "grid size-9 shrink-0 place-items-center rounded-full border",
+                r.tone === "saved" &&
+                  "border-emerald-500/40 bg-emerald-500/15 text-emerald-300",
+                r.tone === "skipped" &&
+                  "border-rose-500/40 bg-rose-500/15 text-rose-300",
+                r.tone === "withdraw" &&
+                  "border-amber-500/40 bg-amber-500/15 text-amber-300",
+              )}
+            >
+              {r.tone === "withdraw" ? (
+                <ArrowDownLeftIcon weight="bold" className="size-4" />
+              ) : (
+                <PiggyBankIcon weight="fill" className="size-4" />
+              )}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{r.label}</p>
+              <p className="text-[11px] text-muted-foreground">
+                {formatLongDateBR(r.date)} · {r.tag}
+              </p>
+            </div>
+            <p
+              className={cn(
+                "shrink-0 text-sm font-semibold tabular-nums",
+                r.tone === "saved" && "text-emerald-300",
+                r.tone === "skipped" && "text-muted-foreground",
+                r.tone === "withdraw" && "text-amber-300",
+              )}
+            >
+              {r.tone === "skipped"
+                ? "—"
+                : `${r.tone === "withdraw" ? "−" : "+"}${formatBRL(Math.abs(r.amount))}`}
             </p>
-          </div>
-          <p
-            className={cn(
-              "shrink-0 text-sm font-semibold tabular-nums",
-              r.tone === "saved" && "text-emerald-300",
-              r.tone === "skipped" && "text-muted-foreground",
-              r.tone === "withdraw" && "text-amber-300",
+            {r.entry && (onEditEntry || onDeleteEntry) && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted/40"
+                    aria-label="Ações do registro"
+                  >
+                    <DotsThreeVerticalIcon weight="bold" className="size-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {editable && onEditEntry && (
+                    <DropdownMenuItem onClick={() => onEditEntry(r.entry!)}>
+                      <PencilSimpleIcon weight="fill" /> Editar
+                    </DropdownMenuItem>
+                  )}
+                  {onDeleteEntry && (
+                    <DropdownMenuItem
+                      onClick={() => onDeleteEntry(r.entry!)}
+                      className="text-destructive focus:bg-destructive/15"
+                    >
+                      <TrashIcon weight="fill" /> Excluir
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
-          >
-            {r.tone === "skipped"
-              ? "—"
-              : `${r.tone === "withdraw" ? "−" : "+"}${formatBRL(Math.abs(r.amount))}`}
-          </p>
-        </div>
-      ))}
+          </div>
+        )
+      })}
     </Card>
   )
 }

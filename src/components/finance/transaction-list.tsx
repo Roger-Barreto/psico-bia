@@ -3,6 +3,7 @@ import { toast } from "sonner"
 import {
   ArrowDownLeftIcon,
   ArrowUpRightIcon,
+  ArrowUUpLeftIcon,
   CaretRightIcon,
   CheckIcon,
   DotsThreeVerticalIcon,
@@ -78,8 +79,12 @@ export interface CofrinhoListItem {
   saved: number
   pending: number
   status: "pending" | "saved" | "partial" | "skipped"
-  /** For repay prompts: description of the purchase being repaid. */
+  /** For repay prompts: description of the purchase being repaid (or a free
+   *  note on a standalone "repor" obligation). */
   description?: string | null
+  /** For stored plans (repay/repeat/rollover): the plan entry id, so the whole
+   *  reminder can be deleted. */
+  planId?: string
 }
 
 /** A manual "Adicionar valor" deposit, shown as a ledger line (neutral to the
@@ -109,6 +114,10 @@ interface Props {
   /** Cofrinho savings prompts to interleave (grouped on their date). */
   cofrinhos?: CofrinhoListItem[]
   onCofrinhoAction?: (item: CofrinhoListItem, action: CofrinhoAction) => void
+  /** Undo a resolved slot (delete its deposit/skip) — back to pending. */
+  onCofrinhoUndo?: (item: CofrinhoListItem) => void
+  /** Delete a stored plan obligation entirely (repay/repeat/rollover). */
+  onCofrinhoDeletePlan?: (item: CofrinhoListItem) => void
   cofrinhoBusyKey?: string | null
   /** Manual cofrinho deposits to interleave (grouped on their date). */
   cofrinhoDeposits?: CofrinhoDepositItem[]
@@ -130,6 +139,8 @@ export function TransactionList({
   onOpenInvoice,
   cofrinhos,
   onCofrinhoAction,
+  onCofrinhoUndo,
+  onCofrinhoDeletePlan,
   cofrinhoBusyKey,
   cofrinhoDeposits,
   query,
@@ -313,6 +324,14 @@ export function TransactionList({
                   onAction={
                     onCofrinhoAction
                       ? (action) => onCofrinhoAction(r, action)
+                      : undefined
+                  }
+                  onUndo={
+                    onCofrinhoUndo ? () => onCofrinhoUndo(r) : undefined
+                  }
+                  onDeletePlan={
+                    onCofrinhoDeletePlan
+                      ? () => onCofrinhoDeletePlan(r)
                       : undefined
                   }
                 />
@@ -734,16 +753,28 @@ function CofrinhoRow({
   item: r,
   busy,
   onAction,
+  onUndo,
+  onDeletePlan,
 }: {
   item: CofrinhoListItem
   busy?: boolean
   onAction?: (action: CofrinhoAction) => void
+  onUndo?: () => void
+  onDeletePlan?: () => void
 }) {
   const tone = COFRINHO_TONE[r.status]
   const title =
     r.source === "repay"
       ? `Repor o cofrinho ${r.cofrinhoName}`
       : `Guardar no ${r.cofrinhoName}`
+
+  // Stored plans (repay/repeat/rollover) can be removed entirely; any resolved
+  // slot (saved/partial/skipped) can be undone back to a pending prompt.
+  const isPlan =
+    r.source === "repay" || r.source === "repeat" || r.source === "rollover"
+  const canUndo = !!onUndo && r.status !== "pending"
+  const canDeletePlan = !!onDeletePlan && isPlan
+  const hasMenu = canUndo || canDeletePlan
 
   return (
     <div className={cn("flex items-center gap-3 px-3 py-3 sm:px-4", tone.bg)}>
@@ -853,6 +884,35 @@ function CofrinhoRow({
             {r.status === "saved" ? "guardado" : "pulado"}
           </p>
         </div>
+      )}
+
+      {hasMenu && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted/40"
+              aria-label="Ações do lembrete"
+            >
+              <DotsThreeVerticalIcon weight="bold" className="size-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {canUndo && (
+              <DropdownMenuItem onClick={onUndo}>
+                <ArrowUUpLeftIcon weight="bold" /> Desfazer
+              </DropdownMenuItem>
+            )}
+            {canDeletePlan && (
+              <DropdownMenuItem
+                onClick={onDeletePlan}
+                className="text-destructive focus:bg-destructive/15"
+              >
+                <TrashIcon weight="fill" /> Excluir lembrete
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
     </div>
   )

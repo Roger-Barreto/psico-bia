@@ -2804,6 +2804,114 @@ export function useDeleteCofrinhoEntry() {
   })
 }
 
+/** Edit an existing cofrinho movement (deposit/withdraw): value, date, note.
+ *  Full user control over a saved record. `date` re-derives `period` on the DB. */
+export function useUpdateCofrinhoEntry() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      id: string
+      amount?: number
+      date?: string
+      description?: string | null
+    }) => {
+      const patch: Partial<CofrinhoEntryRow> = { updated_at: nowIso() }
+      if (input.amount !== undefined) patch.amount = input.amount
+      if (input.date !== undefined) patch.date = input.date
+      if (input.description !== undefined)
+        patch.description = input.description?.trim() || null
+      const { error } = await supabase
+        .from("finance_cofrinho_entries")
+        .update(patch)
+        .eq("id", input.id)
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => invalidateCofrinhoEntries(qc),
+  })
+}
+
+/** Create standalone "repor o cofrinho" obligation(s): N monthly plans
+ *  (kind='plan', source='repay') not tied to any purchase. Each shows on the
+ *  ledger as a "Repor o cofrinho X" prompt with Guardar/Parcial/Pular. */
+export function useCreateCofrinhoRepay() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      cofrinhoId: string
+      amounts: number[]
+      dates: string[]
+      description?: string | null
+    }) => {
+      const now = nowIso()
+      const note = input.description?.trim() || null
+      const rows: CofrinhoEntryInsert[] = input.amounts.map((amount, i) => ({
+        id: newId("ce"),
+        cofrinho_id: input.cofrinhoId,
+        kind: "plan",
+        date: input.dates[i],
+        slot_key: null,
+        source: "repay",
+        expected: amount,
+        amount: 0,
+        status: "pending",
+        purchase_tx_id: null,
+        parent_id: null,
+        description: note,
+        created_at: now,
+        updated_at: now,
+      }))
+      const { error } = await supabase
+        .from("finance_cofrinho_entries")
+        .insert(rows)
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => invalidateCofrinhoEntries(qc),
+  })
+}
+
+/** Undo a resolved slot: delete every deposit/skip entry that lands on the same
+ *  slot_key, returning the prompt to "pending". Keeps any stored plan row. */
+export function useUndoCofrinhoSlot() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { cofrinhoId: string; slotKey: string }) => {
+      const { error } = await supabase
+        .from("finance_cofrinho_entries")
+        .delete()
+        .eq("cofrinho_id", input.cofrinhoId)
+        .eq("slot_key", input.slotKey)
+        .in("kind", ["deposit", "skip"])
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => invalidateCofrinhoEntries(qc),
+  })
+}
+
+/** Delete a stored plan obligation (repay/repeat/rollover) and any deposits/
+ *  skips already made against it — cancels the reminder entirely. */
+export function useDeleteCofrinhoPlan() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (planId: string) => {
+      const { error: e1 } = await supabase
+        .from("finance_cofrinho_entries")
+        .delete()
+        .eq("slot_key", `plan:${planId}`)
+      if (e1) throw e1
+      const { error: e2 } = await supabase
+        .from("finance_cofrinho_entries")
+        .delete()
+        .eq("id", planId)
+      if (e2) throw e2
+      return { ok: true as const }
+    },
+    onSuccess: () => invalidateCofrinhoEntries(qc),
+  })
+}
+
 /**
  * "Pay with cofrinho": insert the purchase (a normal expense funded by the
  * reserve, tagged with cofrinho_id) and, when replenishing, the N monthly

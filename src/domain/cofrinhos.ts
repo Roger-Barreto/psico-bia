@@ -96,6 +96,7 @@ export interface CofrinhoSlot {
   status: CofrinhoSlotStatus
   planId?: string // for stored plans (repay/rollover)
   purchaseTxId?: string | null // for repay plans: the purchase being repaid
+  description?: string | null // free-text note stored on a plan entry
 }
 
 /** Day (YYYY-MM-DD) from which a cofrinho's goals apply — its creation date. */
@@ -249,6 +250,7 @@ export function cofrinhoSlots(
       status: statusOf(expected, saved, skipped),
       planId: e.id,
       purchaseTxId: e.purchaseTxId,
+      description: e.description,
     })
   }
 

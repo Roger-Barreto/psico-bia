@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
-import { PiggyBankIcon } from "@phosphor-icons/react"
+import { ArrowUUpLeftIcon, PiggyBankIcon } from "@phosphor-icons/react"
 import {
   Dialog,
   DialogContent,
@@ -24,21 +24,30 @@ import {
   useAllCofrinhoEntries,
   useCofrinhos,
   useCofrinhoWithdrawals,
+  useCreateCofrinhoRepay,
   useScheduleCofrinhoRepeat,
   useWithdrawCofrinho,
 } from "@/api/queries"
 import { entriesNet } from "@/domain/cofrinhos"
-import { formatBRL, installmentDates } from "@/domain/finance"
+import { formatBRL, installmentDates, splitInstallments } from "@/domain/finance"
 import { todayISO } from "@/domain/dates"
 import { colorForKey } from "@/lib/finance-colors"
 import { cn } from "@/lib/utils"
 
-type Op = "guardar" | "retirar"
+type Op = "guardar" | "retirar" | "repor"
 type Dest = "abater" | "extra"
 
+const OPS: { value: Op; label: string }[] = [
+  { value: "guardar", label: "Guardar" },
+  { value: "retirar", label: "Retirar" },
+  { value: "repor", label: "Repor" },
+]
+
 /** Move money in/out of a cofrinho at any time. "Guardar" deposits (once or
- *  scheduled for N months); "Retirar" takes money back out of the reserve.
- *  Opened locked to one cofrinho (from its panel) or with a picker. */
+ *  scheduled for N months); "Retirar" takes money back out of the reserve;
+ *  "Repor" creates a "repor o cofrinho" reminder (once or split over N months)
+ *  to put money back later — no purchase needed. Opened locked to one cofrinho
+ *  (from its panel) or with a picker. */
 export function CofrinhoDepositDialog({
   open,
   onOpenChange,
@@ -54,6 +63,7 @@ export function CofrinhoDepositDialog({
   const add = useAddCofrinhoDeposit()
   const withdraw = useWithdrawCofrinho()
   const schedule = useScheduleCofrinhoRepeat()
+  const createRepay = useCreateCofrinhoRepay()
 
   const active = useMemo(
     () => (cofrinhosQ.data ?? []).filter((c) => c.active),
@@ -81,6 +91,11 @@ export function CofrinhoDepositDialog({
       setPickedId(null)
     }
   }, [open])
+
+  // A repeat/split only applies to guardar & repor — reset it when leaving.
+  useEffect(() => {
+    if (op === "retirar") setRepeat(false)
+  }, [op])
 
   const locked = !!cofrinhoId
   const selectedId = cofrinhoId ?? pickedId ?? active[0]?.id ?? ""
@@ -135,6 +150,17 @@ export function CofrinhoDepositDialog({
           description,
         })
         toast.success("Valor retirado")
+      } else if (op === "repor") {
+        const n = repeat ? nMonths : 1
+        await createRepay.mutateAsync({
+          cofrinhoId: selected.id,
+          amounts: repeat ? splitInstallments(amountNum, n) : [amountNum],
+          dates: installmentDates(date, n),
+          description,
+        })
+        toast.success(
+          repeat ? `Reposição programada em ${n}×` : "Reposição criada",
+        )
       } else if (repeat) {
         await schedule.mutateAsync({
           cofrinhoId: selected.id,
@@ -158,7 +184,24 @@ export function CofrinhoDepositDialog({
     }
   }
 
-  const busy = add.isPending || withdraw.isPending || schedule.isPending
+  const busy =
+    add.isPending ||
+    withdraw.isPending ||
+    schedule.isPending ||
+    createRepay.isPending
+
+  const amountLabel =
+    op === "retirar" ? "Valor" : op === "repor" ? "Valor a repor" : "Valor"
+  const submitLabel =
+    op === "retirar"
+      ? "Retirar"
+      : op === "repor"
+        ? repeat
+          ? "Programar reposição"
+          : "Criar reposição"
+        : repeat
+          ? "Programar"
+          : "Guardar"
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -166,20 +209,17 @@ export function CofrinhoDepositDialog({
         <DialogHeader>
           <DialogTitle>Movimentar cofrinho</DialogTitle>
           <DialogDescription>
-            {locked && selected
-              ? `Guardar ou retirar valor de ${selected.name}, a qualquer momento.`
-              : "Guarde ou retire um valor de um cofrinho, a qualquer momento."}
+            {op === "repor"
+              ? "Crie um lembrete de repor o cofrinho — para pôr o dinheiro de volta depois."
+              : locked && selected
+                ? `Guardar, retirar ou repor valor de ${selected.name}, a qualquer momento.`
+                : "Guarde, retire ou reponha um valor de um cofrinho, a qualquer momento."}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="grid grid-flow-col gap-1 rounded-lg border border-border/60 bg-background/40 p-1">
-            {(
-              [
-                { value: "guardar", label: "Guardar" },
-                { value: "retirar", label: "Retirar" },
-              ] as { value: Op; label: string }[]
-            ).map((o) => (
+            {OPS.map((o) => (
               <button
                 key={o.value}
                 type="button"
@@ -189,7 +229,9 @@ export function CofrinhoDepositDialog({
                   op === o.value
                     ? o.value === "retirar"
                       ? "bg-rose-500/15 text-rose-300"
-                      : "bg-emerald-500/15 text-emerald-300"
+                      : o.value === "repor"
+                        ? "bg-amber-500/15 text-amber-300"
+                        : "bg-emerald-500/15 text-emerald-300"
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
@@ -203,7 +245,11 @@ export function CofrinhoDepositDialog({
               className="grid size-11 shrink-0 place-items-center rounded-xl text-white shadow-inner"
               style={{ backgroundColor: swatch }}
             >
-              <PiggyBankIcon weight="fill" className="size-5" />
+              {op === "repor" ? (
+                <ArrowUUpLeftIcon weight="bold" className="size-5" />
+              ) : (
+                <PiggyBankIcon weight="fill" className="size-5" />
+              )}
             </span>
             {locked ? (
               <div className="min-w-0">
@@ -249,13 +295,13 @@ export function CofrinhoDepositDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">
-                Valor
+                {amountLabel}
               </label>
               <MoneyInput value={amount} onChange={setAmount} autoFocus />
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">
-                {op === "guardar" && repeat ? "1º mês" : "Data"}
+                {repeat && op !== "retirar" ? "1º mês" : "Data"}
               </label>
               <Input
                 type="date"
@@ -287,7 +333,9 @@ export function CofrinhoDepositDialog({
               placeholder={
                 op === "retirar"
                   ? "Ex: usei numa emergência"
-                  : "Ex: sobra do mês, 13º salário…"
+                  : op === "repor"
+                    ? "Ex: repor o que usei na emergência"
+                    : "Ex: sobra do mês, 13º salário…"
               }
               maxLength={80}
             />
@@ -323,6 +371,46 @@ export function CofrinhoDepositDialog({
                   </p>
                 </div>
               )}
+            </div>
+          )}
+
+          {op === "repor" && (
+            <div className="space-y-3 rounded-lg border border-border/60 bg-muted/20 p-3">
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={repeat}
+                  onChange={(e) => setRepeat(e.target.checked)}
+                  className="size-4 rounded border-border accent-amber-500"
+                />
+                Repor aos poucos (dividir em vários meses)
+              </label>
+              {repeat && (
+                <div className="grid grid-cols-2 items-end gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      Em quantos meses
+                    </label>
+                    <Input
+                      type="number"
+                      min={2}
+                      max={360}
+                      value={months}
+                      onChange={(e) => setMonths(e.target.value)}
+                    />
+                  </div>
+                  <p className="pb-2.5 text-xs text-muted-foreground">
+                    {formatBRL(
+                      splitInstallments(parseMoney(amount), nMonths)[0] ?? 0,
+                    )}
+                    /mês por {nMonths} meses.
+                  </p>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground/80">
+                Aparece nos lançamentos como “Repor o cofrinho”, com os botões
+                Guardar / Parcial / Pular.
+              </p>
             </div>
           )}
 
@@ -367,7 +455,7 @@ export function CofrinhoDepositDialog({
             Cancelar
           </Button>
           <Button onClick={submit} loading={busy}>
-            {op === "retirar" ? "Retirar" : repeat ? "Programar" : "Guardar"}
+            {submitLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

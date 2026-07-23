@@ -13,6 +13,7 @@ import {
   useCofrinhos,
   useCofrinhoPurchaseDescriptions,
   useCofrinhoWithdrawals,
+  useDeleteCofrinhoPlan,
   useEnsureRecurring,
   useFinanceCategories,
   useLedgerMonth,
@@ -21,6 +22,7 @@ import {
   usePeople,
   useResolveCofrinhoSlot,
   useSkipCofrinhoSlot,
+  useUndoCofrinhoSlot,
 } from "@/api/queries"
 import type { LedgerEntry } from "@/db/types"
 import {
@@ -51,6 +53,7 @@ import {
   type ResolveTarget,
 } from "@/components/finance/cofrinho-resolve-dialog"
 import { CofrinhoDepositDialog } from "@/components/finance/cofrinho-deposit-dialog"
+import { confirmDialog } from "@/components/ui/confirm-dialog"
 import { colorForKey } from "@/lib/finance-colors"
 import { cn } from "@/lib/utils"
 
@@ -214,6 +217,8 @@ export function FinanceLedgerPage() {
   const repayDescQ = useCofrinhoPurchaseDescriptions()
   const resolveSlot = useResolveCofrinhoSlot()
   const skipSlot = useSkipCofrinhoSlot()
+  const undoSlot = useUndoCofrinhoSlot()
+  const deletePlan = useDeleteCofrinhoPlan()
   const [resolveTarget, setResolveTarget] = useState<ResolveTarget | null>(null)
   const [resolveOpen, setResolveOpen] = useState(false)
   const [depositOpen, setDepositOpen] = useState(false)
@@ -269,8 +274,9 @@ export function FinanceLedgerPage() {
           pending: s.pending,
           status: s.status,
           description: s.purchaseTxId
-            ? (descById.get(s.purchaseTxId) ?? null)
-            : null,
+            ? (descById.get(s.purchaseTxId) ?? s.description ?? null)
+            : (s.description ?? null),
+          planId: s.planId,
         })
       }
     }
@@ -345,6 +351,52 @@ export function FinanceLedgerPage() {
         })
         toast.success("Pulado")
       }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro")
+    } finally {
+      setCofrinhoBusyKey(null)
+    }
+  }
+
+  // Undo a resolved slot (delete its deposit/skip) → back to a pending prompt.
+  async function handleCofrinhoUndo(item: CofrinhoListItem) {
+    const ok = await confirmDialog({
+      title: "Desfazer este registro?",
+      description:
+        item.status === "skipped"
+          ? "O lembrete volta a aparecer como pendente."
+          : "O valor guardado neste lembrete será removido e ele volta a ficar pendente.",
+      destructive: true,
+    })
+    if (!ok) return
+    setCofrinhoBusyKey(item.id)
+    try {
+      await undoSlot.mutateAsync({
+        cofrinhoId: item.cofrinhoId,
+        slotKey: item.slotKey,
+      })
+      toast.success("Desfeito")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro")
+    } finally {
+      setCofrinhoBusyKey(null)
+    }
+  }
+
+  // Delete a stored plan obligation (repor / programado / rollover) entirely.
+  async function handleCofrinhoDeletePlan(item: CofrinhoListItem) {
+    if (!item.planId) return
+    const ok = await confirmDialog({
+      title: "Excluir lembrete?",
+      description:
+        "O lembrete e qualquer valor já guardado nele serão removidos do cofrinho.",
+      destructive: true,
+    })
+    if (!ok) return
+    setCofrinhoBusyKey(item.id)
+    try {
+      await deletePlan.mutateAsync(item.planId)
+      toast.success("Lembrete excluído")
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro")
     } finally {
@@ -676,6 +728,8 @@ export function FinanceLedgerPage() {
                 }
                 cofrinhos={shownCofrinhos}
                 onCofrinhoAction={handleCofrinhoAction}
+                onCofrinhoUndo={handleCofrinhoUndo}
+                onCofrinhoDeletePlan={handleCofrinhoDeletePlan}
                 cofrinhoBusyKey={cofrinhoBusyKey}
                 cofrinhoDeposits={shownCofrinhoDeposits}
                 query={query}
