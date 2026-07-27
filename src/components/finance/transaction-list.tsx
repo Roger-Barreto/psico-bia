@@ -37,7 +37,12 @@ import {
   periodShort,
   signedAmount,
 } from "@/domain/finance"
-import { formatLongDateBR } from "@/domain/dates"
+import { formatDateBR, formatLongDateBR } from "@/domain/dates"
+import {
+  categoryKeyOf,
+  isValueSort,
+  type LedgerSort,
+} from "@/components/finance/ledger-filters"
 import { colorForKey } from "@/lib/finance-colors"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
 import { RecurringDeleteDialog } from "@/components/finance/recurring-delete-dialog"
@@ -126,6 +131,12 @@ interface Props {
   onCofrinhoDepositDelete?: (item: CofrinhoDepositItem) => void
   /** Free-text filter over every field (description, value, tags, date…). */
   query?: string
+  /** Category buckets to keep (keys from `categoryKeyOf`); empty = all. Only
+   *  ledger entries carry a category, so invoices/cofrinho rows drop out while
+   *  a category filter is on. */
+  categoryFilter?: string[]
+  /** Row order. Date sorts keep the per-day grouping; value sorts go flat. */
+  sort?: LedgerSort
   /** Empty-state text when there is no query (filter-aware wording). */
   emptyLabel?: string
   onEdit?: (entry: LedgerEntry) => void
@@ -149,6 +160,8 @@ export function TransactionList({
   onCofrinhoDepositEdit,
   onCofrinhoDepositDelete,
   query,
+  categoryFilter,
+  sort = "date-desc",
   emptyLabel,
   onEdit,
 }: Props) {
@@ -195,7 +208,8 @@ export function TransactionList({
   }
 
   const q = query?.trim() ?? ""
-  const filtered = q
+  const cats = categoryFilter?.length ? new Set(categoryFilter) : null
+  const byQuery = q
     ? entries.filter((e) =>
         matchesLedgerQuery(e, q, {
           method: e.paymentMethodId
@@ -205,30 +219,41 @@ export function TransactionList({
         }),
       )
     : entries
-  const invoiceRows = (invoices ?? []).filter(
-    (r) =>
-      !q ||
-      matchesTokens(
-        `fatura do cartão ${r.cardName} ${r.period} ${formatBRL(r.amount)} ${r.dueDate} ${r.settled ? "paga" : "a pagar"}`,
-        q,
-      ),
-  )
-  const cofrinhoRows = (cofrinhos ?? []).filter(
-    (r) =>
-      !q ||
-      matchesTokens(
-        `cofrinho guardar ${r.cofrinhoName} ${formatBRL(r.expected)} ${r.date} ${r.status}`,
-        q,
-      ),
-  )
-  const cofrinhoDepositRows = (cofrinhoDeposits ?? []).filter(
-    (r) =>
-      !q ||
-      matchesTokens(
-        `cofrinho guardado avulso ${r.cofrinhoName} ${r.description ?? ""} ${formatBRL(r.amount)} ${r.date}`,
-        q,
-      ),
-  )
+  const filtered = cats
+    ? byQuery.filter((e) => cats.has(categoryKeyOf(e)))
+    : byQuery
+  // Só lançamentos têm categoria — com o filtro ligado, as linhas sintéticas
+  // (fatura, cofrinho) saem da lista em vez de ignorar o filtro.
+  const invoiceRows = cats
+    ? []
+    : (invoices ?? []).filter(
+        (r) =>
+          !q ||
+          matchesTokens(
+            `fatura do cartão ${r.cardName} ${r.period} ${formatBRL(r.amount)} ${r.dueDate} ${r.settled ? "paga" : "a pagar"}`,
+            q,
+          ),
+      )
+  const cofrinhoRows = cats
+    ? []
+    : (cofrinhos ?? []).filter(
+        (r) =>
+          !q ||
+          matchesTokens(
+            `cofrinho guardar ${r.cofrinhoName} ${formatBRL(r.expected)} ${r.date} ${r.status}`,
+            q,
+          ),
+      )
+  const cofrinhoDepositRows = cats
+    ? []
+    : (cofrinhoDeposits ?? []).filter(
+        (r) =>
+          !q ||
+          matchesTokens(
+            `cofrinho guardado avulso ${r.cofrinhoName} ${r.description ?? ""} ${formatBRL(r.amount)} ${r.date}`,
+            q,
+          ),
+      )
 
   if (
     filtered.length === 0 &&
@@ -236,23 +261,159 @@ export function TransactionList({
     cofrinhoRows.length === 0 &&
     cofrinhoDepositRows.length === 0
   ) {
+    const narrowed = !!q || !!cats
     return (
       <div className="grid place-items-center gap-2 rounded-xl border border-dashed border-border/60 py-14 text-center">
         <p className="text-sm font-medium text-muted-foreground">
-          {q
+          {narrowed
             ? "Nenhum lançamento encontrado."
             : (emptyLabel ?? "Nenhum lançamento neste mês.")}
         </p>
         <p className="text-xs text-muted-foreground/70">
-          {q
-            ? "Tente outros termos de busca."
+          {narrowed
+            ? "Tente outros termos de busca ou limpe os filtros."
             : "Use “Novo lançamento” para adicionar uma receita ou despesa."}
         </p>
       </div>
     )
   }
 
-  // group by day (descending); card invoices + cofrinho prompts land on their day
+  // Row builders shared by both modes: grouped by day (date sorts) and flat
+  // (value sorts, where each row carries its own date chip instead).
+  const cofrinhoNode = (r: CofrinhoListItem, dateLabel?: string) => (
+    <CofrinhoRow
+      key={r.id}
+      item={r}
+      dateLabel={dateLabel}
+      busy={cofrinhoBusyKey === r.id}
+      onAction={
+        onCofrinhoAction ? (action) => onCofrinhoAction(r, action) : undefined
+      }
+      onUndo={onCofrinhoUndo ? () => onCofrinhoUndo(r) : undefined}
+      onDeletePlan={
+        onCofrinhoDeletePlan ? () => onCofrinhoDeletePlan(r) : undefined
+      }
+    />
+  )
+  const depositNode = (r: CofrinhoDepositItem, dateLabel?: string) => (
+    <CofrinhoDepositRow
+      key={r.id}
+      item={r}
+      dateLabel={dateLabel}
+      onEdit={
+        onCofrinhoDepositEdit ? () => onCofrinhoDepositEdit(r) : undefined
+      }
+      onDelete={
+        onCofrinhoDepositDelete ? () => onCofrinhoDepositDelete(r) : undefined
+      }
+    />
+  )
+  const invoiceNode = (r: InvoiceListItem, dateLabel?: string) => (
+    <InvoiceRow
+      key={r.id}
+      invoice={r}
+      dateLabel={dateLabel}
+      onOpen={onOpenInvoice ? () => onOpenInvoice(r) : undefined}
+    />
+  )
+  const entryNode = (e: LedgerEntry, dateLabel?: string) => (
+    <Row
+      key={e.id}
+      entry={e}
+      dateLabel={dateLabel}
+      method={e.paymentMethodId ? methodsById.get(e.paymentMethodId) : undefined}
+      person={e.personId ? peopleById.get(e.personId) : undefined}
+      card={e.cardId ? cardsById?.get(e.cardId) : undefined}
+      cofrinho={e.cofrinhoId ? cofrinhosById?.get(e.cofrinhoId) : undefined}
+      toggling={togglingId === e.id}
+      deleting={
+        deletingId === e.id ||
+        (!!e.recurringRuleId && cancelingRuleId === e.recurringRuleId)
+      }
+      categoryColor={
+        (e.categoryId ? categoriesById?.get(e.categoryId)?.color : null) ??
+        (e.categoryName ? colorForKey(e.categoryName) : null)
+      }
+      onEdit={onEdit ? () => onEdit(e) : undefined}
+      onToggle={async () => {
+        // card purchases settle only via the invoice payment
+        if (!e.editable || e.cardId) return
+        try {
+          await setSettled.mutateAsync({ id: e.id, settled: !e.settled })
+        } catch (err) {
+          toast.error(err instanceof Error ? err.message : "Erro")
+        }
+      }}
+      onCancelRecurrence={
+        e.recurringRuleId ? () => cancelRecurrence(e) : undefined
+      }
+      onDelete={async () => {
+        if (!e.editable) return
+        // Recurring rows get the two-choice dialog: only this
+        // month, or this one + cancel the recurrence.
+        if (e.recurringRuleId) {
+          setRecurringDelete(e)
+          return
+        }
+        if (
+          !(await confirmDialog({
+            title: "Excluir lançamento",
+            description: `Excluir "${e.description}"?`,
+            destructive: true,
+          }))
+        )
+          return
+        try {
+          await del.mutateAsync(e.id)
+          toast.success("Excluído")
+        } catch (err) {
+          toast.error(err instanceof Error ? err.message : "Erro")
+        }
+      }}
+    />
+  )
+
+  // Ordenado por valor: um único bloco, sem agrupar por dia (o subtotal do dia
+  // perde o sentido) — cada linha ganha um chip com a data.
+  if (isValueSort(sort)) {
+    const dir = sort === "amount-desc" ? -1 : 1
+    const rows = [
+      ...cofrinhoRows.map((r) => ({
+        amount: r.status === "pending" ? r.pending : r.saved || r.expected,
+        node: cofrinhoNode(r, formatDateBR(r.date)),
+      })),
+      ...cofrinhoDepositRows.map((r) => ({
+        amount: r.amount,
+        node: depositNode(r, formatDateBR(r.date)),
+      })),
+      ...invoiceRows.map((r) => ({
+        amount: r.amount,
+        node: invoiceNode(r, formatDateBR(r.dueDate)),
+      })),
+      ...filtered.map((e) => ({
+        amount: e.amount,
+        node: entryNode(e, formatDateBR(e.date)),
+      })),
+    ].sort((a, b) => (a.amount - b.amount) * dir)
+
+    return (
+      <div className="space-y-5">
+        <Card className="divide-y divide-border/40 overflow-hidden">
+          {rows.map((r) => r.node)}
+        </Card>
+
+        <RecurringDeleteDialog
+          open={!!recurringDelete}
+          onOpenChange={(v) => {
+            if (!v) setRecurringDelete(null)
+          }}
+          entry={recurringDelete}
+        />
+      </div>
+    )
+  }
+
+  // group by day; card invoices + cofrinho prompts land on their day
   const byDay = new Map<
     string,
     {
@@ -274,7 +435,8 @@ export function TransactionList({
   for (const r of invoiceRows) slotOf(r.dueDate).invoices.push(r)
   for (const r of cofrinhoRows) slotOf(r.date).cofrinhos.push(r)
   for (const r of cofrinhoDepositRows) slotOf(r.date).deposits.push(r)
-  const days = [...byDay.keys()].sort((a, b) => b.localeCompare(a))
+  const dayDir = sort === "date-asc" ? 1 : -1
+  const days = [...byDay.keys()].sort((a, b) => a.localeCompare(b) * dayDir)
 
   return (
     <div className="space-y-5">
@@ -321,118 +483,10 @@ export function TransactionList({
               </div>
             </div>
             <Card className="divide-y divide-border/40 overflow-hidden">
-              {slot.cofrinhos.map((r) => (
-                <CofrinhoRow
-                  key={r.id}
-                  item={r}
-                  busy={cofrinhoBusyKey === r.id}
-                  onAction={
-                    onCofrinhoAction
-                      ? (action) => onCofrinhoAction(r, action)
-                      : undefined
-                  }
-                  onUndo={
-                    onCofrinhoUndo ? () => onCofrinhoUndo(r) : undefined
-                  }
-                  onDeletePlan={
-                    onCofrinhoDeletePlan
-                      ? () => onCofrinhoDeletePlan(r)
-                      : undefined
-                  }
-                />
-              ))}
-              {slot.deposits.map((r) => (
-                <CofrinhoDepositRow
-                  key={r.id}
-                  item={r}
-                  onEdit={
-                    onCofrinhoDepositEdit
-                      ? () => onCofrinhoDepositEdit(r)
-                      : undefined
-                  }
-                  onDelete={
-                    onCofrinhoDepositDelete
-                      ? () => onCofrinhoDepositDelete(r)
-                      : undefined
-                  }
-                />
-              ))}
-              {slot.invoices.map((r) => (
-                <InvoiceRow
-                  key={r.id}
-                  invoice={r}
-                  onOpen={onOpenInvoice ? () => onOpenInvoice(r) : undefined}
-                />
-              ))}
-              {items.map((e) => (
-                <Row
-                  key={e.id}
-                  entry={e}
-                  method={
-                    e.paymentMethodId
-                      ? methodsById.get(e.paymentMethodId)
-                      : undefined
-                  }
-                  person={e.personId ? peopleById.get(e.personId) : undefined}
-                  card={e.cardId ? cardsById?.get(e.cardId) : undefined}
-                  cofrinho={
-                    e.cofrinhoId ? cofrinhosById?.get(e.cofrinhoId) : undefined
-                  }
-                  toggling={togglingId === e.id}
-                  deleting={
-                    deletingId === e.id ||
-                    (!!e.recurringRuleId &&
-                      cancelingRuleId === e.recurringRuleId)
-                  }
-                  categoryColor={
-                    (e.categoryId
-                      ? categoriesById?.get(e.categoryId)?.color
-                      : null) ??
-                    (e.categoryName ? colorForKey(e.categoryName) : null)
-                  }
-                  onEdit={onEdit ? () => onEdit(e) : undefined}
-                  onToggle={async () => {
-                    // card purchases settle only via the invoice payment
-                    if (!e.editable || e.cardId) return
-                    try {
-                      await setSettled.mutateAsync({
-                        id: e.id,
-                        settled: !e.settled,
-                      })
-                    } catch (err) {
-                      toast.error(err instanceof Error ? err.message : "Erro")
-                    }
-                  }}
-                  onCancelRecurrence={
-                    e.recurringRuleId
-                      ? () => cancelRecurrence(e)
-                      : undefined
-                  }
-                  onDelete={async () => {
-                    if (!e.editable) return
-                    // Recurring rows get the two-choice dialog: only this
-                    // month, or this one + cancel the recurrence.
-                    if (e.recurringRuleId) {
-                      setRecurringDelete(e)
-                      return
-                    }
-                    if (
-                      !(await confirmDialog({
-                        title: "Excluir lançamento",
-                        description: `Excluir "${e.description}"?`,
-                        destructive: true,
-                      }))
-                    )
-                      return
-                    try {
-                      await del.mutateAsync(e.id)
-                      toast.success("Excluído")
-                    } catch (err) {
-                      toast.error(err instanceof Error ? err.message : "Erro")
-                    }
-                  }}
-                />
-              ))}
+              {slot.cofrinhos.map((r) => cofrinhoNode(r))}
+              {slot.deposits.map((r) => depositNode(r))}
+              {slot.invoices.map((r) => invoiceNode(r))}
+              {items.map((e) => entryNode(e))}
             </Card>
           </section>
         )
@@ -473,6 +527,7 @@ function Chip({
 
 function Row({
   entry: e,
+  dateLabel,
   method,
   person,
   card,
@@ -486,6 +541,8 @@ function Row({
   onCancelRecurrence,
 }: {
   entry: LedgerEntry
+  /** Shown as the first chip when the list isn't grouped by day. */
+  dateLabel?: string
   method?: PaymentMethod
   person?: Person
   card?: FinanceCard
@@ -561,6 +618,7 @@ function Row({
           )}
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          {dateLabel && <Chip className="bg-muted/60">{dateLabel}</Chip>}
           <Chip>
             <span
               className="size-2 shrink-0 rounded-full"
@@ -693,9 +751,11 @@ function Row({
 /** "Fatura do cartão X" — aggregated invoice due this day; click opens it. */
 function InvoiceRow({
   invoice: r,
+  dateLabel,
   onOpen,
 }: {
   invoice: InvoiceListItem
+  dateLabel?: string
   onOpen?: () => void
 }) {
   return (
@@ -718,6 +778,7 @@ function InvoiceRow({
           Fatura do cartão {r.cardName}
         </p>
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          {dateLabel && <Chip className="bg-muted/60">{dateLabel}</Chip>}
           <Chip>fatura {periodShort(r.period)}</Chip>
           <Chip>
             {r.count} {r.count === 1 ? "lançamento" : "lançamentos"}
@@ -769,12 +830,14 @@ const COFRINHO_TONE: Record<
  *  skipped = red. Repay prompts show the purchase being repaid. */
 function CofrinhoRow({
   item: r,
+  dateLabel,
   busy,
   onAction,
   onUndo,
   onDeletePlan,
 }: {
   item: CofrinhoListItem
+  dateLabel?: string
   busy?: boolean
   onAction?: (action: CofrinhoAction) => void
   onUndo?: () => void
@@ -795,7 +858,14 @@ function CofrinhoRow({
   const hasMenu = canUndo || canDeletePlan
 
   return (
-    <div className={cn("flex items-center gap-3 px-3 py-3 sm:px-4", tone.bg)}>
+    // flex-wrap: em telas estreitas o bloco de ações cai para a linha de baixo
+    // em vez de espremer (ou empurrar para fora) o título do lembrete.
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-3 sm:px-4",
+        tone.bg,
+      )}
+    >
       <span
         className="grid size-9 shrink-0 place-items-center rounded-full text-white shadow-inner"
         style={tone.circle ? undefined : { backgroundColor: r.cofrinhoColor }}
@@ -811,9 +881,10 @@ function CofrinhoRow({
         </span>
       </span>
 
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 basis-40">
         <p className="truncate text-sm font-medium">{title}</p>
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          {dateLabel && <Chip className="bg-muted/60">{dateLabel}</Chip>}
           <Chip className="bg-amber-500/15 text-amber-200/90">
             {COFRINHO_SOURCE_TAG[r.source]}
           </Chip>
@@ -833,7 +904,7 @@ function CofrinhoRow({
       </div>
 
       {onAction && r.status === "pending" ? (
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           <span className="mr-1.5 text-sm font-semibold tabular-nums text-amber-300">
             −{formatBRL(r.pending)}
           </span>
@@ -867,7 +938,7 @@ function CofrinhoRow({
           )}
         </div>
       ) : r.status === "partial" ? (
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           <span className="text-sm font-semibold tabular-nums text-amber-300">
             {formatBRL(r.saved)}
           </span>
@@ -886,7 +957,7 @@ function CofrinhoRow({
             ))}
         </div>
       ) : (
-        <div className="shrink-0 text-right">
+        <div className="ml-auto shrink-0 text-right">
           {r.status === "saved" && (
             <p className="text-sm font-semibold tabular-nums text-emerald-300">
               +{formatBRL(r.saved)}
@@ -941,10 +1012,12 @@ function CofrinhoRow({
  *  movimentações. */
 function CofrinhoDepositRow({
   item: r,
+  dateLabel,
   onEdit,
   onDelete,
 }: {
   item: CofrinhoDepositItem
+  dateLabel?: string
   onEdit?: () => void
   onDelete?: () => void
 }) {
@@ -962,6 +1035,7 @@ function CofrinhoDepositRow({
           {r.description?.trim() || `Guardado em ${r.cofrinhoName}`}
         </p>
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          {dateLabel && <Chip className="bg-muted/60">{dateLabel}</Chip>}
           <Chip
             className="bg-transparent"
             style={{

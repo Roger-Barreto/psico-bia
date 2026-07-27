@@ -10,14 +10,6 @@ import {
   PlusIcon,
   TrashIcon,
 } from "@phosphor-icons/react"
-import {
-  Bar,
-  BarChart,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-} from "recharts"
 import { toast } from "sonner"
 import type {
   FinanceCard,
@@ -43,7 +35,6 @@ import {
   currentInvoicePeriod,
   formatBRL,
   periodLabel,
-  periodShort,
   summarizeInvoice,
   todayPeriod,
   type CardInvoice,
@@ -53,6 +44,14 @@ import { Breadcrumbs } from "@/components/breadcrumbs"
 import { CardDialog } from "@/components/finance/card-dialog"
 import { TransactionDialog } from "@/components/finance/transaction-dialog"
 import { TransactionList } from "@/components/finance/transaction-list"
+import { InvoiceCategories } from "@/components/finance/invoice-categories"
+import {
+  CategoryFilter,
+  DEFAULT_LEDGER_SORT,
+  SortMenu,
+  categoryOptionsOf,
+  type LedgerSort,
+} from "@/components/finance/ledger-filters"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -64,7 +63,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { colorForKey } from "@/lib/finance-colors"
-import { brl, chartAxis, chartTooltip } from "@/lib/chart-theme"
 import { cn } from "@/lib/utils"
 
 /** Whole days from today until an ISO date (negative = past). */
@@ -212,7 +210,7 @@ export function FinanceCardsPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[20rem_1fr]">
-        <div className="space-y-1.5">
+        <div className="min-w-0 space-y-1.5">
           {cards.length === 0 && (
             <Card>
               <CardContent className="grid place-items-center gap-1 py-10 text-center text-sm text-muted-foreground">
@@ -298,7 +296,7 @@ export function FinanceCardsPage() {
           })}
         </div>
 
-        <div>
+        <div className="min-w-0">
           {selectedCard ? (
             <CardInvoicePanel
               key={selectedCard.id}
@@ -382,55 +380,40 @@ function CardInvoicePanel({
   const all = entries
   const currentPeriod = currentInvoicePeriod(card.closingDay, card.dueDay)
   const [query, setQuery] = useState("")
+  const [categoryKeys, setCategoryKeys] = useState<string[]>([])
+  const [sort, setSort] = useState<LedgerSort>(DEFAULT_LEDGER_SORT)
 
   const invoice = useMemo(
     () => summarizeInvoice(period, all, card),
     [period, all, card],
   )
 
-  // Recent invoices (net total per invoice period) for the mini bar chart.
-  const recent = useMemo(() => {
-    const totals = new Map<string, number>()
-    for (const e of all) {
-      if (!e.invoicePeriod) continue
-      const v = e.kind === "expense" ? e.amount : -e.amount
-      totals.set(e.invoicePeriod, (totals.get(e.invoicePeriod) ?? 0) + v)
-    }
-    totals.set(period, totals.get(period) ?? 0)
-    return [...totals.entries()]
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .slice(-6)
-      .map(([p, total]) => ({
-        period: p,
-        label: periodShort(p),
-        total,
-        current: p === period,
-      }))
-  }, [all, period])
+  // Categorias oferecidas no filtro da lista desta fatura.
+  const categoryOptions = useMemo(
+    () => categoryOptionsOf(invoice.entries, categoriesById),
+    [invoice.entries, categoriesById],
+  )
 
-  // Category breakdown for the selected invoice.
-  const byCategory = useMemo(() => {
-    const m = new Map<string, { value: number; color: string }>()
-    for (const e of invoice.entries) {
-      if (e.kind !== "expense") continue
-      const name = e.categoryName ?? "Sem categoria"
-      const color =
-        (e.categoryId ? categoriesById.get(e.categoryId)?.color : null) ??
-        colorForKey(name)
-      const cur = m.get(name)
-      if (cur) cur.value += e.amount
-      else m.set(name, { value: e.amount, color })
-    }
-    return [...m.entries()]
-      .map(([name, v]) => ({ name, value: v.value, color: v.color }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 5)
-  }, [invoice.entries, categoriesById])
+  // Ao navegar para outra fatura, descarta categorias que não existem nela.
+  useEffect(() => {
+    if (categoryOptions.length === 0) return
+    const avail = new Set(categoryOptions.map((o) => o.key))
+    setCategoryKeys((prev) => {
+      const next = prev.filter((k) => avail.has(k))
+      return next.length === prev.length ? prev : next
+    })
+  }, [categoryOptions])
+
+  /** Legend click → filtra a lista de lançamentos por aquela categoria. */
+  function toggleCategory(key: string) {
+    setCategoryKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+    )
+  }
 
   const used = cardOpenTotal(all)
   const dueIn = daysUntil(invoice.dueDate)
   const status = STATUS_META[invoice.status]
-  const swatch = card.color ?? colorForKey(card.name)
 
   async function togglePaid() {
     const pay = invoice.status !== "paid"
@@ -589,74 +572,18 @@ function CardInvoicePanel({
         </CardContent>
       </Card>
 
-      {/* Recent invoices + category breakdown */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Card>
-          <CardContent className="p-4">
-            <p className="mb-3 text-sm font-semibold">Faturas recentes</p>
-            {recent.length === 0 ? (
-              <p className="grid h-[140px] place-items-center text-xs text-muted-foreground">
-                Sem faturas.
-              </p>
-            ) : (
-              <div style={{ width: "100%", height: 140 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={recent}>
-                    <XAxis dataKey="label" {...chartAxis} />
-                    <Tooltip
-                      {...chartTooltip}
-                      formatter={brl}
-                      labelFormatter={(l) => `Fatura ${l}`}
-                    />
-                    <Bar dataKey="total" radius={[4, 4, 0, 0]}>
-                      {recent.map((r, i) => (
-                        <Cell
-                          key={i}
-                          fill={
-                            r.current
-                              ? swatch
-                              : "hsl(var(--muted-foreground)/0.45)"
-                          }
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      {/* Category breakdown of the invoice: donut + full scrollable legend */}
+      <InvoiceCategories
+        entries={invoice.entries}
+        categoriesById={categoriesById}
+        selected={categoryKeys}
+        onToggle={toggleCategory}
+      />
 
-        <Card>
-          <CardContent className="p-4">
-            <p className="mb-3 text-sm font-semibold">Por categoria</p>
-            {byCategory.length === 0 ? (
-              <p className="grid h-[140px] place-items-center text-xs text-muted-foreground">
-                Sem lançamentos nesta fatura.
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {byCategory.map((c) => (
-                  <li key={c.name} className="flex items-center gap-2 text-sm">
-                    <span
-                      className="size-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: c.color }}
-                    />
-                    <span className="flex-1 truncate">{c.name}</span>
-                    <span className="tabular-nums text-muted-foreground">
-                      {formatBRL(c.value)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Search + launches in this invoice */}
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1">
+      {/* Search + filters + launches in this invoice. flex-wrap com bases
+          reais: o grupo de controles desce inteiro quando não cabe. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[10rem] flex-auto">
           <MagnifyingGlassIcon
             weight="fill"
             className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -668,10 +595,23 @@ function CardInvoicePanel({
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <Button onClick={onNewTx} className="shrink-0">
-          <PlusIcon weight="bold" />
-          <span className="hidden sm:inline">Novo lançamento</span>
-        </Button>
+        <div className="flex flex-auto items-center justify-end gap-2">
+          <CategoryFilter
+            options={categoryOptions}
+            selected={categoryKeys}
+            onChange={setCategoryKeys}
+            className="min-w-0 flex-1 sm:max-w-[12rem]"
+          />
+          <SortMenu
+            value={sort}
+            onChange={setSort}
+            className="min-w-0 flex-1 sm:max-w-[11rem]"
+          />
+          <Button onClick={onNewTx} className="shrink-0">
+            <PlusIcon weight="bold" />
+            <span className="hidden sm:inline">Novo lançamento</span>
+          </Button>
+        </div>
       </div>
 
       {loading ? (
@@ -685,6 +625,8 @@ function CardInvoicePanel({
           peopleById={peopleById}
           categoriesById={categoriesById}
           query={query}
+          categoryFilter={categoryKeys}
+          sort={sort}
           onEdit={onEditTx}
         />
       )}

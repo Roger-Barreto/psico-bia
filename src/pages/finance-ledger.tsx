@@ -50,6 +50,14 @@ import {
   type InvoiceListItem,
 } from "@/components/finance/transaction-list"
 import {
+  CategoryFilter,
+  DEFAULT_LEDGER_SORT,
+  SortMenu,
+  categoryKeyOf,
+  categoryOptionsOf,
+  type LedgerSort,
+} from "@/components/finance/ledger-filters"
+import {
   CofrinhoResolveDialog,
   type ResolveTarget,
 } from "@/components/finance/cofrinho-resolve-dialog"
@@ -80,6 +88,9 @@ export function FinanceLedgerPage() {
   const pick = (actual: number, expected: number) =>
     statsView === "expected" ? expected : actual
   const [query, setQuery] = useState("")
+  // Categorias selecionadas (vazio = todas) e ordenação da lista.
+  const [categoryKeys, setCategoryKeys] = useState<string[]>([])
+  const [sort, setSort] = useState<LedgerSort>(DEFAULT_LEDGER_SORT)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<LedgerEntry | null>(null)
 
@@ -545,17 +556,29 @@ export function FinanceLedgerPage() {
   }, [invoiceItems, filter])
 
   // Launches per day for the mini calendar (invoices on their due date),
-  // following the active type filter so badges match the list.
+  // following the active type + category filters so the badges match the list
+  // (fatura/cofrinho não têm categoria: somem quando o filtro está ligado).
   const dayCounts = useMemo(() => {
+    const cats = categoryKeys.length ? new Set(categoryKeys) : null
     const m = new Map<string, number>()
-    for (const e of typeEntries) m.set(e.date, (m.get(e.date) ?? 0) + 1)
+    for (const e of typeEntries) {
+      if (cats && !cats.has(categoryKeyOf(e))) continue
+      m.set(e.date, (m.get(e.date) ?? 0) + 1)
+    }
+    if (cats) return m
     for (const r of typeInvoices)
       m.set(r.dueDate, (m.get(r.dueDate) ?? 0) + 1)
     for (const r of typeCofrinhos) m.set(r.date, (m.get(r.date) ?? 0) + 1)
     for (const r of typeCofrinhoDeposits)
       m.set(r.date, (m.get(r.date) ?? 0) + 1)
     return m
-  }, [typeEntries, typeInvoices, typeCofrinhos, typeCofrinhoDeposits])
+  }, [
+    typeEntries,
+    typeInvoices,
+    typeCofrinhos,
+    typeCofrinhoDeposits,
+    categoryKeys,
+  ])
 
   const shownEntries = useMemo(
     () =>
@@ -571,6 +594,24 @@ export function FinanceLedgerPage() {
         : typeInvoices,
     [typeInvoices, selectedDay],
   )
+
+  // Categorias oferecidas no filtro: as do mês no tipo ativo — independente do
+  // dia selecionado, para que os dois filtros não se anulem.
+  const categoryOptions = useMemo(
+    () => categoryOptionsOf(typeEntries, categoriesById),
+    [typeEntries, categoriesById],
+  )
+
+  // Ao trocar de mês/tipo, descarta categorias que sumiram — senão a lista
+  // fica vazia por causa de um filtro que nem aparece mais nas opções.
+  useEffect(() => {
+    if (categoryOptions.length === 0) return // ainda carregando ou mês vazio
+    const avail = new Set(categoryOptions.map((o) => o.key))
+    setCategoryKeys((prev) => {
+      const next = prev.filter((k) => avail.has(k))
+      return next.length === prev.length ? prev : next
+    })
+  }, [categoryOptions])
 
   const emptyLabel = useMemo(() => {
     const scope = selectedDay ? "neste dia" : "neste mês"
@@ -708,22 +749,40 @@ export function FinanceLedgerPage() {
               </button>
             ))}
           </div>
-          <div className="relative flex-1">
-            <MagnifyingGlassIcon
-              weight="fill"
-              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              placeholder="Buscar por descrição, valor, categoria, data…"
-              className="pl-9"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
+          <div className="flex flex-wrap items-center gap-2 @3xl:min-w-0 @3xl:flex-1">
+            <div className="relative min-w-[10rem] flex-auto">
+              <MagnifyingGlassIcon
+                weight="fill"
+                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+              />
+              <Input
+                placeholder="Buscar por descrição, valor, categoria, data…"
+                className="pl-9"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-auto items-center justify-end gap-2">
+              <CategoryFilter
+                options={categoryOptions}
+                selected={categoryKeys}
+                onChange={setCategoryKeys}
+                className="min-w-0 flex-1 sm:max-w-[12rem]"
+              />
+              <SortMenu
+                value={sort}
+                onChange={setSort}
+                className="min-w-0 flex-1 sm:max-w-[11rem]"
+              />
+            </div>
           </div>
         </div>
 
+        {/* min-w-0 nos itens do grid: sem isso a trilha cresce até o
+            min-content da lista (descrições longas não quebram) e o mês
+            inteiro estoura a largura da tela no celular. */}
         <div className="grid gap-4 @4xl:grid-cols-[320px_1fr] @6xl:grid-cols-[360px_1fr]">
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <LedgerMiniCalendar
               period={period}
               counts={dayCounts}
@@ -733,7 +792,7 @@ export function FinanceLedgerPage() {
             />
           </div>
 
-          <div>
+          <div className="min-w-0">
             {ledgerQ.isLoading ? (
               <p className="py-8 text-center text-sm text-muted-foreground">
                 Carregando…
@@ -762,6 +821,8 @@ export function FinanceLedgerPage() {
                 onCofrinhoDepositEdit={handleDepositEdit}
                 onCofrinhoDepositDelete={handleDepositDelete}
                 query={query}
+                categoryFilter={categoryKeys}
+                sort={sort}
                 onEdit={openEdit}
               />
             )}
