@@ -44,7 +44,10 @@ import { Breadcrumbs } from "@/components/breadcrumbs"
 import { CardDialog } from "@/components/finance/card-dialog"
 import { TransactionDialog } from "@/components/finance/transaction-dialog"
 import { TransactionList } from "@/components/finance/transaction-list"
-import { InvoiceCategories } from "@/components/finance/invoice-categories"
+import {
+  CategoryBreakdown,
+  categorySlices,
+} from "@/components/finance/category-breakdown"
 import {
   CategoryFilter,
   DEFAULT_LEDGER_SORT,
@@ -394,6 +397,12 @@ function CardInvoicePanel({
     [invoice.entries, categoriesById],
   )
 
+  // Donut de despesas da fatura (estornos/receitas ficam de fora).
+  const byCategory = useMemo(
+    () => categorySlices(invoice.entries, "expense", categoriesById),
+    [invoice.entries, categoriesById],
+  )
+
   // Ao navegar para outra fatura, descarta categorias que não existem nela.
   useEffect(() => {
     if (categoryOptions.length === 0) return
@@ -573,11 +582,13 @@ function CardInvoicePanel({
       </Card>
 
       {/* Category breakdown of the invoice: donut + full scrollable legend */}
-      <InvoiceCategories
-        entries={invoice.entries}
-        categoriesById={categoriesById}
+      <CategoryBreakdown
+        title="Por categoria"
+        rows={byCategory.rows}
+        total={byCategory.total}
         selected={categoryKeys}
         onToggle={toggleCategory}
+        empty="Sem lançamentos nesta fatura."
       />
 
       {/* Search + filters + launches in this invoice. flex-wrap com bases

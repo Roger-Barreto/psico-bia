@@ -39,7 +39,9 @@ import {
 } from "@/domain/finance"
 import { formatDateBR, formatLongDateBR } from "@/domain/dates"
 import {
+  NO_CATEGORY,
   categoryKeyOf,
+  categoryNameOf,
   isValueSort,
   type LedgerSort,
 } from "@/components/finance/ledger-filters"
@@ -332,7 +334,9 @@ export function TransactionList({
       }
       categoryColor={
         (e.categoryId ? categoriesById?.get(e.categoryId)?.color : null) ??
-        (e.categoryName ? colorForKey(e.categoryName) : null)
+        // "Sem categoria" fica cinza; o resto (inclusive "Atendimentos") pega a
+        // mesma cor do gráfico por categoria.
+        (categoryKeyOf(e) === NO_CATEGORY ? null : colorForKey(categoryNameOf(e)))
       }
       onEdit={onEdit ? () => onEdit(e) : undefined}
       onToggle={async () => {
@@ -624,7 +628,7 @@ function Row({
               className="size-2 shrink-0 rounded-full"
               style={{ background: categoryColor ?? "hsl(var(--muted-foreground))" }}
             />
-            {e.categoryName ?? "Sem categoria"}
+            {categoryNameOf(e)}
           </Chip>
           {method && (
             <Chip>

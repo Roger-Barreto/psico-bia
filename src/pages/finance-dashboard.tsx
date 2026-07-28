@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   useAllCofrinhoEntries,
   useCofrinhos,
   useCofrinhoWithdrawals,
+  useEnsureRecurring,
   useFinanceCategories,
   useLedgerRange,
   usePaymentMethods,
@@ -11,6 +12,7 @@ import {
 import {
   addPeriod,
   ledgerTotals,
+  periodLabel,
   periodShort,
   todayPeriod,
   yearStartPeriod,
@@ -26,31 +28,69 @@ import {
   type CofrinhoBalance,
   type CofrinhoGoal,
 } from "@/components/finance/finance-dashboard"
+import { MonthPicker } from "@/components/finance/month-picker"
 import { colorForKey } from "@/lib/finance-colors"
 import { cn } from "@/lib/utils"
 
-const RANGES = [
-  { id: "1", label: "Mês atual", months: 1 },
-  { id: "3", label: "3 meses", months: 3 },
-  { id: "6", label: "6 meses", months: 6 },
-  { id: "12", label: "12 meses", months: 12 },
-  { id: "year", label: "Este ano", months: 0 },
-] as const
+type RangeId = "1" | "3" | "6" | "12" | "year" | "next" | "next3" | "month"
+
+const RANGES: { id: RangeId; label: string }[] = [
+  { id: "1", label: "Mês atual" },
+  { id: "3", label: "3 meses" },
+  { id: "6", label: "6 meses" },
+  { id: "12", label: "12 meses" },
+  { id: "year", label: "Este ano" },
+  { id: "next", label: "Próximo mês" },
+  { id: "next3", label: "Próximos 3 meses" },
+]
+
+/** Janela [from, to] de cada atalho — `month` usa o mês escolhido à mão. */
+function rangeWindow(
+  id: RangeId,
+  today: string,
+  month: string,
+): { from: string; to: string } {
+  switch (id) {
+    case "3":
+      return { from: addPeriod(today, -2), to: today }
+    case "6":
+      return { from: addPeriod(today, -5), to: today }
+    case "12":
+      return { from: addPeriod(today, -11), to: today }
+    case "year":
+      return { from: yearStartPeriod(today), to: today }
+    case "next":
+      return { from: addPeriod(today, 1), to: addPeriod(today, 1) }
+    case "next3":
+      return { from: addPeriod(today, 1), to: addPeriod(today, 3) }
+    case "month":
+      return { from: month, to: month }
+    default:
+      return { from: today, to: today }
+  }
+}
 
 export function FinanceDashboardPage() {
-  const [rangeId, setRangeId] = useState<string>("1")
+  const [rangeId, setRangeId] = useState<RangeId>("1")
+  const [month, setMonth] = useState(() => todayPeriod())
 
   const methodsQ = usePaymentMethods()
   const peopleQ = usePeople()
   const categoriesQ = useFinanceCategories()
+  const ensure = useEnsureRecurring()
 
-  const toPeriod = todayPeriod()
-  const fromPeriod = useMemo(() => {
-    const r = RANGES.find((x) => x.id === rangeId) ?? RANGES[2]
-    return r.id === "year"
-      ? yearStartPeriod(toPeriod)
-      : addPeriod(toPeriod, -(r.months - 1))
-  }, [rangeId, toPeriod])
+  const today = todayPeriod()
+  const { from: fromPeriod, to: toPeriod } = useMemo(
+    () => rangeWindow(rangeId, today, month),
+    [rangeId, today, month],
+  )
+
+  // Materializa as recorrências até o mês visto, senão um período futuro
+  // aparece vazio até alguém navegar até ele nos Lançamentos.
+  useEffect(() => {
+    if (toPeriod > today) ensure.mutate(toPeriod)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toPeriod])
 
   const rangeQ = useLedgerRange(fromPeriod, toPeriod)
   const entries = rangeQ.data ?? []
@@ -175,22 +215,39 @@ export function FinanceDashboardPage() {
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-1 rounded-lg border border-border/60 bg-background/40 p-1">
-        {RANGES.map((r) => (
-          <button
-            key={r.id}
-            type="button"
-            onClick={() => setRangeId(r.id)}
-            className={cn(
-              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-              rangeId === r.id
-                ? "bg-primary/15 text-foreground"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {r.label}
-          </button>
-        ))}
+      <div className="space-y-1.5">
+        <div className="flex flex-wrap gap-1 rounded-lg border border-border/60 bg-background/40 p-1">
+          {RANGES.map((r) => (
+            <button
+              key={r.id}
+              type="button"
+              onClick={() => setRangeId(r.id)}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                rangeId === r.id
+                  ? "bg-primary/15 text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {r.label}
+            </button>
+          ))}
+          <MonthPicker
+            value={month}
+            active={rangeId === "month"}
+            onChange={(p) => {
+              setMonth(p)
+              setRangeId("month")
+            }}
+          />
+        </div>
+        <p className="px-1 text-xs text-muted-foreground">
+          <span className="first-letter:uppercase">
+            {periodLabel(fromPeriod)}
+          </span>
+          {fromPeriod !== toPeriod && <> até {periodLabel(toPeriod)}</>}
+          {toPeriod > today && " · período futuro (previsão)"}
+        </p>
       </div>
 
       {rangeQ.isLoading ? (

@@ -8,8 +8,6 @@ import {
   Legend,
   Line,
   LineChart,
-  Pie,
-  PieChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -23,6 +21,10 @@ import type {
   Person,
 } from "@/db/types"
 import { Card, CardContent } from "@/components/ui/card"
+import {
+  CategoryBreakdown,
+  categorySlices,
+} from "@/components/finance/category-breakdown"
 import {
   formatBRL,
   ledgerTotals,
@@ -176,25 +178,16 @@ export function FinanceDashboard({
     [entries],
   )
 
-  const byCategory = useMemo(() => {
-    const m = new Map<string, { value: number; color: string }>()
-    for (const e of expenses) {
-      const name = e.categoryName ?? "Sem categoria"
-      const color =
-        (e.categoryId ? categoriesById.get(e.categoryId)?.color : null) ??
-        colorForKey(name)
-      const cur = m.get(name)
-      if (cur) cur.value += e.amount
-      else m.set(name, { value: e.amount, color })
-    }
-    const arr = [...m.entries()]
-      .map(([name, v]) => ({ name, value: v.value, color: v.color }))
-      .sort((a, b) => b.value - a.value)
-    if (arr.length <= 8) return arr
-    const top = arr.slice(0, 7)
-    const rest = arr.slice(7).reduce((s, x) => s + x.value, 0)
-    return [...top, { name: "Outros", value: rest, color: colorForKey("Outros") }]
-  }, [expenses, categoriesById])
+  // Donuts por categoria: toda categoria aparece (a legenda rola), igual à
+  // quebra da fatura do cartão.
+  const byCategory = useMemo(
+    () => categorySlices(entries, "expense", categoriesById),
+    [entries, categoriesById],
+  )
+  const incomeByCategory = useMemo(
+    () => categorySlices(entries, "income", categoriesById),
+    [entries, categoriesById],
+  )
 
   const byMethod = useMemo(() => {
     const m = new Map<string, { value: number; color: string }>()
@@ -211,28 +204,6 @@ export function FinanceDashboard({
       .map(([name, v]) => ({ name, value: v.value, color: v.color }))
       .sort((a, b) => b.value - a.value)
   }, [expenses, methodsById])
-
-  const incomeByCategory = useMemo(() => {
-    const m = new Map<string, { value: number; color: string }>()
-    for (const e of entries) {
-      if (e.kind !== "income") continue
-      const name =
-        e.categoryName ?? (e.scope === "clinic" ? "Atendimentos" : "Sem categoria")
-      const color =
-        (e.categoryId ? categoriesById.get(e.categoryId)?.color : null) ??
-        colorForKey(name)
-      const cur = m.get(name)
-      if (cur) cur.value += e.amount
-      else m.set(name, { value: e.amount, color })
-    }
-    const arr = [...m.entries()]
-      .map(([name, v]) => ({ name, value: v.value, color: v.color }))
-      .sort((a, b) => b.value - a.value)
-    if (arr.length <= 8) return arr
-    const top = arr.slice(0, 7)
-    const rest = arr.slice(7).reduce((s, x) => s + x.value, 0)
-    return [...top, { name: "Outros", value: rest, color: colorForKey("Outros") }]
-  }, [entries, categoriesById])
 
   const byScope = useMemo(() => {
     const mk = (scope: "personal" | "clinic") => {
@@ -430,54 +401,22 @@ export function FinanceDashboard({
           </LineChart>
         </ChartCard>
 
-        <ChartCard title="Despesas por categoria">
-          {byCategory.length === 0 ? (
-            <EmptyChart />
-          ) : (
-            <PieChart>
-              <Pie
-                data={byCategory}
-                dataKey="value"
-                nameKey="name"
-                innerRadius={50}
-                outerRadius={80}
-                paddingAngle={2}
-              >
-                {byCategory.map((d, i) => (
-                  <Cell key={i} fill={d.color} />
-                ))}
-              </Pie>
-              <Tooltip {...chartTooltip} formatter={brl} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-            </PieChart>
-          )}
-        </ChartCard>
+        <CategoryBreakdown
+          className="lg:col-span-2"
+          title="Despesas por categoria"
+          rows={byCategory.rows}
+          total={byCategory.total}
+          empty="Sem despesas no período."
+        />
 
-        <ChartCard
+        <CategoryBreakdown
+          className="lg:col-span-2"
           title="Receitas por categoria"
           subtitle="Inclui faturamento da clínica"
-        >
-          {incomeByCategory.length === 0 ? (
-            <EmptyChart />
-          ) : (
-            <PieChart>
-              <Pie
-                data={incomeByCategory}
-                dataKey="value"
-                nameKey="name"
-                innerRadius={50}
-                outerRadius={80}
-                paddingAngle={2}
-              >
-                {incomeByCategory.map((d, i) => (
-                  <Cell key={i} fill={d.color} />
-                ))}
-              </Pie>
-              <Tooltip {...chartTooltip} formatter={brl} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-            </PieChart>
-          )}
-        </ChartCard>
+          rows={incomeByCategory.rows}
+          total={incomeByCategory.total}
+          empty="Sem receitas no período."
+        />
 
         <ChartCard title="Despesas por forma de pagamento">
           {byMethod.length === 0 ? (

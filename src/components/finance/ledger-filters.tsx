@@ -52,10 +52,26 @@ export function isValueSort(sort: LedgerSort): boolean {
 /** Bucket key for entries with no category. */
 export const NO_CATEGORY = "__sem-categoria__"
 
+/** Bucket key for clinic income that arrives from the view with no category. */
+export const CLINIC_INCOME = "__atendimentos__"
+
+/** Fields needed to bucket an entry by category. */
+type Categorizable = Pick<LedgerEntry, "categoryName" | "kind" | "scope">
+
 /** Which bucket an entry falls under. Grouped by *name*, like the charts —
- *  clinic income comes from a view with a name but no category id. */
-export function categoryKeyOf(e: Pick<LedgerEntry, "categoryName">): string {
-  return e.categoryName ?? NO_CATEGORY
+ *  clinic income comes from a view with a name but no category id; when it has
+ *  no name either it gets its own bucket instead of falling in "Sem categoria". */
+export function categoryKeyOf(e: Categorizable): string {
+  if (e.categoryName) return e.categoryName
+  return e.kind === "income" && e.scope === "clinic" ? CLINIC_INCOME : NO_CATEGORY
+}
+
+/** Label of an entry's bucket — same rule as `categoryKeyOf`. */
+export function categoryNameOf(e: Categorizable): string {
+  if (e.categoryName) return e.categoryName
+  return e.kind === "income" && e.scope === "clinic"
+    ? "Atendimentos"
+    : "Sem categoria"
 }
 
 export interface CategoryOption {
@@ -83,7 +99,7 @@ export function categoryOptionsOf(
       cur.total += e.amount
       continue
     }
-    const name = e.categoryName ?? "Sem categoria"
+    const name = categoryNameOf(e)
     m.set(key, {
       key,
       name,

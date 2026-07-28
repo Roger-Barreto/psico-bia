@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 import {
+  ChartPieSliceIcon,
   MagnifyingGlassIcon,
   PiggyBankIcon,
   PlusIcon,
@@ -32,6 +33,7 @@ import {
   formatBRL,
   invoiceDatesForPeriod,
   ledgerTotals,
+  matchesLedgerQuery,
   todayPeriod,
   yearStartPeriod,
 } from "@/domain/finance"
@@ -41,6 +43,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { LedgerMiniCalendar } from "@/components/finance/ledger-mini-calendar"
+import { LedgerCategories } from "@/components/finance/ledger-categories"
 import { TransactionDialog } from "@/components/finance/transaction-dialog"
 import {
   TransactionList,
@@ -69,6 +72,9 @@ import { cn } from "@/lib/utils"
 
 type LedgerFilter = "all" | "payable" | "receivable" | "card" | "cofrinho"
 
+/** Lembra se o usuário deixou o gráfico por categoria aberto ou fechado. */
+const CHART_STORAGE_KEY = "financeiro:lancamentos-grafico"
+
 const FILTERS: { id: LedgerFilter; label: string }[] = [
   { id: "all", label: "Todos" },
   { id: "payable", label: "A pagar" },
@@ -93,6 +99,25 @@ export function FinanceLedgerPage() {
   const [sort, setSort] = useState<LedgerSort>(DEFAULT_LEDGER_SORT)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<LedgerEntry | null>(null)
+  // Gráfico por categoria abaixo do calendário — a escolha fica gravada.
+  const [showChart, setShowChart] = useState(() => {
+    try {
+      return localStorage.getItem(CHART_STORAGE_KEY) !== "false"
+    } catch {
+      /* localStorage unavailable */
+      return true
+    }
+  })
+  function toggleChart() {
+    setShowChart((prev) => {
+      try {
+        localStorage.setItem(CHART_STORAGE_KEY, String(!prev))
+      } catch {
+        /* localStorage unavailable */
+      }
+      return !prev
+    })
+  }
 
   const methodsQ = usePaymentMethods()
   const peopleQ = usePeople()
@@ -595,6 +620,29 @@ export function FinanceLedgerPage() {
     [typeInvoices, selectedDay],
   )
 
+  // Lançamentos que alimentam o gráfico: os mesmos da lista (tipo + dia +
+  // busca), menos o filtro de categoria — este acende/apaga fatias em vez de
+  // reduzir o donut a uma só.
+  const chartEntries = useMemo(() => {
+    const q = query.trim()
+    if (!q) return shownEntries
+    return shownEntries.filter((e) =>
+      matchesLedgerQuery(e, q, {
+        method: e.paymentMethodId
+          ? methodsById.get(e.paymentMethodId)?.name
+          : undefined,
+        person: e.personId ? peopleById.get(e.personId)?.name : undefined,
+      }),
+    )
+  }, [shownEntries, query, methodsById, peopleById])
+
+  /** Clique na legenda do gráfico → liga/desliga a categoria no filtro. */
+  function toggleCategory(key: string) {
+    setCategoryKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+    )
+  }
+
   // Categorias oferecidas no filtro: as do mês no tipo ativo — independente do
   // dia selecionado, para que os dois filtros não se anulem.
   const categoryOptions = useMemo(
@@ -782,7 +830,7 @@ export function FinanceLedgerPage() {
             min-content da lista (descrições longas não quebram) e o mês
             inteiro estoura a largura da tela no celular. */}
         <div className="grid gap-4 @4xl:grid-cols-[320px_1fr] @6xl:grid-cols-[360px_1fr]">
-          <div className="min-w-0 space-y-4">
+          <div className="min-w-0 space-y-3">
             <LedgerMiniCalendar
               period={period}
               counts={dayCounts}
@@ -790,6 +838,24 @@ export function FinanceLedgerPage() {
               onSelectDay={setSelectedDay}
               onChangePeriod={setPeriod}
             />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={toggleChart}
+              className="w-full"
+              aria-expanded={showChart}
+            >
+              <ChartPieSliceIcon weight="fill" />
+              {showChart ? "Ocultar gráfico" : "Mostrar gráfico"}
+            </Button>
+            {showChart && (
+              <LedgerCategories
+                entries={chartEntries}
+                categoriesById={categoriesById}
+                selected={categoryKeys}
+                onToggle={toggleCategory}
+              />
+            )}
           </div>
 
           <div className="min-w-0">

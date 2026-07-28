@@ -143,6 +143,19 @@ Regras por indicador:
 O quadro de indicadores dos cofrinhos foi removido; o botão **"Guardar no cofrinho"** (abre o
 diálogo Movimentar) fica no topo da página, ao lado de "Novo lançamento".
 
+### Gráfico por categoria (Lançamentos)
+
+Abaixo do minicalendário (na coluna da esquerda em telas maiores) fica a quebra **por categoria**
+dos lançamentos **que estão na tela** — mesmo tipo, mesmo dia e mesma busca da lista; o filtro de
+categoria não entra (ele acende/apaga fatias em vez de reduzir o donut a uma só). Um botão
+**"Mostrar/Ocultar gráfico"** liga e desliga o card, e a escolha fica gravada no navegador. Um
+seletor **Saídas | Entradas** troca o lado mostrado (e cai sozinho no lado que tem dados quando o
+outro está vazio, ex.: filtro "A receber"). Clicar numa linha da legenda liga/desliga aquela
+categoria no filtro da lista — igual à fatura do cartão.
+
+Lançamentos de clínica sem categoria própria formam a categoria **"Atendimentos"** (antes caíam em
+"Sem categoria"), no gráfico, no filtro e na etiqueta da linha.
+
 ## Cofrinhos (reservas)
 
 `finance_cofrinhos` + `finance_cofrinho_entries` (migrations `022`–`024`, `026`). Tipos de meta
@@ -177,9 +190,14 @@ Novos valores: `finance_cofrinho_entries.kind` += `withdraw`; `source` += `trans
 
 ## Dashboard financeiro
 
-Período selecionável (mês atual padrão; 3/6/12 meses). Gráficos: receitas×despesas por mês, fluxo de
-caixa acumulado, despesas por categoria, despesas por forma de pagamento, clínica×pessoal, saldo por
-pessoa (em aberto). KPIs: receitas, despesas, saldo, a receber, a pagar.
+Período selecionável (mês atual padrão; 3/6/12 meses; este ano), **futuros** (próximo mês, próximos
+3 meses) e **um mês qualquer** pelo seletor de mês (passado ou futuro). Abaixo dos atalhos, uma
+linha mostra a janela em uso e avisa quando ela é futura (previsão). Num período futuro as
+recorrências são materializadas até o mês visto (`ensure_recurring_materialized`), como nos
+Lançamentos. Gráficos: receitas×despesas por mês, fluxo de caixa acumulado, **despesas por
+categoria** e **receitas por categoria** (donut + legenda completa, cada um ocupando a linha
+inteira — mesmo componente da fatura do cartão), despesas por forma de pagamento, clínica×pessoal,
+saldo por pessoa (em aberto). KPIs: receitas, despesas, saldo, a receber, a pagar.
 
 ## Modelo de dados
 
