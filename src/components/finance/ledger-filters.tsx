@@ -22,6 +22,11 @@ import {
 } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
 
+// ─── Tipo de lançamento ──────────────────────────────────
+
+/** Visão de tipo da tela de Lançamentos (grupo de botões no topo da lista). */
+export type LedgerFilter = "all" | "payable" | "receivable" | "card" | "cofrinho"
+
 // ─── Ordenação ───────────────────────────────────────────
 
 /** Row order of the ledger / invoice transaction lists. */

@@ -44,6 +44,10 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { LedgerMiniCalendar } from "@/components/finance/ledger-mini-calendar"
 import { LedgerCategories } from "@/components/finance/ledger-categories"
+import {
+  ledgerChartCardEntries,
+  useCardBasis,
+} from "@/components/finance/card-basis"
 import { TransactionDialog } from "@/components/finance/transaction-dialog"
 import {
   TransactionList,
@@ -58,6 +62,7 @@ import {
   SortMenu,
   categoryKeyOf,
   categoryOptionsOf,
+  type LedgerFilter,
   type LedgerSort,
 } from "@/components/finance/ledger-filters"
 import {
@@ -69,8 +74,6 @@ import { CofrinhoEntryDialog } from "@/components/finance/cofrinho-entry-dialog"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
 import { colorForKey } from "@/lib/finance-colors"
 import { cn } from "@/lib/utils"
-
-type LedgerFilter = "all" | "payable" | "receivable" | "card" | "cofrinho"
 
 /** Lembra se o usuário deixou o gráfico por categoria aberto ou fechado. */
 const CHART_STORAGE_KEY = "financeiro:lancamentos-grafico"
@@ -118,6 +121,8 @@ export function FinanceLedgerPage() {
       return !prev
     })
   }
+  // Regime do cartão no gráfico: fatura que vence no mês × compras do mês.
+  const [cardBasis, setCardBasis] = useCardBasis()
 
   const methodsQ = usePaymentMethods()
   const peopleQ = usePeople()
@@ -620,13 +625,35 @@ export function FinanceLedgerPage() {
     [typeInvoices, selectedDay],
   )
 
+  // Compras no cartão que entram no gráfico, conforme o regime escolhido.
+  const chartCardEntries = useMemo(
+    () =>
+      ledgerChartCardEntries(cardAllQ.data ?? [], {
+        basis: cardBasis,
+        period,
+        filter,
+        selectedDay,
+      }),
+    [cardAllQ.data, cardBasis, filter, period, selectedDay],
+  )
+
+  /** O cartão só muda alguma coisa onde ele pode aparecer. */
+  const canSwitchBasis =
+    (cardAllQ.data ?? []).length > 0 &&
+    filter !== "receivable" &&
+    filter !== "cofrinho"
+
   // Lançamentos que alimentam o gráfico: os mesmos da lista (tipo + dia +
   // busca), menos o filtro de categoria — este acende/apaga fatias em vez de
-  // reduzir o donut a uma só.
+  // reduzir o donut a uma só — com as compras no cartão trocadas pelo regime.
   const chartEntries = useMemo(() => {
+    const rows = [
+      ...shownEntries.filter((e) => !e.cardId),
+      ...chartCardEntries,
+    ]
     const q = query.trim()
-    if (!q) return shownEntries
-    return shownEntries.filter((e) =>
+    if (!q) return rows
+    return rows.filter((e) =>
       matchesLedgerQuery(e, q, {
         method: e.paymentMethodId
           ? methodsById.get(e.paymentMethodId)?.name
@@ -634,7 +661,7 @@ export function FinanceLedgerPage() {
         person: e.personId ? peopleById.get(e.personId)?.name : undefined,
       }),
     )
-  }, [shownEntries, query, methodsById, peopleById])
+  }, [shownEntries, chartCardEntries, query, methodsById, peopleById])
 
   /** Clique na legenda do gráfico → liga/desliga a categoria no filtro. */
   function toggleCategory(key: string) {
@@ -854,6 +881,8 @@ export function FinanceLedgerPage() {
                 categoriesById={categoriesById}
                 selected={categoryKeys}
                 onToggle={toggleCategory}
+                basis={canSwitchBasis ? cardBasis : undefined}
+                onBasisChange={canSwitchBasis ? setCardBasis : undefined}
               />
             )}
           </div>

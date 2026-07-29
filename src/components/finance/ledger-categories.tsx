@@ -4,6 +4,11 @@ import {
   CategoryBreakdown,
   categorySlices,
 } from "@/components/finance/category-breakdown"
+import {
+  CardBasisToggle,
+  cardBasisNote,
+  type CardBasis,
+} from "@/components/finance/card-basis"
 import { cn } from "@/lib/utils"
 
 /**
@@ -17,11 +22,16 @@ export function LedgerCategories({
   categoriesById,
   selected,
   onToggle,
+  basis,
+  onBasisChange,
 }: {
   entries: LedgerEntry[]
   categoriesById: Map<string, FinanceCategory>
   selected: string[]
   onToggle: (key: string) => void
+  /** Ausentes = o regime do cartão não muda nada nesta visão (sem controle). */
+  basis?: CardBasis
+  onBasisChange?: (next: CardBasis) => void
 }) {
   const [kind, setKind] = useState<"expense" | "income">("expense")
 
@@ -44,37 +54,44 @@ export function LedgerCategories({
         : kind
   const { rows, total } = shown === "expense" ? expense : income
 
+  const side = shown === "expense" ? "Saídas na tela" : "Entradas na tela"
+
   return (
     <CategoryBreakdown
       title="Por categoria"
-      subtitle={shown === "expense" ? "Saídas na tela" : "Entradas na tela"}
+      subtitle={basis ? `${side} · ${cardBasisNote(basis)}` : side}
       rows={rows}
       total={total}
       selected={selected}
       onToggle={onToggle}
       empty="Sem lançamentos nesta seleção."
       action={
-        <div className="flex gap-0.5 rounded-lg border border-border/60 bg-background/40 p-0.5">
-          {(
-            [
-              { id: "expense", label: "Saídas" },
-              { id: "income", label: "Entradas" },
-            ] as const
-          ).map((v) => (
-            <button
-              key={v.id}
-              type="button"
-              onClick={() => setKind(v.id)}
-              className={cn(
-                "rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors",
-                shown === v.id
-                  ? "bg-primary/15 text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {v.label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-0.5 rounded-lg border border-border/60 bg-background/40 p-0.5">
+            {(
+              [
+                { id: "expense", label: "Saídas" },
+                { id: "income", label: "Entradas" },
+              ] as const
+            ).map((v) => (
+              <button
+                key={v.id}
+                type="button"
+                onClick={() => setKind(v.id)}
+                className={cn(
+                  "rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors",
+                  shown === v.id
+                    ? "bg-primary/15 text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+          {basis && onBasisChange && (
+            <CardBasisToggle value={basis} onChange={onBasisChange} />
+          )}
         </div>
       }
     />

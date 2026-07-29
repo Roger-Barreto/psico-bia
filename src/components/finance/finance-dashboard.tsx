@@ -26,6 +26,12 @@ import {
   categorySlices,
 } from "@/components/finance/category-breakdown"
 import {
+  CardBasisToggle,
+  cardBasisNote,
+  cardEntriesForBasis,
+  useCardBasis,
+} from "@/components/finance/card-basis"
+import {
   formatBRL,
   ledgerTotals,
   monthlySeries,
@@ -50,6 +56,8 @@ export interface CofrinhoGoal {
 
 interface Props {
   entries: LedgerEntry[]
+  /** Todas as compras no cartão (qualquer mês), para o regime do gráfico. */
+  cardEntries: LedgerEntry[]
   methodsById: Map<string, PaymentMethod>
   peopleById: Map<string, Person>
   categoriesById: Map<string, FinanceCategory>
@@ -135,6 +143,7 @@ function EmptyChart({ label = "Sem dados." }: { label?: string }) {
 
 export function FinanceDashboard({
   entries,
+  cardEntries,
   methodsById,
   peopleById,
   categoriesById,
@@ -179,15 +188,28 @@ export function FinanceDashboard({
   )
 
   // Donuts por categoria: toda categoria aparece (a legenda rola), igual à
-  // quebra da fatura do cartão.
+  // quebra da fatura do cartão. As compras no cartão entram pelo regime
+  // escolhido — pela fatura que vence no período ou pela data da compra.
+  const [cardBasis, setCardBasis] = useCardBasis()
+  const canSwitchBasis = cardEntries.length > 0
+  const categoryEntries = useMemo(
+    () => [
+      ...entries.filter((e) => !e.cardId),
+      ...cardEntriesForBasis(cardEntries, cardBasis, fromPeriod, toPeriod),
+    ],
+    [entries, cardEntries, cardBasis, fromPeriod, toPeriod],
+  )
   const byCategory = useMemo(
-    () => categorySlices(entries, "expense", categoriesById),
-    [entries, categoriesById],
+    () => categorySlices(categoryEntries, "expense", categoriesById),
+    [categoryEntries, categoriesById],
   )
   const incomeByCategory = useMemo(
-    () => categorySlices(entries, "income", categoriesById),
-    [entries, categoriesById],
+    () => categorySlices(categoryEntries, "income", categoriesById),
+    [categoryEntries, categoriesById],
   )
+  const basisAction = canSwitchBasis ? (
+    <CardBasisToggle value={cardBasis} onChange={setCardBasis} />
+  ) : undefined
 
   const byMethod = useMemo(() => {
     const m = new Map<string, { value: number; color: string }>()
@@ -404,18 +426,25 @@ export function FinanceDashboard({
         <CategoryBreakdown
           className="lg:col-span-2"
           title="Despesas por categoria"
+          subtitle={canSwitchBasis ? cardBasisNote(cardBasis) : undefined}
           rows={byCategory.rows}
           total={byCategory.total}
           empty="Sem despesas no período."
+          action={basisAction}
         />
 
         <CategoryBreakdown
           className="lg:col-span-2"
           title="Receitas por categoria"
-          subtitle="Inclui faturamento da clínica"
+          subtitle={
+            canSwitchBasis
+              ? `Inclui faturamento da clínica · ${cardBasisNote(cardBasis)}`
+              : "Inclui faturamento da clínica"
+          }
           rows={incomeByCategory.rows}
           total={incomeByCategory.total}
           empty="Sem receitas no período."
+          action={basisAction}
         />
 
         <ChartCard title="Despesas por forma de pagamento">

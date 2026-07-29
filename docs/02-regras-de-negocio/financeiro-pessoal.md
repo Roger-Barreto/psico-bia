@@ -156,6 +156,23 @@ categoria no filtro da lista — igual à fatura do cartão.
 Lançamentos de clínica sem categoria própria formam a categoria **"Atendimentos"** (antes caíam em
 "Sem categoria"), no gráfico, no filtro e na etiqueta da linha.
 
+### Regime do cartão no gráfico por categoria
+
+O gráfico por categoria — nos **Lançamentos** e no **Dashboard** — tem um botão **Fatura | Compra**
+que escolhe como as compras no cartão entram na conta. Diferente da lista (que no mês mostra a
+fatura como uma linha só), no gráfico elas entram uma a uma, para virarem fatias:
+
+| Regime | O que entra | O que fica de fora |
+|---|---|---|
+| **Fatura** (padrão) | As compras da **fatura que vence no período** — feitas nos meses anteriores. É o dinheiro que sai do caixa agora, o mesmo regime dos indicadores dos Lançamentos. | As compras feitas no período, que só serão cobradas na fatura seguinte. |
+| **Compra** | As compras **feitas no período**, mesmo que caiam na fatura do mês que vem. | A fatura que vence agora, comprada nos meses anteriores. |
+
+A escolha fica gravada no navegador e vale para as duas telas. Nos Lançamentos o regime respeita a
+visão de tipo ativa: em "A receber" e "Cofrinho" o cartão não entra de jeito nenhum (o botão nem
+aparece); em "A pagar" só a fatura em aberto conta (uma compra do mês vira conta a pagar apenas
+quando a fatura dela vencer). Com um dia filtrado no minicalendário, no regime de fatura a compra
+"acontece" no **vencimento** — o mesmo dia em que a lista já mostra a linha da fatura.
+
 ## Cofrinhos (reservas)
 
 `finance_cofrinhos` + `finance_cofrinho_entries` (migrations `022`–`024`, `026`). Tipos de meta
@@ -196,8 +213,10 @@ linha mostra a janela em uso e avisa quando ela é futura (previsão). Num perí
 recorrências são materializadas até o mês visto (`ensure_recurring_materialized`), como nos
 Lançamentos. Gráficos: receitas×despesas por mês, fluxo de caixa acumulado, **despesas por
 categoria** e **receitas por categoria** (donut + legenda completa, cada um ocupando a linha
-inteira — mesmo componente da fatura do cartão), despesas por forma de pagamento, clínica×pessoal,
-saldo por pessoa (em aberto). KPIs: receitas, despesas, saldo, a receber, a pagar.
+inteira — mesmo componente da fatura do cartão, com o botão **Fatura | Compra** descrito acima),
+despesas por forma de pagamento, clínica×pessoal, saldo por pessoa (em aberto). KPIs: receitas,
+despesas, saldo, a receber, a pagar — os KPIs e os demais gráficos **não** seguem o botão de
+regime; ele vale só para os dois gráficos por categoria.
 
 ## Modelo de dados
 

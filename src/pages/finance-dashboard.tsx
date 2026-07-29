@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import {
   useAllCofrinhoEntries,
+  useCardEntriesAll,
   useCofrinhos,
   useCofrinhoWithdrawals,
   useEnsureRecurring,
@@ -94,6 +95,10 @@ export function FinanceDashboardPage() {
 
   const rangeQ = useLedgerRange(fromPeriod, toPeriod)
   const entries = rangeQ.data ?? []
+
+  // Todas as compras no cartão (qualquer mês) — o gráfico por categoria escolhe
+  // entre contá-las pela fatura ou pela data da compra.
+  const cardEntriesQ = useCardEntriesAll()
 
   // Accumulated balance since January (independent of the selected range).
   const ytdQ = useLedgerRange(yearStartPeriod(toPeriod), toPeriod)
@@ -257,6 +262,7 @@ export function FinanceDashboardPage() {
       ) : (
         <FinanceDashboard
           entries={entries}
+          cardEntries={cardEntriesQ.data ?? []}
           methodsById={methodsById}
           peopleById={peopleById}
           categoriesById={categoriesById}
