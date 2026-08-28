@@ -59,7 +59,7 @@ interface PatientRow {
   id: string
   name: string
   gender: Gender
-  birthdate: string
+  birthdate: string | null
   avatar_id: number
   active: boolean
   created_at: string
@@ -77,7 +77,7 @@ function rowToPatient(r: PatientRow): Patient {
     id: r.id,
     name: r.name,
     gender: r.gender,
-    birthdate: r.birthdate,
+    birthdate: r.birthdate || null, // linhas antigas podem ter string vazia
     avatarId: r.avatar_id,
     active: r.active,
     createdAt: r.created_at,
@@ -363,7 +363,7 @@ export function useCreatePatient() {
         id: newId("p"),
         name: input.name,
         gender: input.gender,
-        birthdate: input.birthdate,
+        birthdate: input.birthdate || null,
         avatar_id: input.avatarId ?? 0,
         active: input.active ?? true,
         created_at: nowIso(),

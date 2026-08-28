@@ -50,7 +50,7 @@ Campos (ver [modelo de dados](../03-arquitetura/modelo-de-dados.md) para tipos e
   (`stableMonsterAvatarId`) para estabilidade visual.
 - **Valor da consulta:** ao escolher um convênio com `defaultValue > 0`, o formulário pré-preenche o
   campo de valor (mas o usuário pode ajustar). Botões de atalho `+110` e `+80` somam ao valor atual.
-- **Validação de nascimento:** obrigatória; ano entre 1900 e o ano atual; data válida; não pode estar
+- **Validação de nascimento:** **opcional** (pode ficar vazia). Se preenchida: ano entre 1900 e o ano atual; data válida; não pode estar
   no futuro.
 - **Arquivar (soft-delete):** `DELETE /api/patients/:id` → `active = false`. O paciente some das
   listas mas seus dados permanecem. Pode ser reexibido com "Mostrar arquivados".

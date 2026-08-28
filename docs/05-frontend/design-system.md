@@ -58,8 +58,25 @@ Estilo shadcn/ui sobre **Radix UI**, com variantes via `class-variance-authority
 | `card`, `input`, `skeleton` | wrappers estilizados. |
 | `calendar` | react-day-picker (com caption dropdown e range). |
 | `date-picker` | popover + calendar (props: `value`, `onChange`, `min`, `max`, `clearable`). |
-| `time-picker` | seletor de `HH:MM`. |
+| `time-picker` | seletor de `HH:MM` em **grades de toque** (hora 6×4, minuto 6×2) — sem lista rolável, ver [nota iPad](#seletores-em-modais-ipadwebkit). |
+| `copy-button` | botão de copiar para a área de transferência (`inline` para listas, `boxed` na altura do `Input`); usa `lib/clipboard.ts` com fallback `execCommand`. |
 | `confirm-dialog` | host imperativo (ver [componentes](componentes.md#confirmação-imperativa)). |
+
+### Seletores em modais (iPad/WebKit)
+
+Todo navegador no iPadOS roda sobre WebKit (Safari, Chrome, **Opera**). Uma
+região com scroll próprio dentro de um popover `position: fixed` portalado
+para dentro de um modal travado pelo `react-remove-scroll` **congela** nesses
+navegadores: o `Popover` do Radix é `modal={false}` por padrão e portanto não
+registra trava própria, então quem arbitra o `touchmove` continua sendo a trava
+do `Dialog`/`Sheet` — que resolve "quem rola" subindo a árvore a partir do alvo
+e se perde ao cruzar o `position: fixed` cujo bloco contêiner é o modal
+(`transform` + `backdrop-filter`).
+
+Regra: **popover dentro de modal não pode depender de scroll interno.** O
+`TimePicker` cabe inteiro na tela (grades) e usa `portalToBody`; o `DatePicker`
+(calendário) já era assim. `Select` e `DropdownMenu` do Radix são seguros —
+esses embrulham o próprio conteúdo em `RemoveScroll` e assumem a trava.
 
 ## Ícones
 

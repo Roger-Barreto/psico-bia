@@ -33,7 +33,7 @@ O produto está marcado como **beta** na interface.
 
 ## Capacidades em alto nível
 
-- **Pacientes:** CRUD, avatar (monstrinhos), gênero, data de nascimento (idade calculada), valor de
+- **Pacientes:** CRUD, avatar (monstrinhos), gênero, data de nascimento opcional (idade calculada), CPF do paciente e do pagador (com botão de copiar), valor de
   consulta, convênio, checklist individual, anotações, documentos anexados, encerramento (alta) com
   motivo, reabertura e exclusão permanente.
 - **Agenda:** mini-calendário mensal com indicadores (nº de pacientes, pendências, não-pagos);

@@ -22,6 +22,7 @@ pessoa (ou agente) que precise entender, manter ou evoluir o sistema.
 | [`07-operacao/`](07-operacao/) | Instalação (Windows), execução, dados/backup, segurança, [incidente de perda de dados](07-operacao/incidente-perda-dados.md). |
 | [`08-capacidades.md`](08-capacidades.md) | Inventário exaustivo de tudo que o sistema faz. |
 | [`09-leituras/`](09-leituras/) | **Módulo Leituras (proposta):** [plano de implementação](09-leituras/plano-de-implementacao.md) do acompanhamento de leitura (Track + Dashboard). |
+| [`14-cadastro-paciente/`](14-cadastro-paciente/) | Evoluções do cadastro de paciente: [migração 032](14-cadastro-paciente/032_nascimento_opcional.sql) — data de nascimento opcional. |
 | [`evolucao/`](evolucao/) | **Migração local → nuvem (Supabase):** plano, passo a passo e tracker de progresso. |
 
 ---

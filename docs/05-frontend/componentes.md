@@ -16,7 +16,7 @@ Inventário dos componentes não-primitivos (os primitivos `ui/` estão em
 | Componente | Arquivo | Papel |
 |---|---|---|
 | `PatientDrawer` | `patient/patient-drawer.tsx` | **Central de atendimento.** Cabeçalho com avatar editável, valor, convênio; data/status; ações (Atendido/Falta/Reagendar); mensagens contextuais; reagendamento; `PaymentControl`; checklist do dia (toggle otimista); anotações. Sub-sheets: editar cadastro, adicionar item de checklist, adicionar anotação, desfazer. |
-| `PatientForm` | `patient/patient-form.tsx` | Cadastro/edição em abas (Dados, Checklist, Documentos). Seções: Identificação, Financeiro (convênio + valor com atalhos +110/+80), Tratamento (encerrar/reabrir/excluir). Valida nascimento. Prévia de futuros ao encerrar. |
+| `PatientForm` | `patient/patient-form.tsx` | Cadastro/edição em abas (Dados, Checklist, Documentos). Seções: Identificação, Financeiro (convênio + valor com atalhos +110/+80), Tratamento (encerrar/reabrir/excluir). Valida nascimento quando preenchido (campo opcional). `CopyButton` ao lado dos CPFs. Prévia de futuros ao encerrar. |
 | `PaymentControl` | `patient/payment-control.tsx` | Marcar/desmarcar pagamento, valor padrão ou customizado, confete. Só quando atendido. |
 | `PatientDocuments` | `patient/patient-documents.tsx` | Upload (drag-drop/seleção, multi), ícone por tipo de arquivo, download, exclusão, "abrir pasta". |
 | `PatientAvatar` | `patient/patient-avatar.tsx` | Avatar monstrinho + `genderLabel`. |
@@ -70,3 +70,6 @@ labels customizados. Uma confirmação pendente é substituída se outra abrir (
 - `lib/monster-avatars.ts` — 56 avatares: `monsterAvatarSrc`, `randomMonsterAvatarId`,
   `monsterAvatarIds`, `stableMonsterAvatarId(seed)`.
 - `lib/celebrate.ts` — `celebrate("happy"|"sad")`: confete com emojis temáticos.
+- `lib/clipboard.ts` — `copyText(texto)`: `navigator.clipboard` com fallback `execCommand("copy")` (contexto não-seguro / WebKit antigo).
+- `lib/cpf.ts` — `onlyDigits`, `formatCpf` (máscara progressiva), `isValidCpf`.
+- `domain/age.ts` — `ageFromBirthdate` (→ `number | null`) e `ageLabel` (→ `"12 anos"` ou `null`).

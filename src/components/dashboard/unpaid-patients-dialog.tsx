@@ -10,7 +10,7 @@ import {
 import { PatientAvatar, genderLabel } from "@/components/patient/patient-avatar"
 import { formatBRL } from "@/domain/finance"
 import { formatDateBR } from "@/domain/dates"
-import { ageFromBirthdate } from "@/domain/age"
+import { ageLabel } from "@/domain/age"
 
 export interface UnpaidPatientEntry {
   patient: Patient
@@ -77,8 +77,9 @@ export function UnpaidPatientsDialog({
                     </span>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {ageFromBirthdate(it.patient.birthdate)} anos ·{" "}
-                    {genderLabel(it.patient.gender)}
+                    {[ageLabel(it.patient.birthdate), genderLabel(it.patient.gender)]
+                      .filter(Boolean)
+                      .join(" · ")}
                     {it.insuranceName ? ` · ${it.insuranceName}` : " · Particular"}
                   </p>
                   <p className="mt-1 text-[11px] uppercase tracking-wider text-amber-200/80">

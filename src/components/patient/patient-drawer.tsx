@@ -54,7 +54,7 @@ import { buildSnapshotIds, checklistFor } from "@/domain/pendencies"
 import { occurrencesForPatient } from "@/domain/recurrence"
 import { todayISO, formatLongDateBR } from "@/domain/dates"
 import { cn } from "@/lib/utils"
-import { ageFromBirthdate } from "@/domain/age"
+import { ageLabel } from "@/domain/age"
 import { UndoAppointmentDialog } from "@/components/appointments/undo-appointment-dialog"
 import { RescheduleConflictDialog } from "@/components/appointments/reschedule-conflict-dialog"
 
@@ -364,7 +364,9 @@ export function PatientDrawer({
                 </button>
               </div>
               <p className="text-sm text-muted-foreground">
-                {ageFromBirthdate(patient.birthdate)} anos · {genderLabel(patient.gender)}
+                {[ageLabel(patient.birthdate), genderLabel(patient.gender)]
+                  .filter(Boolean)
+                  .join(" · ")}
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {patient.consultationValue > 0 && (

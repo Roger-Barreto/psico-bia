@@ -7,7 +7,7 @@ import type { Occurrence, Patient } from "@/db/types"
 import { PatientAvatar, genderLabel } from "@/components/patient/patient-avatar"
 import { Card, CardContent } from "@/components/ui/card"
 import { formatDateBR } from "@/domain/dates"
-import { ageFromBirthdate } from "@/domain/age"
+import { ageLabel } from "@/domain/age"
 import { cn } from "@/lib/utils"
 
 export interface PendencyBreakdown {
@@ -60,7 +60,9 @@ export function PendencyList({
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {ageFromBirthdate(it.patient.birthdate)} anos · {genderLabel(it.patient.gender)}
+                  {[ageLabel(it.patient.birthdate), genderLabel(it.patient.gender)]
+                    .filter(Boolean)
+                    .join(" · ")}
                   {it.insuranceName && ` · ${it.insuranceName}`}
                   {!it.insuranceName && " · Particular"}
                 </p>

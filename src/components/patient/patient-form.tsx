@@ -37,6 +37,7 @@ import { occurrencesForPatient } from "@/domain/recurrence"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
+import { CopyButton } from "@/components/ui/copy-button"
 import { DatePicker } from "@/components/ui/date-picker"
 import { Label } from "@/components/ui/label"
 import {
@@ -332,8 +333,9 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
     }
   }
 
+  // Nascimento é opcional: só validamos o que foi preenchido.
   function validateBirthdate(iso: string): string | null {
-    if (!iso) return "Informe a data de nascimento"
+    if (!iso) return null
     const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/)
     if (!m) return "Data inválida"
     const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])]
@@ -367,6 +369,8 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
     const cpfFinal = cpfDigits || null
     // null = pagador é o mesmo que o paciente
     const payerCpfFinal = payerSameAsPatient ? null : payerDigits || null
+    // nascimento é opcional — vazio grava null
+    const birthdateFinal = birthdate || null
     const insuranceFinal = insuranceId === "__none__" ? null : insuranceId
     try {
       if (isEdit && patient) {
@@ -376,7 +380,7 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
             name: name.trim(),
             gender,
             avatarId,
-            birthdate,
+            birthdate: birthdateFinal,
             cpf: cpfFinal,
             payerCpf: payerCpfFinal,
             consultationValue: valueNum,
@@ -389,7 +393,7 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
           name: name.trim(),
           gender,
           avatarId,
-          birthdate,
+          birthdate: birthdateFinal,
           cpf: cpfFinal,
           payerCpf: payerCpfFinal,
           individualChecklistItemIds: [],
@@ -537,12 +541,18 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
                 </RadioGroup>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="birthdate">Data de nascimento</Label>
+                <Label htmlFor="birthdate">
+                  Data de nascimento{" "}
+                  <span className="font-normal text-muted-foreground">
+                    (opcional)
+                  </span>
+                </Label>
                 <DatePicker
                   id="birthdate"
                   value={birthdate}
                   onChange={setBirthdate}
                   max={todayISO()}
+                  clearable
                 />
               </div>
             </div>
@@ -554,13 +564,21 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
                   (opcional)
                 </span>
               </Label>
-              <Input
-                id="cpf"
-                inputMode="numeric"
-                value={cpf}
-                onChange={(e) => setCpf(formatCpf(e.target.value))}
-                placeholder="000.000.000-00"
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  id="cpf"
+                  inputMode="numeric"
+                  value={cpf}
+                  onChange={(e) => setCpf(formatCpf(e.target.value))}
+                  placeholder="000.000.000-00"
+                />
+                <CopyButton
+                  variant="boxed"
+                  value={cpf}
+                  label="CPF"
+                  disabled={!cpf}
+                />
+              </div>
             </div>
 
             <label className="flex cursor-pointer items-center gap-2 text-sm">
@@ -579,13 +597,21 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
                     (opcional)
                   </span>
                 </Label>
-                <Input
-                  id="payer-cpf"
-                  inputMode="numeric"
-                  value={payerCpf}
-                  onChange={(e) => setPayerCpf(formatCpf(e.target.value))}
-                  placeholder="000.000.000-00"
-                />
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="payer-cpf"
+                    inputMode="numeric"
+                    value={payerCpf}
+                    onChange={(e) => setPayerCpf(formatCpf(e.target.value))}
+                    placeholder="000.000.000-00"
+                  />
+                  <CopyButton
+                    variant="boxed"
+                    value={payerCpf}
+                    label="CPF do pagador"
+                    disabled={!payerCpf}
+                  />
+                </div>
               </div>
             )}
           </SectionBlock>

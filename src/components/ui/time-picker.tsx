@@ -15,12 +15,6 @@ export interface TimePickerProps {
   minuteStep?: number
 }
 
-// Cap each scroll column to the room the popover actually has (Radix exposes it
-// as a CSS var). Subtracts the column label + content padding so the whole
-// popover stays inside the dialog and never gets clipped. Falls back to 60dvh.
-const LIST_MAX_HEIGHT =
-  "min(13rem, calc(var(--radix-popover-content-available-height, 60dvh) - 2.25rem))"
-
 function pad(n: number): string {
   return n.toString().padStart(2, "0")
 }
@@ -35,6 +29,24 @@ function parse(value?: string): { h: number; m: number } | null {
   return { h, m: min }
 }
 
+const HOURS = Array.from({ length: 24 }, (_, i) => i)
+
+/**
+ * Time selector built as **tap grids, never scrolling lists**.
+ *
+ * The previous version used two `overflow-y:auto` columns inside the popover.
+ * On iPadOS (every browser there is WebKit — Safari, Chrome, Opera) a
+ * touch-scrollable region living inside a portaled `position:fixed` popover,
+ * inside a modal locked by `react-remove-scroll`, is unreliable: the lock's
+ * non-passive `touchmove` handler and the dialog's transform/backdrop-filter
+ * containing block fight each other and the list ends up frozen.
+ *
+ * Fitting every option on screen removes the whole class of bug — there is no
+ * overflow left for the scroll lock to arbitrate — and gives much larger touch
+ * targets, which is what the tablet users need anyway. The popover is portaled
+ * to `document.body` (`portalToBody`) so it can also never be clipped by the
+ * dialog it was opened from.
+ */
 export const TimePicker = React.forwardRef<HTMLButtonElement, TimePickerProps>(
   (
     {
@@ -51,43 +63,23 @@ export const TimePicker = React.forwardRef<HTMLButtonElement, TimePickerProps>(
     const [open, setOpen] = React.useState(false)
     const parsed = parse(value)
 
-    const hours = React.useMemo(
-      () => Array.from({ length: 24 }, (_, i) => i),
-      [],
-    )
-    const minutes = React.useMemo(
-      () =>
-        Array.from(
-          { length: Math.ceil(60 / minuteStep) },
-          (_, i) => i * minuteStep,
-        ).filter((m) => m < 60),
-      [minuteStep],
-    )
+    // Step list, plus the current minute when it falls off-step, so a value
+    // typed/imported as e.g. 14:23 still shows up as selected.
+    const minutes = React.useMemo(() => {
+      const step = Math.max(1, Math.min(30, Math.round(minuteStep)))
+      const list = new Set<number>()
+      for (let m = 0; m < 60; m += step) list.add(m)
+      if (parsed && !list.has(parsed.m)) list.add(parsed.m)
+      return [...list].sort((a, b) => a - b)
+    }, [minuteStep, parsed])
 
     const setHour = (h: number) => {
-      const m = parsed?.m ?? 0
-      onChange?.(`${pad(h)}:${pad(m)}`)
+      onChange?.(`${pad(h)}:${pad(parsed?.m ?? 0)}`)
     }
     const setMinute = (m: number) => {
-      const h = parsed?.h ?? 0
-      onChange?.(`${pad(h)}:${pad(m)}`)
+      onChange?.(`${pad(parsed?.h ?? 0)}:${pad(m)}`)
       setOpen(false)
     }
-
-    const hourListRef = React.useRef<HTMLDivElement>(null)
-    const minListRef = React.useRef<HTMLDivElement>(null)
-
-    React.useEffect(() => {
-      if (!open) return
-      requestAnimationFrame(() => {
-        hourListRef.current
-          ?.querySelector<HTMLButtonElement>("[data-active='true']")
-          ?.scrollIntoView({ block: "center" })
-        minListRef.current
-          ?.querySelector<HTMLButtonElement>("[data-active='true']")
-          ?.scrollIntoView({ block: "center" })
-      })
-    }, [open])
 
     return (
       <Popover open={open} onOpenChange={setOpen}>
@@ -112,70 +104,36 @@ export const TimePicker = React.forwardRef<HTMLButtonElement, TimePickerProps>(
           </button>
         </PopoverTrigger>
         <PopoverContent
-          className="w-auto max-h-[var(--radix-popover-content-available-height)] overflow-hidden p-2"
+          className="w-auto p-2"
           align="start"
+          portalToBody
         >
-          <div className="flex gap-2">
-            <div className="flex flex-col items-center">
-              <span className="mb-1 text-[0.65rem] font-medium uppercase tracking-wide text-muted-foreground">
-                Hora
-              </span>
-              <div
-                ref={hourListRef}
-                style={{ maxHeight: LIST_MAX_HEIGHT }}
-                className="h-52 w-14 touch-pan-y overflow-y-auto overscroll-contain rounded-md border border-border/60 bg-background/30 p-1 [-webkit-overflow-scrolling:touch]"
-              >
-                {hours.map((h) => {
-                  const active = parsed?.h === h
-                  return (
-                    <button
-                      key={h}
-                      type="button"
-                      data-active={active}
-                      onClick={() => setHour(h)}
-                      className={cn(
-                        "block w-full rounded px-2 py-1 text-center text-sm tabular-nums transition",
-                        active
-                          ? "bg-primary text-primary-foreground font-medium"
-                          : "text-foreground/85 hover:bg-muted/40",
-                      )}
-                    >
-                      {pad(h)}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-            <div className="flex flex-col items-center">
-              <span className="mb-1 text-[0.65rem] font-medium uppercase tracking-wide text-muted-foreground">
-                Min
-              </span>
-              <div
-                ref={minListRef}
-                style={{ maxHeight: LIST_MAX_HEIGHT }}
-                className="h-52 w-14 touch-pan-y overflow-y-auto overscroll-contain rounded-md border border-border/60 bg-background/30 p-1 [-webkit-overflow-scrolling:touch]"
-              >
-                {minutes.map((m) => {
-                  const active = parsed?.m === m
-                  return (
-                    <button
-                      key={m}
-                      type="button"
-                      data-active={active}
-                      onClick={() => setMinute(m)}
-                      className={cn(
-                        "block w-full rounded px-2 py-1 text-center text-sm tabular-nums transition",
-                        active
-                          ? "bg-primary text-primary-foreground font-medium"
-                          : "text-foreground/85 hover:bg-muted/40",
-                      )}
-                    >
-                      {pad(m)}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
+          <div className="w-[20rem] max-w-[calc(100vw-2.5rem)] space-y-2">
+            <Section label="Hora">
+              {HOURS.map((h) => (
+                <Cell
+                  key={h}
+                  active={parsed?.h === h}
+                  onSelect={() => setHour(h)}
+                  aria-label={`${pad(h)} horas`}
+                >
+                  {pad(h)}
+                </Cell>
+              ))}
+            </Section>
+            <div className="h-px bg-border/60" />
+            <Section label="Minuto">
+              {minutes.map((m) => (
+                <Cell
+                  key={m}
+                  active={parsed?.m === m}
+                  onSelect={() => setMinute(m)}
+                  aria-label={`${pad(m)} minutos`}
+                >
+                  {pad(m)}
+                </Cell>
+              ))}
+            </Section>
           </div>
         </PopoverContent>
       </Popover>
@@ -183,3 +141,49 @@ export const TimePicker = React.forwardRef<HTMLButtonElement, TimePickerProps>(
   },
 )
 TimePicker.displayName = "TimePicker"
+
+function Section({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div>
+      <span className="mb-1 block text-[0.65rem] font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      <div className="grid grid-cols-6 gap-1">{children}</div>
+    </div>
+  )
+}
+
+function Cell({
+  active,
+  onSelect,
+  children,
+  ...props
+}: {
+  active: boolean
+  onSelect: () => void
+  children: React.ReactNode
+} & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      type="button"
+      data-active={active}
+      onClick={onSelect}
+      // manipulation kills the double-tap-to-zoom delay on tablets.
+      className={cn(
+        "h-10 rounded-md text-center text-sm tabular-nums transition [touch-action:manipulation]",
+        active
+          ? "bg-primary font-medium text-primary-foreground"
+          : "bg-background/30 text-foreground/85 hover:bg-muted/50 active:bg-muted/70",
+      )}
+      {...props}
+    >
+      {children}
+    </button>
+  )
+}

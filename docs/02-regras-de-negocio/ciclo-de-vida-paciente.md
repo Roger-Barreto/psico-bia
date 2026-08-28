@@ -30,7 +30,7 @@ Estados e transições de um paciente, do cadastro à exclusão. Lógica em
 
 ## 1. Cadastro
 
-- Campos obrigatórios: nome, data de nascimento (validada — ver
+- Campos obrigatórios: nome. Data de nascimento é **opcional**; quando preenchida é validada (ver
   [domínio](dominio.md#regras)), gênero.
 - Opcionais: avatar (aleatório se omitido), convênio, valor da consulta.
 - `POST /api/patients`. `active=true`, `dischargedAt=null`.

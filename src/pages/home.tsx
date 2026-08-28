@@ -26,7 +26,7 @@ import {
   unpaidIndex,
 } from "@/domain/pendencies"
 import type { Occurrence, Patient } from "@/db/types"
-import { ageFromBirthdate } from "@/domain/age"
+import { ageLabel } from "@/domain/age"
 import { ScheduleAppointmentDialog } from "@/components/appointments/schedule-appointment-dialog"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
@@ -276,7 +276,9 @@ export function HomePage() {
                       )}
                     </div>
                     <p className="truncate text-[11px] text-muted-foreground">
-                      {ageFromBirthdate(p!.birthdate)} anos · {genderLabel(p!.gender)} · {insuranceName}
+                      {[ageLabel(p!.birthdate), genderLabel(p!.gender), insuranceName]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </p>
                     <p className={cn("mt-0.5 text-xs", statusTextClass(o))}>
                       {statusLabel(o)}

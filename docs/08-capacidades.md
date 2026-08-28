@@ -14,8 +14,9 @@ detalhada.
 
 ## Pacientes
 
-- [x] Cadastrar (nome, gênero, data de nascimento, avatar, valor de consulta, convênio).
-- [x] Idade calculada automaticamente da data de nascimento.
+- [x] Cadastrar (nome, gênero, data de nascimento **opcional**, avatar, valor de consulta, convênio, CPF do paciente e do pagador).
+- [x] Idade calculada automaticamente da data de nascimento; sem data, a idade some da linha de resumo.
+- [x] CPF do paciente e do pagador visíveis no card em `/patients`, com botão de copiar (também ao lado dos campos no formulário).
 - [x] Avatar monstrinho (56 opções; aleatório/estável por ID).
 - [x] Editar cadastro (com renomeação automática da pasta de documentos).
 - [x] Arquivar (soft-delete) e reexibir arquivados.

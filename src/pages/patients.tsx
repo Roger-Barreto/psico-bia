@@ -25,7 +25,9 @@ import { PatientAvatar, genderLabel } from "@/components/patient/patient-avatar"
 import { PatientForm } from "@/components/patient/patient-form"
 import { Breadcrumbs } from "@/components/breadcrumbs"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
-import { ageFromBirthdate } from "@/domain/age"
+import { CopyButton } from "@/components/ui/copy-button"
+import { formatCpf } from "@/lib/cpf"
+import { ageLabel } from "@/domain/age"
 
 export function PatientsPage() {
   const { data, isLoading } = usePatients()
@@ -156,8 +158,24 @@ export function PatientsPage() {
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {ageFromBirthdate(p.birthdate)} anos · {genderLabel(p.gender)}
+                    {[ageLabel(p.birthdate), genderLabel(p.gender)]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </p>
+                  {p.cpf && (
+                    <CpfLine
+                      label="CPF"
+                      copyLabel="CPF"
+                      digits={p.cpf}
+                    />
+                  )}
+                  {p.payerCpf && (
+                    <CpfLine
+                      label="Pagador"
+                      copyLabel="CPF do pagador"
+                      digits={p.payerCpf}
+                    />
+                  )}
                 </div>
                 <div className="flex flex-col gap-1">
                   <button
@@ -222,6 +240,26 @@ export function PatientsPage() {
           />
         </SheetContent>
       </Sheet>
+    </div>
+  )
+}
+
+/** Linha "CPF 000.000.000-00 [copiar]" nos cards da lista. */
+function CpfLine({
+  label,
+  copyLabel,
+  digits,
+}: {
+  label: string
+  copyLabel: string
+  digits: string
+}) {
+  const formatted = formatCpf(digits)
+  return (
+    <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+      <span className="shrink-0 text-muted-foreground/70">{label}</span>
+      <span className="truncate tabular-nums">{formatted}</span>
+      <CopyButton value={formatted} label={copyLabel} />
     </div>
   )
 }

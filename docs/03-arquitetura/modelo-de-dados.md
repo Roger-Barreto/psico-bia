@@ -34,7 +34,7 @@ interface Patient {
   id: string                       // "p_…"
   name: string
   gender: "male" | "female" | "other"
-  birthdate: string                // YYYY-MM-DD (idade é derivada)
+  birthdate: string | null         // YYYY-MM-DD (idade é derivada); opcional
   avatarId: number                 // 1..56
   active: boolean                  // false = arquivado
   createdAt: string                // ISO datetime

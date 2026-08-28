@@ -11,7 +11,7 @@ export interface Patient {
   id: string
   name: string
   gender: Gender
-  birthdate: string
+  birthdate: string | null // YYYY-MM-DD; opcional (null = não informada)
   avatarId: number
   active: boolean
   createdAt: string
