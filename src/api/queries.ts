@@ -939,35 +939,57 @@ export function useUpsertAppointment() {
       paymentMethodId?: string | null
       chargedAbsence?: boolean
     }) => {
-      // Tenta detectar linha existente por (series_id, origin_date) pra preservar id
+      // Lê a linha INTEIRA, não só o id. O upsert grava a row completa, então
+      // tudo que o chamador não informar precisa vir do que já está gravado.
+      // Enquanto isto lia só o id e o resto caía em `?? null`, reagendar
+      // apagava o pagamento e marcar atendido apagava o horário da sessão e a
+      // proveniência "Reagendado de …" — silenciosamente.
       const { data: existing } = await supabase
         .from("appointments")
-        .select("id")
+        .select("*")
         .eq("series_id", input.seriesId)
         .eq("origin_date", input.originDate)
         .maybeSingle()
 
-      const row: AppointmentRow = {
-        id: (existing as { id: string } | null)?.id ?? newId("ap"),
+      const prev = (existing as AppointmentRow | null) ?? null
+
+      const row = {
+        // Defaults de linha nova; numa existente o spread de `prev` os cobre.
+        // `prev` traz também colunas fora de AppointmentRow (ex.: duration_min),
+        // que assim sobrevivem ao upsert em vez de voltar ao default.
+        id: newId("ap"),
+        rescheduled_to: null,
+        time: null,
+        checked_item_ids: [],
+        snapshot_item_ids: [],
+        notes: null,
+        paid: false,
+        paid_value: null,
+        paid_at: null,
+        payment_method_id: null,
+        charged_absence: false,
+        ...(prev ?? {}),
+        // Identidade e status vêm sempre da chamada.
         series_id: input.seriesId,
         patient_id: input.patientId,
-        date: input.date ?? input.originDate,
         origin_date: input.originDate,
+        date: input.date ?? prev?.date ?? input.originDate,
         status: input.status,
-        rescheduled_to: input.rescheduledTo ?? null,
-        time: input.time ?? null,
-        checked_item_ids: input.checkedItemIds ?? [],
-        snapshot_item_ids: input.snapshotItemIds ?? [],
-        notes: input.notes ?? null,
         updated_at: nowIso(),
-        paid: input.paid ?? false,
-        paid_value: input.paidValue ?? null,
-        paid_at: input.paidAt ?? null,
-        payment_method_id: input.paymentMethodId ?? null,
-        // Sempre presente na row: por isso mudar de status (atender,
-        // reagendar) limpa a cobrança sozinho, sem passo extra.
-        charged_absence: input.chargedAbsence ?? false,
-      }
+        // E, por cima, só os campos que o chamador realmente informou.
+        ...appointmentToRow({
+          rescheduledTo: input.rescheduledTo,
+          time: input.time,
+          checkedItemIds: input.checkedItemIds,
+          snapshotItemIds: input.snapshotItemIds,
+          notes: input.notes,
+          paid: input.paid,
+          paidValue: input.paidValue,
+          paidAt: input.paidAt,
+          paymentMethodId: input.paymentMethodId,
+          chargedAbsence: input.chargedAbsence,
+        }),
+      } as AppointmentRow
       const { data, error } = await supabase
         .from("appointments")
         .upsert(row, { onConflict: "series_id,origin_date" })

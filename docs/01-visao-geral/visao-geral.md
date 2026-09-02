@@ -12,7 +12,16 @@ O produto está marcado como **beta** na interface.
 
 ## Para quem
 
-- **Usuário único** (single-user). Não há multi-tenant, papéis ou compartilhamento.
+- **Multi-tenant por usuário.** Cada conta enxerga só os próprios dados: as tabelas de domínio
+  têm `user_id not null default auth.uid()` e políticas RLS `user_id = auth.uid()`
+  (`appointments_select/insert/update/delete` etc.). Verificado em produção em 2026-09-02 — há
+  mais de uma conta em uso. Não há papéis nem compartilhamento entre contas.
+
+  > A documentação antiga descrevia o app como *single-user* com política
+  > `for all to authenticated using (true)`; isso valeu no início da migração e **não vale mais**.
+  > Qualquer view nova que derive dados de domínio precisa de
+  > `with (security_invoker = true)` e deve propagar `user_id` da linha de origem — nunca
+  > `auth.uid()`, que rotularia a linha com quem está consultando.
 - Perfil: profissional autônomo de psicologia que atende em consultório próprio.
 - Pensado para rodar **na própria máquina** do profissional (Windows 10/11), instalado por
   scripts `.bat` de duplo-clique — sem exigir conhecimento técnico do usuário final.

@@ -198,9 +198,14 @@ export function PatientDrawer({
         date: o.date,
         status: "missed",
         chargedAbsence: charged,
-        paidValue: charged ? paidValue : null,
         snapshotItemIds: [],
         checkedItemIds: [],
+        // Falta não cobrada não gera receita: um pagamento que porventura
+        // estivesse na linha tem de sair junto, senão sobra `paid` sem
+        // `isBillable` — a divergência que o KPI "Faturado" não perdoa.
+        ...(charged
+          ? { paidValue }
+          : { paid: false, paidValue: null, paidAt: null, paymentMethodId: null }),
       })
       setMissedOpen(false)
       // Falta cobrada ainda é uma falta: o confete triste continua valendo.
@@ -275,7 +280,22 @@ export function PatientDrawer({
 
   // Move a mesma linha para a nova data: status volta a "scheduled" (acionável),
   // rescheduledTo guarda a proveniência ("Reagendado de ...").
+  //
+  // O pagamento é preservado (antes era apagado sem aviso). Como uma sessão
+  // "scheduled" ainda não aconteceu, ela não conta como receita enquanto
+  // estiver assim — volta a contar ao ser marcada como atendida na nova data.
   async function doReschedule() {
+    if (appt?.paid) {
+      if (
+        !(await confirmDialog({
+          title: "Reagendar sessão paga",
+          description:
+            "O pagamento registrado será mantido, mas sai do faturamento enquanto a sessão estiver apenas agendada. Ele volta a contar quando você marcar a nova data como atendida.",
+          confirmLabel: "Reagendar",
+        }))
+      )
+        return
+    }
     try {
       await upsert.mutateAsync({
         seriesId: o.seriesId,

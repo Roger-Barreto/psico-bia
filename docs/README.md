@@ -37,7 +37,9 @@ pessoa (ou agente) que precise entender, manter ou evoluir o sistema.
   arquivos JSON na pasta `data/`.
 - **Persistência:** arquivos JSON (`data/*.json`), escrita atômica (tmp + rename), cache em memória,
   lock por mutex, backup diário rotativo (7 dias).
-- **Autenticação:** usuário único, senha com hash `scrypt`. Sessão guardada no `localStorage`.
+- **Autenticação:** Supabase Auth (e-mail/senha). **Multi-tenant:** cada conta vê só os próprios
+  dados, via `user_id = auth.uid()` nas políticas RLS. *(A menção a `scrypt` abaixo é histórica,
+  de quando havia usuário único local.)*
 - **Domínio:** psicólogo cadastra pacientes, agenda atendimentos (únicos ou recorrentes), marca
   presença/falta, preenche checklist pós-sessão, controla pagamentos e acompanha pendências e
   finanças num dashboard.

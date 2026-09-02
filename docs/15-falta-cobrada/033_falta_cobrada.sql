@@ -97,7 +97,7 @@ with (security_invoker = true) as
         a.patient_id                                   as patient_id,
         a.updated_at                                   as created_at,
         a.updated_at                                   as updated_at,
-        auth.uid()                                     as user_id,
+        a.user_id                                      as user_id,
         null::text, null::text, null::text, null::text,
         null::text
    from public.appointments a

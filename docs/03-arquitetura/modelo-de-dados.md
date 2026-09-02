@@ -86,6 +86,14 @@ interface Appointment {
 }
 ```
 
+> **`user_id` não aparece nos tipos do front.** Toda tabela de domínio tem
+> `user_id uuid not null default auth.uid()` com RLS `user_id = auth.uid()`; o banco preenche
+> e filtra sozinho, então o cliente nunca envia nem lê essa coluna. Views derivadas devem
+> propagar o `user_id` **da linha de origem**.
+
+```ts
+```
+
 Unicidade lógica: **`(seriesId, originDate)`**.
 
 ### `Occurrence` (derivada — nunca persistida)
