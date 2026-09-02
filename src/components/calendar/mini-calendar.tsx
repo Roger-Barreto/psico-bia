@@ -1,5 +1,6 @@
 import { useMemo } from "react"
 import {
+  CakeIcon,
   CaretLeftIcon,
   CaretRightIcon,
   CurrencyDollarIcon,
@@ -36,6 +37,8 @@ export interface DayMeta {
   count: number
   pendencies: number
   unpaid?: number
+  /** Quantos pacientes fazem aniversário neste dia. */
+  birthdays?: number
 }
 
 interface Props {
@@ -108,6 +111,8 @@ export function MiniCalendar({
           const hasPatients = !!meta && meta.count > 0
           const hasPendency = !!meta && meta.pendencies > 0
           const hasUnpaid = !!meta && (meta.unpaid ?? 0) > 0
+          const birthdays = meta?.birthdays ?? 0
+          const hasBirthday = birthdays > 0
 
           return (
             <button
@@ -121,8 +126,20 @@ export function MiniCalendar({
                 isToday && !selected && "border-primary/40",
                 hasPendency && "bg-destructive/15",
                 !hasPendency && hasUnpaid && "bg-amber-500/15",
+                // Aniversário nunca rouba a cor de fundo de pendência/não-pago:
+                // entra como anel + brilho, sobre o que já estiver ali.
+                hasBirthday &&
+                  "border-secondary/50 shadow-[inset_0_0_0_1px_hsl(var(--secondary)/0.45)]",
+                hasBirthday &&
+                  !hasPendency &&
+                  !hasUnpaid &&
+                  "bg-gradient-to-br from-primary/20 to-secondary/15",
               )}
-              aria-label={iso}
+              aria-label={
+                hasBirthday
+                  ? `${iso} — ${birthdays} ${birthdays === 1 ? "aniversariante" : "aniversariantes"}`
+                  : iso
+              }
               aria-selected={selected}
             >
               <span className="leading-none">{d.getDate()}</span>
@@ -149,6 +166,14 @@ export function MiniCalendar({
                   <CurrencyDollarIcon weight="fill" className="size-2.5" />
                 </span>
               )}
+              {/* Canto esquerdo: os direitos já são de pendência e de "$".
+                  Rosa, e não dourado, para não se confundir com o "$" âmbar
+                  quando os dois caem na mesma célula. */}
+              {hasBirthday && (
+                <span className="absolute left-0.5 top-0.5 text-primary drop-shadow-[0_0_6px_hsl(var(--primary)/0.8)]">
+                  <CakeIcon weight="fill" className="size-2.5" />
+                </span>
+              )}
             </button>
           )
         })}
@@ -168,6 +193,10 @@ export function MiniCalendar({
         <span className="flex items-center gap-1.5">
           <CurrencyDollarIcon weight="fill" className="size-3 text-amber-400" />{" "}
           não pago
+        </span>
+        <span className="flex items-center gap-1.5">
+          <CakeIcon weight="fill" className="size-3 text-primary" />{" "}
+          aniversário
         </span>
       </div>
     </div>

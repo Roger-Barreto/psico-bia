@@ -15,12 +15,13 @@ import {
 import {
   MiniCalendar,
   monthRange,
+  type DayMeta,
 } from "@/components/calendar/mini-calendar"
 import {
   occurrencesForPatient,
 } from "@/domain/recurrence"
 import {
-  isUnpaidAttended,
+  isUnpaidBillable,
   pendencyCount,
   pendencyIndex,
   unpaidIndex,
@@ -33,7 +34,16 @@ import { Card, CardContent } from "@/components/ui/card"
 import { PatientAvatar, genderLabel } from "@/components/patient/patient-avatar"
 import { effectiveValue, formatBRL } from "@/domain/finance"
 import { PatientDrawer } from "@/components/patient/patient-drawer"
-import { todayISO, formatLongDateBR, fromISO, startOfMonth } from "@/domain/dates"
+import {
+  todayISO,
+  formatLongDateBR,
+  fromISO,
+  monthMatrix,
+  startOfMonth,
+  toISO,
+} from "@/domain/dates"
+import { birthdayIndex } from "@/domain/birthdays"
+import { BirthdayBanner } from "@/components/patient/birthday-banner"
 import { cn } from "@/lib/utils"
 import { Breadcrumbs } from "@/components/breadcrumbs"
 import { Button } from "@/components/ui/button"
@@ -98,6 +108,18 @@ export function HomePage() {
     return out
   }, [patients, series, appointments, range])
 
+  // As 42 células que o mini-calendário desenha — inclui a borda dos meses
+  // vizinhos, que também precisa acender no aniversário.
+  const calendarCells = useMemo(
+    () => monthMatrix(visibleMonth).map(toISO),
+    [visibleMonth],
+  )
+
+  const birthdayByDate = useMemo(
+    () => birthdayIndex(patients, calendarCells),
+    [patients, calendarCells],
+  )
+
   const byDate = useMemo(() => {
     const pend = pendencyIndex(monthOccurrences)
     const unpaid = unpaidIndex(monthOccurrences, (o) =>
@@ -105,10 +127,7 @@ export function HomePage() {
         ? effectiveValue(o.appointment, patientById.get(o.patientId))
         : 0,
     )
-    const out = new Map<
-      string,
-      { count: number; pendencies: number; unpaid?: number }
-    >()
+    const out = new Map<string, DayMeta>()
     for (const [iso, meta] of pend) {
       const u = unpaid.get(iso)?.count ?? 0
       out.set(iso, { ...meta, unpaid: u })
@@ -117,8 +136,14 @@ export function HomePage() {
       if (out.has(iso)) continue
       out.set(iso, { count: 0, pendencies: 0, unpaid: u.count })
     }
+    // Aniversário acende o dia mesmo sem nenhum atendimento — sem isto o
+    // mapa só teria as datas vindas das ocorrências.
+    for (const [iso, list] of birthdayByDate) {
+      const cur = out.get(iso) ?? { count: 0, pendencies: 0, unpaid: 0 }
+      out.set(iso, { ...cur, birthdays: list.length })
+    }
     return out
-  }, [monthOccurrences, patientById])
+  }, [monthOccurrences, patientById, birthdayByDate])
 
   const dayOccurrences = useMemo(
     () => monthOccurrences.filter((o) => o.date === selectedISO),
@@ -139,6 +164,21 @@ export function HomePage() {
         return a.p!.name.localeCompare(b.p!.name)
       })
   }, [dayOccurrences, patientById, query])
+
+  const dayBirthdays = birthdayByDate.get(selectedISO) ?? []
+
+  // Horário da sessão do aniversariante naquele dia, quando existe.
+  const birthdaySessionTime = useMemo(() => {
+    const m = new Map<string, string>()
+    if (dayBirthdays.length === 0) return m
+    const ids = new Set(dayBirthdays.map((p) => p.id))
+    for (const o of dayOccurrences) {
+      if (o.time && ids.has(o.patientId) && !m.has(o.patientId)) {
+        m.set(o.patientId, o.time)
+      }
+    }
+    return m
+  }, [dayBirthdays, dayOccurrences])
 
   const activeOcc = useMemo(() => {
     if (!activeKey) return null
@@ -228,6 +268,12 @@ export function HomePage() {
             </CardContent>
           </Card>
 
+          <BirthdayBanner
+            patients={dayBirthdays}
+            dateISO={selectedISO}
+            sessionTimeByPatient={birthdaySessionTime}
+          />
+
           {filteredDay.length === 0 && (
             <Card>
               <CardContent className="p-10 text-center text-sm text-muted-foreground">
@@ -286,7 +332,7 @@ export function HomePage() {
                   </div>
                   <div className="flex flex-col items-end gap-1">
                     <StatusBadge occurrence={o} />
-                    {isUnpaidAttended(o) && (
+                    {isUnpaidBillable(o) && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-300">
                         <CurrencyDollarIcon weight="fill" className="size-3" />
                         Não pago
@@ -343,6 +389,13 @@ function cardClassFor(o: Occurrence, _selectedISO: string): string {
   if (status === "attended") {
     return "border-emerald-500/40 bg-emerald-500/10 hover:border-emerald-500/60"
   }
+  // Falta cobrada antes da falta comum: senão o card fica cinza/apagado
+  // enquanto exibe o selo âmbar de "não pago" — leitura contraditória.
+  if (status === "missed" && o.appointment?.chargedAbsence) {
+    return o.appointment.paid
+      ? "border-emerald-500/30 bg-emerald-500/5 hover:border-emerald-500/50"
+      : "border-amber-500/40 bg-amber-500/10 hover:border-amber-500/60"
+  }
   if (status === "missed") {
     return "border-border/60 bg-muted/30 hover:border-border opacity-80"
   }
@@ -356,7 +409,8 @@ function cardClassFor(o: Occurrence, _selectedISO: string): string {
 function statusTextClass(o: Occurrence): string {
   const status = o.appointment?.status
   if (status === "attended") return "text-emerald-400"
-  if (status === "missed") return "text-muted-foreground"
+  if (status === "missed")
+    return o.appointment?.chargedAbsence ? "text-amber-300" : "text-muted-foreground"
   if (status === "rescheduled") return "text-secondary"
   return "text-muted-foreground"
 }
@@ -378,6 +432,20 @@ function StatusBadge({ occurrence }: { occurrence: Occurrence }) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs font-medium text-emerald-400">
         Concluído
+      </span>
+    )
+  }
+  if (status === "missed" && o.appointment?.chargedAbsence) {
+    return (
+      <span
+        className={cn(
+          "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium",
+          o.appointment.paid
+            ? "bg-emerald-500/20 text-emerald-400"
+            : "bg-amber-500/20 text-amber-300",
+        )}
+      >
+        Falta cobrada
       </span>
     )
   }
@@ -416,7 +484,8 @@ function statusLabel(o: Occurrence): string {
   if (a?.status === "attended") {
     return o.pendencyCount > 0 ? "Atendido · checklist incompleto" : "Atendido"
   }
-  if (a?.status === "missed") return "Faltou"
+  if (a?.status === "missed")
+    return a.chargedAbsence ? "Faltou · sessão cobrada" : "Faltou"
   if (a?.status === "cancelled") return "Cancelado"
   // scheduled / sem linha
   const base =

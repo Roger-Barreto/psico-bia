@@ -57,7 +57,11 @@ detalhada.
 ## Atendimento (drawer)
 
 - [x] Marcar **atendido** (gera snapshot do checklist; confete).
-- [x] Marcar **falta** (gera snapshot; confete).
+- [x] Marcar **falta** (gera snapshot; confete), escolhendo entre **não cobrar** e
+  **cobrar a sessão** (falta cobrada) — e, ao cobrar, definir um **valor diferente** do cadastro
+  já no momento do registro.
+- [x] Ligar/desligar a cobrança de uma falta depois de registrada (inclusive faltas antigas);
+  deixar de cobrar uma falta paga desmarca o pagamento junto.
 - [x] Reagendar a partir do drawer.
 - [x] Mensagens contextuais (sessão futura, concluída, reagendada).
 - [x] Editar cadastro do paciente sem sair do fluxo.
@@ -73,7 +77,9 @@ detalhada.
 
 ## Pagamentos
 
-- [x] Marcar sessão atendida como paga (valor padrão ou customizado).
+- [x] Marcar como paga uma sessão atendida **ou uma falta cobrada** (valor padrão ou customizado).
+- [x] **Falta cobrada** entra em faturado / a receber / estimado e vira lançamento automático na
+  categoria "Faltas cobradas" do módulo financeiro.
 - [x] **Escolher a forma de pagamento ao marcar paga** (obrigatório; alimenta o módulo financeiro).
 - [x] Desmarcar pagamento.
 - [x] Registro de `paidAt`.
@@ -83,7 +89,10 @@ detalhada.
 ## Agenda (página)
 
 - [x] Mini-calendário mensal com navegação.
-- [x] Indicadores por dia: nº de pacientes (badge), pendências (ícone), não pagos (ícone $).
+- [x] Indicadores por dia: nº de pacientes (badge), pendências (ícone), não pagos (ícone $),
+  **aniversário (bolo rosa + anel dourado)** — acende o dia mesmo sem atendimento.
+- [x] **Bloco de aniversariantes** acima da lista do dia: avatar, idade que completa, horário da
+  sessão do dia, marca de "encerrado", atalho para o cadastro e confete automático quando é hoje.
 - [x] Lista do dia selecionado com horário, status, valor, badges.
 - [x] Busca de paciente no dia.
 - [x] Atalhos: novo atendimento, novo paciente.
@@ -94,10 +103,11 @@ detalhada.
 - [x] Bloco de pendências (total / vencidas / hoje) e lista por paciente.
 - [x] Medidor financeiro (estimado × faturado × pendente; % realizado).
 - [x] Diálogo de pacientes não-pagos (com atalho para a sessão).
-- [x] KPIs: atendidos, faltas, em tratamento, encerrados (total + mês), novos no mês, total de
-  sessões.
-- [x] Gráficos: faturamento por dia, sessões por status, top pacientes, faturamento 6 meses,
-  distribuição por gênero, por convênio, por motivo de encerramento.
+- [x] KPIs: atendidos, faltas (com quantas foram cobradas), em tratamento, encerrados
+  (total + mês), novos no mês, total de sessões.
+- [x] Gráficos: faturamento por dia, sessões por status (com fatia "Faltas cobradas"), top
+  pacientes, faturamento 6 meses, distribuição por gênero, por convênio, por motivo de
+  encerramento.
 - [x] Skeletons de carregamento.
 - → [paginas](05-frontend/paginas.md), [financeiro](02-regras-de-negocio/financeiro.md)
 

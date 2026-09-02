@@ -36,7 +36,9 @@ Filtra fora pacientes arquivados. Mostra `DashboardSkeleton` enquanto carrega.
 
 Gestão diária. Layout: mini-calendário (340px) + lista do dia.
 
-- `MiniCalendar` colore os dias via `byDate` (índice de pendências + não-pagos do mês).
+- `MiniCalendar` colore os dias via `byDate` (índice de pendências + não-pagos + **aniversários**
+  do mês; um aniversário acende o dia mesmo sem nenhum atendimento).
+- **`BirthdayBanner`** logo acima da lista, quando há aniversariante no dia selecionado.
 - Selecionar um dia filtra `dayOccurrences`; busca client-side por nome; ordena por horário e nome.
 - Cada card mostra horário, avatar, nome, valor, idade·gênero·convênio, status e badges (pendência,
   não pago). Clicar abre o `PatientDrawer`.

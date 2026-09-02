@@ -89,6 +89,8 @@ pagamento, checklist marcado, notas, reagendamento). Campos principais:
 - `snapshotItemIds` — itens vigentes no fechamento (congelado).
 - `notes`, `updatedAt`.
 - `paid`, `paidValue`, `paidAt` — controle de pagamento.
+- `chargedAbsence` — **falta cobrada**: a falta continua gerando receita. Só é relevante com
+  `status = missed`; o banco recusa o contrário e as demais transições zeram a flag.
 
 ### Chave de unicidade
 
@@ -117,6 +119,10 @@ attended       missed        rescheduled    cancelled
 - **Virtual / scheduled:** ocorrência calculada sem registro próprio, ou com override `scheduled`.
 - **attended:** sessão realizada → habilita checklist e controle de pagamento; grava snapshot.
 - **missed:** falta → grava snapshot; itens não cumpridos contam como pendência.
+  Com `chargedAbsence = true` é uma **falta cobrada**: continua sendo falta (entra no KPI de
+  faltas, não abre checklist, não gera pendência), mas vale como receita — habilita o controle
+  de pagamento e entra no faturado/a receber/estimado. Ver
+  [financeiro](financeiro.md#falta-cobrada).
 - **rescheduled:** movida para `rescheduledTo`; some da data de origem, aparece na nova data.
 - **cancelled:** oculta a ocorrência do calendário (usada pelo "desfazer apenas este" em séries
   recorrentes).

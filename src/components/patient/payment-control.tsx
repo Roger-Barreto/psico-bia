@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import {
   ArrowClockwiseIcon,
@@ -17,14 +17,17 @@ import {
   usePaymentMethods,
 } from "@/api/queries"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
 import { celebrate } from "@/lib/celebrate"
 import { colorForKey } from "@/lib/finance-colors"
-import { formatBRL } from "@/domain/finance"
+import { effectiveValue, formatBRL } from "@/domain/finance"
+import {
+  SessionValueField,
+  useSessionValue,
+} from "./session-value-field"
 import { formatDateTimeBR } from "@/domain/dates"
 import { cn } from "@/lib/utils"
 
@@ -33,40 +36,18 @@ interface Props {
   patient: Patient
 }
 
-/**
- * Aceita o que um teclado de celular pt-BR produz: "150", "150,50",
- * "1.234,56" e também o formato com ponto decimal. Retorna `null` quando não
- * dá para ler um número — antes isto virava `0` silenciosamente e a sessão era
- * marcada como paga com R$ 0,00.
- */
-function parseAmount(raw: string): number | null {
-  const s = raw.replace(/\s|R\$/gi, "").trim()
-  if (!s) return null
-  const normalized = s
-    .replace(/\.(?=\d{3}(\D|$))/g, "") // separador de milhar
-    .replace(",", ".")
-  if (!/^-?\d*\.?\d*$/.test(normalized)) return null
-  const n = Number(normalized)
-  return Number.isFinite(n) ? n : null
-}
-
 export function PaymentControl({ appointment, patient }: Props) {
   const patch = usePatchAppointment()
   const methodsQ = usePaymentMethods()
   const createMethod = useCreatePaymentMethod()
 
   const [editing, setEditing] = useState(false)
-  const [customValue, setCustomValue] = useState("")
-  const [useCustom, setUseCustom] = useState(false)
   const [methodId, setMethodId] = useState<string | null>(
     appointment.paymentMethodId,
   )
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState("")
   const [submitted, setSubmitted] = useState(false)
-
-  const customId = useId()
-  const valueId = useId()
 
   const methods = useMemo(
     () => (methodsQ.data ?? []).filter((m) => m.active && !m.isLoan),
@@ -76,18 +57,22 @@ export function PaymentControl({ appointment, patient }: Props) {
     ? methodsQ.data?.find((m) => m.id === appointment.paymentMethodId)?.name
     : undefined
 
-  const defaultValue = patient.consultationValue ?? 0
+  // `effectiveValue` e não `consultationValue`: uma falta cobrada pode já ter
+  // um valor próprio gravado em `paidValue` no momento em que foi marcada, e
+  // o pagamento tem de partir dele — não do valor cheio do cadastro.
+  const defaultValue = effectiveValue(appointment, patient)
+  const hasSessionValue = appointment.paidValue != null
+
+  const valueState = useSessionValue(defaultValue, editing)
 
   // Fecha/reabre limpo: nenhum resto do preenchimento anterior.
   useEffect(() => {
     if (editing) return
-    setCustomValue(String(defaultValue))
-    setUseCustom(false)
     setMethodId(appointment.paymentMethodId)
     setCreating(false)
     setNewName("")
     setSubmitted(false)
-  }, [editing, defaultValue, appointment.paymentMethodId])
+  }, [editing, appointment.paymentMethodId])
 
   // Só existe uma forma cadastrada? Já vem escolhida — um toque a menos.
   useEffect(() => {
@@ -99,15 +84,8 @@ export function PaymentControl({ appointment, patient }: Props) {
   // ou desativada, nenhum chip fica marcado e confirmar gravaria um id morto.
   const selected = methods.find((m) => m.id === methodId) ?? null
 
-  const parsedCustom = parseAmount(customValue)
-  const value = useCustom ? parsedCustom : defaultValue
-  const valueError = !useCustom
-    ? null
-    : parsedCustom === null
-      ? "Informe um valor válido (ex.: 150,00)."
-      : parsedCustom < 0
-        ? "O valor não pode ser negativo."
-        : null
+  const value = valueState.value
+  const valueError = valueState.error
 
   async function createInline() {
     const name = newName.trim()
@@ -226,50 +204,18 @@ export function PaymentControl({ appointment, patient }: Props) {
     <div className="space-y-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
       <div className="space-y-1">
         <p className="text-sm font-medium">Confirmar pagamento</p>
-        <p className="text-xs text-muted-foreground">
-          Valor padrão do cadastro:{" "}
-          <strong className="text-foreground">{formatBRL(defaultValue)}</strong>
-        </p>
       </div>
 
-      {/* Alvo de toque grande: a linha inteira alterna o valor personalizado. */}
-      <label
-        htmlFor={customId}
-        className="-mx-1 flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg px-1 text-sm"
-      >
-        <Checkbox
-          id={customId}
-          checked={useCustom}
-          onCheckedChange={(v) => setUseCustom(v === true)}
-          className="data-[state=checked]:border-emerald-500 data-[state=checked]:bg-emerald-600"
-        />
-        Usar valor diferente nesta sessão
-      </label>
-
-      {useCustom && (
-        <div className="space-y-1">
-          <label htmlFor={valueId} className="text-xs text-muted-foreground">
-            Valor (R$)
-          </label>
-          {/* text + inputMode decimal: em teclado pt-BR o usuário digita
-              vírgula, e um input[type=number] devolveria string vazia — o
-              pagamento era gravado como R$ 0,00 sem aviso. */}
-          <Input
-            id={valueId}
-            type="text"
-            inputMode="decimal"
-            autoComplete="off"
-            placeholder="0,00"
-            value={customValue}
-            onChange={(e) => setCustomValue(e.target.value)}
-            aria-invalid={submitted && !!valueError}
-            autoFocus
-          />
-          {submitted && valueError && (
-            <p className="text-xs text-rose-300">{valueError}</p>
-          )}
-        </div>
-      )}
+      <SessionValueField
+        state={valueState}
+        defaultValue={defaultValue}
+        defaultLabel={
+          hasSessionValue
+            ? "Valor definido para esta sessão:"
+            : "Valor padrão do cadastro:"
+        }
+        submitted={submitted}
+      />
 
       <div className="space-y-1.5">
         <p className="text-xs text-muted-foreground">Forma de pagamento</p>

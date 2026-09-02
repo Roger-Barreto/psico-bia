@@ -83,6 +83,12 @@ export interface Appointment {
   paidValue: number | null
   paidAt: string | null
   paymentMethodId: string | null
+  /**
+   * Falta que o contrato manda cobrar: a sessão continua gerando receita.
+   * Só é relevante com `status === "missed"` — as demais transições zeram a
+   * flag, e o banco recusa o contrário (constraint em 033_falta_cobrada.sql).
+   */
+  chargedAbsence: boolean
 }
 
 export interface Occurrence {

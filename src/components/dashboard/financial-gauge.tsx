@@ -62,7 +62,7 @@ export function FinancialGauge({
               Financeiro do mês
             </p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              Agendados, sem faltas/reagendados de outro mês
+              Agendados e faltas cobradas, sem reagendados de outro mês
             </p>
           </div>
           {!empty && (
@@ -138,13 +138,13 @@ export function FinancialGauge({
             <LegendRow
               tone="emerald"
               label="Faturado"
-              sublabel="Atendidos e pagos"
+              sublabel="Sessões cobráveis pagas"
               value={revenue}
             />
             <LegendRow
               tone="amber"
               label="Pendente"
-              sublabel="Atendidos e não pagos"
+              sublabel="Cobráveis não pagos e agendados vencidos"
               value={pending}
               extra={
                 unpaidCount > 0 ? (

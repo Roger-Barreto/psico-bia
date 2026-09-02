@@ -35,6 +35,16 @@ A view **`finance_ledger`** (`security_invoker=true`, respeita RLS por usuário)
    - Competência = `appointments.date`.
    - **O usuário não cria/edita/remove** faturamento clínico — ele reflete a agenda.
 
+3. **Faltas cobradas** (migração [033](../15-falta-cobrada/033_falta_cobrada.sql)) — terceiro
+   braço, também derivado de `appointments` e read-only:
+   - Uma receita por sessão **`missed` com `charged_absence = true`** de paciente **ativo**.
+   - Mesmas regras do braço 2 (valor, `settled = paid`, forma de pagamento, competência), mas
+     descrição *"Falta cobrada — Nome"* e **categoria própria `Faltas cobradas`** — vira fatia
+     separada no gráfico por categoria e filtro próprio na lista.
+   - A view `finance_clinic_income` **não foi alterada**: o SQL dela nunca foi versionado, e
+     reescrevê-la às cegas arriscaria perder o `security_invoker` (RLS) e a ordem de colunas de
+     que o `finance_ledger` depende. Os braços 2 e 3 são disjuntos.
+
 > Marcar uma sessão como paga agora **exige escolher a forma de pagamento**
 > ([`payment-control.tsx`](../../src/components/patient/payment-control.tsx)); ela propaga
 > automaticamente para a receita clínica no ledger.

@@ -31,7 +31,8 @@ Extras de `index.css`:
 - Cores mapeadas para os tokens HSL (`hsl(var(--…))`).
 - Fonte `sans`: Inter + fallbacks de sistema.
 - `borderRadius` lg/md/sm derivados de `--radius`.
-- Keyframes/animações: `accordion-down/up`, `fade-in`.
+- Keyframes/animações: `accordion-down/up`, `fade-in`, `shimmer` (brilho em loop que varre o
+  card de aniversariantes).
 - `boxShadow.glow` — sombra rosada para realces.
 - Plugin `tailwindcss-animate`.
 
@@ -91,7 +92,9 @@ status/gênero/convênio/motivo) e `RadialBarChart` (medidor financeiro).
 
 - **framer-motion:** transição de mês no dashboard (slide direcional, opacidade).
 - **canvas-confetti** (`lib/celebrate.ts`): confete "happy" (verde/amarelo/roxo/azul, emojis 🎉✨💚🌟🥳)
-  ao atender/pagar; "sad" (cinza, 💔😔🌧️💧) ao faltar/reagendar.
+  ao atender/pagar; "sad" (cinza, 💔😔🌧️💧) ao faltar/reagendar; `celebrateBirthday()`
+  (rosa/dourado, 🎂🎈🎁🎉✨) ao abrir a agenda num dia com aniversariante; `celebrateBook()` ao
+  concluir um livro.
 - **sonner:** toasts com tema dark, `richColors`, cantos arredondados.
 - Animação `fade-in` no conteúdo principal.
 

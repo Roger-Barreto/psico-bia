@@ -170,6 +170,7 @@ interface AppointmentRow {
   paid_value: number | null
   paid_at: string | null
   payment_method_id: string | null
+  charged_absence: boolean
 }
 
 function rowToAppointment(r: AppointmentRow): Appointment {
@@ -190,6 +191,8 @@ function rowToAppointment(r: AppointmentRow): Appointment {
     paidValue: r.paid_value === null ? null : Number(r.paid_value),
     paidAt: r.paid_at,
     paymentMethodId: r.payment_method_id ?? null,
+    // linhas gravadas antes de 033 não trazem a coluna
+    chargedAbsence: r.charged_absence ?? false,
   }
 }
 
@@ -214,6 +217,8 @@ function appointmentToRow(
   if (a.paidAt !== undefined) row.paid_at = a.paidAt
   if (a.paymentMethodId !== undefined)
     row.payment_method_id = a.paymentMethodId
+  if (a.chargedAbsence !== undefined)
+    row.charged_absence = a.chargedAbsence
   return row
 }
 
@@ -932,6 +937,7 @@ export function useUpsertAppointment() {
       paidValue?: number | null
       paidAt?: string | null
       paymentMethodId?: string | null
+      chargedAbsence?: boolean
     }) => {
       // Tenta detectar linha existente por (series_id, origin_date) pra preservar id
       const { data: existing } = await supabase
@@ -958,6 +964,9 @@ export function useUpsertAppointment() {
         paid_value: input.paidValue ?? null,
         paid_at: input.paidAt ?? null,
         payment_method_id: input.paymentMethodId ?? null,
+        // Sempre presente na row: por isso mudar de status (atender,
+        // reagendar) limpa a cobrança sozinho, sem passo extra.
+        charged_absence: input.chargedAbsence ?? false,
       }
       const { data, error } = await supabase
         .from("appointments")
@@ -1002,6 +1011,9 @@ export function useUndoAppointment() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["appointments"] })
       qc.invalidateQueries({ queryKey: ["series"] })
+      // Desfazer apaga sessões que podiam alimentar a receita clínica
+      // derivada (atendida paga, falta cobrada) — o ledger precisa recarregar.
+      qc.invalidateQueries({ queryKey: ["finance-ledger"] })
     },
   })
 }

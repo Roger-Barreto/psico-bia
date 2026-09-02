@@ -55,7 +55,9 @@ import { occurrencesForPatient } from "@/domain/recurrence"
 import { todayISO, formatLongDateBR } from "@/domain/dates"
 import { cn } from "@/lib/utils"
 import { ageLabel } from "@/domain/age"
+import { Spinner } from "@/components/ui/spinner"
 import { UndoAppointmentDialog } from "@/components/appointments/undo-appointment-dialog"
+import { MissedAppointmentDialog } from "@/components/appointments/missed-appointment-dialog"
 import { RescheduleConflictDialog } from "@/components/appointments/reschedule-conflict-dialog"
 
 interface Props {
@@ -91,6 +93,7 @@ export function PatientDrawer({
   const [undoOpen, setUndoOpen] = useState(false)
   const [conflictOpen, setConflictOpen] = useState(false)
   const [conflictTarget, setConflictTarget] = useState<Occurrence | null>(null)
+  const [missedOpen, setMissedOpen] = useState(false)
 
   const shared = sharedQ.data ?? []
   const individual = indivQ.data ?? []
@@ -150,6 +153,9 @@ export function PatientDrawer({
   const status = appt?.status ?? null
   const isAttended = status === "attended"
   const isMissed = status === "missed"
+  const isChargedAbsence = isMissed && !!appt?.chargedAbsence
+  // Sessão que gera receita: atendida, ou falta que o contrato manda cobrar.
+  const isBillableSession = isAttended || isChargedAbsence
   const isFuture = o.date > todayISO()
   const isPast = o.date < todayISO()
   const hasFinalStatus = isAttended || isMissed
@@ -165,6 +171,7 @@ export function PatientDrawer({
         originDate: o.originDate,
         date: o.date,
         status: "attended",
+        chargedAbsence: false,
         snapshotItemIds: appt?.snapshotItemIds.length
           ? appt.snapshotItemIds
           : snapshot,
@@ -177,15 +184,12 @@ export function PatientDrawer({
     }
   }
 
-  async function markMissed() {
-    if (
-      !(await confirmDialog({
-        title: "Marcar falta",
-        description: `Marcar falta para ${p.name}?`,
-        destructive: true,
-      }))
-    )
-      return
+  /**
+   * `paidValue` só vem preenchido quando o usuário escolheu cobrar um valor
+   * diferente do cadastro; `null` deixa a falta seguir o `consultationValue`
+   * do paciente, como acontece com as sessões atendidas.
+   */
+  async function markMissed(charged: boolean, paidValue: number | null) {
     try {
       await upsert.mutateAsync({
         seriesId: o.seriesId,
@@ -193,11 +197,58 @@ export function PatientDrawer({
         originDate: o.originDate,
         date: o.date,
         status: "missed",
+        chargedAbsence: charged,
+        paidValue: charged ? paidValue : null,
         snapshotItemIds: [],
         checkedItemIds: [],
       })
+      setMissedOpen(false)
+      // Falta cobrada ainda é uma falta: o confete triste continua valendo.
       celebrate("sad")
-      toast.success("Falta registrada")
+      toast.success(charged ? "Falta cobrada registrada" : "Falta registrada")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro")
+    }
+  }
+
+  /**
+   * Liga/desliga a cobrança de uma falta já registrada (serve também para
+   * faltas anteriores a esta funcionalidade). Usa `patch`, não `upsert`: o
+   * upsert monta a row inteira e apagaria o pagamento junto.
+   *
+   * Desligar uma falta já paga limpa o pagamento no mesmo patch — sem isso
+   * sobraria uma linha paga que sumiu do ledger mas continuaria somando no
+   * KPI "Faturado", e o controle de pagamento (única forma de desfazê-la)
+   * teria acabado de sair da tela.
+   */
+  async function toggleChargedAbsence() {
+    if (!appt || patch.isPending) return
+    const next = !appt.chargedAbsence
+    if (!next && appt.paid) {
+      if (
+        !(await confirmDialog({
+          title: "Deixar de cobrar esta falta",
+          description:
+            "O pagamento já registrado nesta sessão será desmarcado e a receita sai do financeiro. Continuar?",
+          destructive: true,
+        }))
+      )
+        return
+    }
+    try {
+      await patch.mutateAsync({
+        id: appt.id,
+        patch: next
+          ? { chargedAbsence: true }
+          : {
+              chargedAbsence: false,
+              paid: false,
+              paidValue: null,
+              paidAt: null,
+              paymentMethodId: null,
+            },
+      })
+      toast.success(next ? "Falta passou a ser cobrada" : "Falta não será cobrada")
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro")
     }
@@ -233,6 +284,7 @@ export function PatientDrawer({
         date: reschedDate,
         rescheduledTo: reschedDate,
         status: "scheduled",
+        chargedAbsence: false,
         time: reschedTime,
       })
       toast.success("Reagendado")
@@ -408,7 +460,8 @@ export function PatientDrawer({
                   status={status}
                   isPast={isPast}
                   pendencyCount={occurrence.pendencyCount}
-                  isUnpaid={isAttended && !!appt && !appt.paid}
+                  chargedAbsence={isChargedAbsence}
+                  isUnpaid={isBillableSession && !!appt && !appt.paid}
                 />
                 <button
                   type="button"
@@ -434,7 +487,7 @@ export function PatientDrawer({
                 Atendido
               </Button>
               <Button
-                onClick={markMissed}
+                onClick={() => setMissedOpen(true)}
                 disabled={upsert.isPending}
                 variant="outline"
                 className="border-muted bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
@@ -480,7 +533,11 @@ export function PatientDrawer({
                 "flex items-start gap-2 rounded-lg border px-3 py-2.5 text-xs",
                 isAttended &&
                   "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
-                isMissed && "border-border/60 bg-muted/30 text-muted-foreground",
+                isMissed &&
+                  !isChargedAbsence &&
+                  "border-border/60 bg-muted/30 text-muted-foreground",
+                isChargedAbsence &&
+                  "border-amber-500/40 bg-amber-500/10 text-amber-200",
               )}
             >
               {isAttended && (
@@ -495,10 +552,31 @@ export function PatientDrawer({
                   className="mt-0.5 size-4 shrink-0"
                 />
               )}
-              <span>
-                {isAttended &&
-                  "Atendimento concluído. Preencha o checklist abaixo."}
-                {isMissed && "Paciente faltou neste atendimento."}
+              <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+                <span>
+                  {isAttended &&
+                    "Atendimento concluído. Preencha o checklist abaixo."}
+                  {isMissed &&
+                    (isChargedAbsence
+                      ? "Paciente faltou — esta sessão está sendo cobrada."
+                      : "Paciente faltou neste atendimento.")}
+                </span>
+                {isMissed && (
+                  <button
+                    type="button"
+                    onClick={toggleChargedAbsence}
+                    disabled={patch.isPending}
+                    className={cn(
+                      "inline-flex min-h-8 shrink-0 items-center gap-1 rounded-md px-2 font-medium underline-offset-2 transition-colors hover:underline disabled:opacity-60",
+                      isChargedAbsence
+                        ? "text-amber-200/80 hover:text-amber-100"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {patch.isPending && <Spinner className="size-3" />}
+                    {isChargedAbsence ? "Deixar de cobrar" : "Cobrar esta falta"}
+                  </button>
+                )}
               </span>
             </div>
           )}
@@ -529,8 +607,8 @@ export function PatientDrawer({
             </div>
           )}
 
-          {/* PAGAMENTO — aparece quando atendido */}
-          {isAttended && appt && (
+          {/* PAGAMENTO — atendido, ou falta que está sendo cobrada */}
+          {isBillableSession && appt && (
             <PaymentControl appointment={appt} patient={patient} />
           )}
 
@@ -704,6 +782,14 @@ export function PatientDrawer({
         onKeepExisting={keepExisting}
         onReplaceExisting={replaceExisting}
       />
+      <MissedAppointmentDialog
+        open={missedOpen}
+        onOpenChange={setMissedOpen}
+        patientName={p.name}
+        consultationValue={p.consultationValue ?? 0}
+        pending={upsert.isPending}
+        onConfirm={markMissed}
+      />
     </Sheet>
   )
 }
@@ -722,11 +808,13 @@ function StatusPill({
   status,
   isPast,
   pendencyCount,
+  chargedAbsence,
   isUnpaid,
 }: {
   status: Appointment["status"] | null
   isPast: boolean
   pendencyCount: number
+  chargedAbsence: boolean
   isUnpaid: boolean
 }) {
   // Só atendido exibe pendências de checklist.
@@ -759,6 +847,23 @@ function StatusPill({
       <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs font-medium text-emerald-400">
         <CheckCircleIcon weight="fill" className="size-3" />
         Atendido
+      </span>
+    )
+  }
+  // Falta cobrada vem antes da falta comum: continua sendo falta, mas o que
+  // importa ler aqui é o estado do dinheiro.
+  if (status === "missed" && chargedAbsence) {
+    return (
+      <span
+        className={cn(
+          "inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium",
+          isUnpaid
+            ? "bg-amber-500/20 text-amber-300"
+            : "bg-emerald-500/20 text-emerald-400",
+        )}
+      >
+        <ProhibitIcon weight="fill" className="size-3" />
+        {isUnpaid ? "Falta cobrada · não paga" : "Falta cobrada · paga"}
       </span>
     )
   }

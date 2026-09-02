@@ -81,6 +81,8 @@ interface Appointment {
   paid: boolean
   paidValue: number | null
   paidAt: string | null
+  paymentMethodId: string | null
+  chargedAbsence: boolean          // falta cobrada (só com status = missed)
 }
 ```
 
@@ -215,4 +217,9 @@ Coluna nova em `appointments`: **`payment_method_id`** (escolhida ao marcar a se
 - `finance_clinic_income` — receita derivada de `appointments` (sessões `attended`, paciente ativo);
   read-only.
 - `finance_ledger` — UNION de `finance_transactions` (`source='manual'`) + `finance_clinic_income`
-  (`source='clinic'`); superfície única de leitura para o módulo.
+  (`source='clinic'`) + **faltas cobradas** (`source='clinic'`, categoria `Faltas cobradas`,
+  derivadas direto de `appointments` com `status='missed' and charged_absence`); superfície única
+  de leitura para o módulo. Definição versionada em
+  [`022_cofrinhos.sql`](../11-cofrinhos/022_cofrinhos.sql) e
+  [`033_falta_cobrada.sql`](../15-falta-cobrada/033_falta_cobrada.sql) — **toda recriação precisa
+  repetir `with (security_invoker = true)`**, senão a view deixa de respeitar RLS.

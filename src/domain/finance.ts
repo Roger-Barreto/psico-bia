@@ -6,6 +6,20 @@ import type {
 } from "@/db/types"
 import { formatDateBR, formatLongDateBR, todayISO } from "@/domain/dates"
 
+/**
+ * Esta sessão gera receita? Sessão atendida, ou falta que o contrato manda
+ * cobrar. É o predicado que antes estava escrito como `status === "attended"`
+ * espalhado pelos agregados financeiros.
+ */
+export function isBillable(
+  appt: Pick<Appointment, "status" | "chargedAbsence">,
+): boolean {
+  return (
+    appt.status === "attended" ||
+    (appt.status === "missed" && appt.chargedAbsence)
+  )
+}
+
 export function effectiveValue(
   appt: Appointment,
   patient: Patient | undefined,
@@ -18,6 +32,11 @@ export function effectiveValue(
 
 /**
  * Sum of paid sessions in the given appointment list.
+ *
+ * O `isBillable` é redundante enquanto o invariante "pago ⇒ cobrável" valer
+ * (desligar a cobrança de uma falta paga limpa o pagamento). Fica como rede:
+ * sem ele, uma linha paga que deixasse de ser cobrável continuaria somando
+ * aqui e sumiria do ledger — divergência silenciosa entre as duas telas.
  */
 export function totalRevenue(
   appts: Appointment[],
@@ -25,14 +44,14 @@ export function totalRevenue(
 ): number {
   let sum = 0
   for (const a of appts) {
-    if (!a.paid) continue
+    if (!a.paid || !isBillable(a)) continue
     sum += effectiveValue(a, patientsById.get(a.patientId))
   }
   return sum
 }
 
 /**
- * Sum of pending revenue: attended sessions not paid + scheduled-past sessions.
+ * Sum of pending revenue: billable sessions not paid + scheduled-past sessions.
  * For scheduled-past, uses patient.consultationValue as expectation.
  */
 export function pendingRevenue(
@@ -44,7 +63,7 @@ export function pendingRevenue(
   for (const a of appts) {
     const patient = patientsById.get(a.patientId)
     if (!patient) continue
-    if (a.status === "attended" && !a.paid) {
+    if (isBillable(a) && !a.paid) {
       sum += effectiveValue(a, patient)
     } else if (a.status === "scheduled" && a.date < today) {
       sum += patient.consultationValue ?? 0

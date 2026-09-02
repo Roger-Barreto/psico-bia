@@ -24,7 +24,7 @@ import {
   toISO,
   todayISO,
 } from "@/domain/dates"
-import { effectiveValue } from "@/domain/finance"
+import { effectiveValue, isBillable } from "@/domain/finance"
 import { occurrencesForPatient } from "@/domain/recurrence"
 import { MonthSelector } from "@/components/dashboard/month-selector"
 import { PendencyBlock } from "@/components/dashboard/pendency-block"
@@ -265,13 +265,13 @@ export function DashboardPage() {
     }
   }, [longRangeApptsQ.data, patientsById, patients, allSeries, year, month, today])
 
-  // ── Unpaid (atendido & !paid) ────────────────────────────
+  // ── Unpaid (cobrável & !paid) ────────────────────────────
   const unpaidStats = useMemo(() => {
     const map = new Map<string, UnpaidPatientEntry>()
     let count = 0
     let totalValue = 0
     for (const a of appts) {
-      if (a.status !== "attended" || a.paid) continue
+      if (!isBillable(a) || a.paid) continue
       const patient = patientsById.get(a.patientId)
       if (!patient) continue
       const value = effectiveValue(a, patient)
@@ -317,7 +317,10 @@ export function DashboardPage() {
   const revenue = useMemo(() => {
     let sum = 0
     for (const a of appts) {
-      if (a.paid) sum += effectiveValue(a, patientsById.get(a.patientId))
+      // `isBillable` é rede de segurança: sem ele, uma linha paga que deixasse
+      // de ser cobrável seguiria somando aqui e sumiria do ledger.
+      if (a.paid && isBillable(a))
+        sum += effectiveValue(a, patientsById.get(a.patientId))
     }
     return sum
   }, [appts, patientsById])
@@ -327,7 +330,7 @@ export function DashboardPage() {
     for (const a of appts) {
       const p = patientsById.get(a.patientId)
       if (!p) continue
-      if (a.status === "attended" && !a.paid)
+      if (isBillable(a) && !a.paid)
         sum += effectiveValue(a, p)
       else if (a.status === "scheduled" && a.date < today)
         sum += p.consultationValue ?? 0
@@ -343,7 +346,9 @@ export function DashboardPage() {
       for (const o of occs) {
         const a = o.appointment
         if (a) {
-          if (a.status === "missed" || a.status === "cancelled") continue
+          // Falta cobrada continua no potencial do mês; falta comum, não.
+          if (a.status === "cancelled") continue
+          if (a.status === "missed" && !a.chargedAbsence) continue
           sum += effectiveValue(a, p)
         } else {
           sum += p.consultationValue ?? 0
@@ -355,6 +360,9 @@ export function DashboardPage() {
 
   const attendedCount = appts.filter((a) => a.status === "attended").length
   const missedCount = appts.filter((a) => a.status === "missed").length
+  const chargedMissedCount = appts.filter(
+    (a) => a.status === "missed" && a.chargedAbsence,
+  ).length
   const ongoingPatients = patients.filter((p) => !p.dischargedAt).length
   const dischargedTotal = patients.filter((p) => !!p.dischargedAt).length
   const dischargedThisMonth = patients.filter(
@@ -375,7 +383,7 @@ export function DashboardPage() {
       map.set(String(d).padStart(2, "0"), 0)
     }
     for (const a of appts) {
-      if (!a.paid) continue
+      if (!a.paid || !isBillable(a)) continue
       const day = a.date.slice(8, 10)
       const prev = map.get(day) ?? 0
       map.set(day, prev + effectiveValue(a, patientsById.get(a.patientId)))
@@ -387,15 +395,19 @@ export function DashboardPage() {
   const statusPie = useMemo(() => {
     let attended = 0
     let missed = 0
+    let chargedMissed = 0
     let pending = 0
     for (const a of appts) {
       if (a.status === "attended") attended++
-      else if (a.status === "missed") missed++
-      else if (a.status === "scheduled" && a.date <= today) pending++
+      else if (a.status === "missed") {
+        if (a.chargedAbsence) chargedMissed++
+        else missed++
+      } else if (a.status === "scheduled" && a.date <= today) pending++
     }
     return [
       { name: "Atendidos", value: attended },
       { name: "Faltas", value: missed },
+      { name: "Faltas cobradas", value: chargedMissed },
       { name: "Pendentes", value: pending },
     ]
   }, [appts, today])
@@ -407,7 +419,7 @@ export function DashboardPage() {
     )
     const byMethod = new Map<string, Set<string>>()
     for (const a of appts) {
-      if (!a.paid || !a.paymentMethodId) continue
+      if (!a.paid || !a.paymentMethodId || !isBillable(a)) continue
       const set = byMethod.get(a.paymentMethodId) ?? new Set<string>()
       set.add(a.patientId)
       byMethod.set(a.paymentMethodId, set)
@@ -509,7 +521,7 @@ export function DashboardPage() {
     const months = previousMonths(year, month, 6)
     const out = months.map((mm) => ({ month: mm.label, value: 0 }))
     for (const a of longAppts) {
-      if (!a.paid) continue
+      if (!a.paid || !isBillable(a)) continue
       const m = Number(a.date.slice(5, 7))
       const y = Number(a.date.slice(0, 4))
       const idx = months.findIndex((mm) => mm.year === y && mm.month === m)
@@ -628,7 +640,16 @@ export function DashboardPage() {
 
       <div className="grid gap-3 grid-cols-2 @2xl:grid-cols-3 @5xl:grid-cols-6">
         <KpiCard label="Atendidos" value={attendedCount} tone="primary" />
-        <KpiCard label="Faltas" value={missedCount} tone="muted" />
+        <KpiCard
+          label="Faltas"
+          value={missedCount}
+          tone="muted"
+          hint={
+            chargedMissedCount > 0
+              ? `${chargedMissedCount} cobrada${chargedMissedCount === 1 ? "" : "s"}`
+              : undefined
+          }
+        />
         <KpiCard
           label="Em tratamento"
           value={ongoingPatients}

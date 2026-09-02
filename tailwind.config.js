@@ -87,11 +87,17 @@ export default {
           from: { opacity: "0", transform: "translateY(4px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
+        // Brilho que varre o card de aniversariantes.
+        shimmer: {
+          "0%": { transform: "translateX(-120%)" },
+          "100%": { transform: "translateX(220%)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "fade-in": "fade-in 0.4s ease-out both",
+        shimmer: "shimmer 3.2s ease-in-out infinite",
       },
       boxShadow: {
         glow: "0 0 0 1px hsl(var(--primary) / 0.25), 0 8px 28px -10px hsl(var(--primary) / 0.55)",

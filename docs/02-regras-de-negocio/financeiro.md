@@ -20,10 +20,39 @@ effectiveValue(appt, patient) =
 - Ao vincular um **convênio** com `defaultValue > 0`, o formulário pré-preenche esse valor
   (ajustável). Botões de atalho `+110` e `+80` somam ao valor atual.
 
+## Falta cobrada
+
+Alguns contratos preveem cobrança da sessão perdida. `appointments.chargedAbsence` (migração
+[033](../15-falta-cobrada/033_falta_cobrada.sql)) marca a falta como cobrada: o status continua
+`missed`, mas a sessão passa a valer como receita.
+
+O predicado único está em `isBillable(appt)`
+([`src/domain/finance.ts`](../../src/domain/finance.ts)):
+
+```ts
+status === "attended" || (status === "missed" && chargedAbsence)
+```
+
+- **Marcar:** o botão *Falta* abre o `MissedAppointmentDialog` com duas saídas — *Não cobrar*
+  (padrão) e *Cobrar esta sessão*. Escolhendo cobrar, um segundo passo pergunta **quanto**, com o
+  mesmo seletor de valor do controle de pagamento (`SessionValueField`).
+- **Alternar depois:** o aviso de falta traz *Cobrar esta falta* / *Deixar de cobrar*; funciona
+  também em faltas registradas antes desta funcionalidade.
+- **Deixar de cobrar uma falta já paga** desmarca o pagamento junto (com confirmação). Isso
+  mantém o invariante **`paid` ⇒ `isBillable`** — sem ele sobraria uma linha paga fora do
+  ledger que continuaria somando no KPI "Faturado".
+- **Valor:** por padrão o cheio do cadastro. Cobrando menos (ex.: 50% por falta sem aviso), o
+  valor escolhido é gravado em `paidValue` já na hora de registrar a falta — então o "a receber"
+  do dashboard e a linha do ledger **já mostram o valor certo antes do pagamento**. Só é gravado
+  quando difere do padrão; igual ao padrão, a sessão segue o `consultationValue` do paciente,
+  como as atendidas. O `PaymentControl` parte desse valor quando existe.
+- Falta cobrada **não** abre checklist nem gera pendência de checklist — o alerta dela é
+  financeiro (`isUnpaidBillable`).
+
 ## Pagamento de uma sessão
 
 Controlado em [`payment-control.tsx`](../../src/components/patient/payment-control.tsx), visível no
-drawer apenas quando a sessão está **atendida**.
+drawer quando a sessão está **atendida** ou é uma **falta cobrada**.
 
 - **Marcar como paga:** define `paid = true`, `paidValue` (valor padrão do cadastro **ou** valor
   customizado da sessão se o usuário marcar "usar valor diferente"), `paidAt = now`. Dispara confete.
@@ -39,14 +68,14 @@ Soma de `effectiveValue` de todas as sessões com `paid === true`.
 ### `pendingRevenue(appts, patientsById, today)` — Pendente
 
 Soma de:
-- Atendidas **não pagas** → `effectiveValue`.
+- Cobráveis (atendidas ou faltas cobradas) **não pagas** → `effectiveValue`.
 - `scheduled` com `date < today` → `consultationValue` do paciente (expectativa de receita).
 
 ### Estimado (no dashboard)
 
 Calculado em `dashboard.tsx` materializando as ocorrências do mês por paciente
 (`occurrencesForPatient`) e somando, para cada ocorrência:
-- com override `missed`/`cancelled` → ignora;
+- com override `cancelled`, ou `missed` **sem** cobrança → ignora;
 - com override → `effectiveValue`;
 - sem override (virtual) → `consultationValue`.
 

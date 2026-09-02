@@ -17,7 +17,8 @@ Inventário dos componentes não-primitivos (os primitivos `ui/` estão em
 |---|---|---|
 | `PatientDrawer` | `patient/patient-drawer.tsx` | **Central de atendimento.** Cabeçalho com avatar editável, valor, convênio; data/status; ações (Atendido/Falta/Reagendar); mensagens contextuais; reagendamento; `PaymentControl`; checklist do dia (toggle otimista); anotações. Sub-sheets: editar cadastro, adicionar item de checklist, adicionar anotação, desfazer. |
 | `PatientForm` | `patient/patient-form.tsx` | Cadastro/edição em abas (Dados, Checklist, Documentos). Seções: Identificação, Financeiro (convênio + valor com atalhos +110/+80), Tratamento (encerrar/reabrir/excluir). Valida nascimento quando preenchido (campo opcional). `CopyButton` ao lado dos CPFs. Prévia de futuros ao encerrar. |
-| `PaymentControl` | `patient/payment-control.tsx` | Marcar/desmarcar pagamento, valor padrão ou customizado, confete. Só quando atendido. |
+| `PaymentControl` | `patient/payment-control.tsx` | Marcar/desmarcar pagamento, valor padrão ou customizado, forma de pagamento, confete. Aparece quando atendido **ou** em falta cobrada; o valor padrão vem de `effectiveValue` (respeita o valor já definido para a falta). |
+| `SessionValueField` | `patient/session-value-field.tsx` | Seletor "usar valor diferente" + `parseAmount` + hook `useSessionValue`. Compartilhado pelo `PaymentControl` e pelo `MissedAppointmentDialog`. |
 | `PatientDocuments` | `patient/patient-documents.tsx` | Upload (drag-drop/seleção, multi), ícone por tipo de arquivo, download, exclusão, "abrir pasta". |
 | `PatientAvatar` | `patient/patient-avatar.tsx` | Avatar monstrinho + `genderLabel`. |
 | `AvatarPicker` | `patient/avatar-picker.tsx` | Seleção de avatar (popover com os 56 monstrinhos). |
@@ -30,12 +31,14 @@ Inventário dos componentes não-primitivos (os primitivos `ui/` estão em
 |---|---|---|
 | `ScheduleAppointmentDialog` | `appointments/schedule-appointment-dialog.tsx` | Novo atendimento: combobox de paciente (busca acento-insensível, navegação por teclado), data/hora, único vs recorrente (frequência + data final). |
 | `UndoAppointmentDialog` | `appointments/undo-appointment-dialog.tsx` | Desfazer com 3 escopos (este / este e futuros / todos), avisos por escopo, confirmação. |
+| `MissedAppointmentDialog` | `appointments/missed-appointment-dialog.tsx` | Escolha ao marcar falta: **Não cobrar** (padrão) ou **Cobrar esta sessão** — esta abre um 2º passo com o valor a cobrar (`SessionValueField`). Cartões de opção grandes (alvo de toque). |
 
 ## Calendário
 
 | Componente | Arquivo | Papel |
 |---|---|---|
-| `MiniCalendar` | `calendar/mini-calendar.tsx` | Grade 7×6 do mês. Badge âmbar com nº de pacientes; ícone vermelho (pendência); ícone `$` (não pago); ring no selecionado; borda no hoje. Exporta `monthRange`, `isToday`. |
+| `MiniCalendar` | `calendar/mini-calendar.tsx` | Grade 7×6 do mês. Badge âmbar com nº de pacientes; ícone vermelho (pendência); ícone `$` (não pago); **bolo rosa no canto superior esquerdo (aniversário)** com anel dourado e gradiente; ring no selecionado; borda no hoje. Exporta `monthRange`, `isToday`, `DayMeta`. |
+| `BirthdayBanner` | `patient/birthday-banner.tsx` | Aniversariantes do dia, acima da lista da agenda. Gradiente rosa/dourado com brilho animado, avatar, "faz N anos hoje", horário da sessão do dia, chip "encerrado" e atalho para o cadastro. Dispara `celebrateBirthday()` quando o dia é hoje (uma vez por dia, via `sessionStorage`). |
 
 ## Dashboard
 
@@ -73,3 +76,5 @@ labels customizados. Uma confirmação pendente é substituída se outra abrir (
 - `lib/clipboard.ts` — `copyText(texto)`: `navigator.clipboard` com fallback `execCommand("copy")` (contexto não-seguro / WebKit antigo).
 - `lib/cpf.ts` — `onlyDigits`, `formatCpf` (máscara progressiva), `isValidCpf`.
 - `domain/age.ts` — `ageFromBirthdate` (→ `number | null`) e `ageLabel` (→ `"12 anos"` ou `null`).
+- `domain/birthdays.ts` — `monthDay`, `ageOn`, `turningAgeLabel` e `birthdayIndex(patients, isoDates)`
+  (mapa ISO → pacientes; ignora arquivados; 29/02 cai em 01/03 nos anos não bissextos).

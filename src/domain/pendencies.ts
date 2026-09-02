@@ -4,6 +4,7 @@ import type {
   SharedChecklistItem,
 } from "@/db/types"
 import { todayISO } from "./dates"
+import { isBillable } from "./finance"
 
 export interface ChecklistEntry {
   id: string
@@ -20,8 +21,8 @@ export interface ChecklistEntry {
  * Regras: attended → checklist incompleto; missed/cancelled → 0;
  * scheduled (ou sem linha) → overdue 1 se passou da data; futuro → 0.
  *
- * Sessões atendidas não pagas NÃO entram aqui — são tratadas separadamente
- * via {@link isUnpaidAttended} / {@link unpaidIndex}.
+ * Sessões cobráveis não pagas NÃO entram aqui — são tratadas separadamente
+ * via {@link isUnpaidBillable} / {@link unpaidIndex}.
  */
 export function pendencyBreakdown(
   occ: Occurrence,
@@ -51,12 +52,12 @@ export function pendencyCount(
 }
 
 /**
- * Atendimento atendido porém não pago. Não conta como pendência —
- * é um alerta financeiro tratado em UI separada.
+ * Sessão que gera receita (atendida, ou falta cobrada) porém não paga. Não
+ * conta como pendência — é um alerta financeiro tratado em UI separada.
  */
-export function isUnpaidAttended(occ: Occurrence): boolean {
+export function isUnpaidBillable(occ: Occurrence): boolean {
   const a = occ.appointment
-  return !!a && a.status === "attended" && !a.paid
+  return !!a && isBillable(a) && !a.paid
 }
 
 /**
@@ -70,7 +71,7 @@ export function unpaidIndex(
 ): Map<string, { count: number; value: number }> {
   const map = new Map<string, { count: number; value: number }>()
   for (const o of occurrences) {
-    if (!isUnpaidAttended(o)) continue
+    if (!isUnpaidBillable(o)) continue
     const cur = map.get(o.date) ?? { count: 0, value: 0 }
     cur.count++
     cur.value += valueFor(o)

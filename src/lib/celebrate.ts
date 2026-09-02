@@ -27,6 +27,29 @@ export function celebrate(kind: CelebrateKind) {
 }
 
 /**
+ * Aniversário de paciente (agenda): uma rajada rosa/dourada, mais discreta
+ * que a de livro concluído — ela dispara sozinha ao abrir o dia, então não
+ * pode tomar a tela.
+ */
+export function celebrateBirthday() {
+  const emojis = ["🎂", "🎈", "🎁", "🎉", "✨"]
+  const shapes = emojis.map((text) =>
+    confetti.shapeFromText({ text, scalar: 2 }),
+  )
+  confetti({
+    particleCount: 60,
+    spread: 95,
+    startVelocity: 42,
+    gravity: 0.85,
+    origin: { y: 0.6 },
+    shapes,
+    scalar: 2,
+    ticks: 170,
+    colors: ["#f9a8d4", "#fbbf24", "#f43f5e", "#fde68a", "#a78bfa"],
+  })
+}
+
+/**
  * Comemoração ao concluir um livro (módulo Leituras): rajada central + canhões
  * laterais por ~1,2s, com emojis de livro. Reaproveita canvas-confetti.
  */
