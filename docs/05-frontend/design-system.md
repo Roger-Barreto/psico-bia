@@ -79,6 +79,19 @@ Regra: **popover dentro de modal não pode depender de scroll interno.** O
 (calendário) já era assim. `Select` e `DropdownMenu` do Radix são seguros —
 esses embrulham o próprio conteúdo em `RemoveScroll` e assumem a trava.
 
+Seguros **quanto ao scroll** — não quanto a aparecer. Dentro de um **drawer**, o menu do
+`Select` é um `position: fixed` num contêiner que rola e tem `backdrop-filter`, e em alguns
+aparelhos não abre. Foi assim com a forma de pagamento e com o motivo de encerramento; os dois
+viraram **opções na própria tela** (chips / grupo de opções). Para escolha entre poucas opções
+dentro de drawer, prefira inline. Ver [celular](../17-mobile/README.md).
+
+### Área segura e botão de fechar
+
+`--safe-top`, `--safe-bottom`, `--safe-left`, `--safe-right` (em `index.css`) espelham
+`env(safe-area-inset-*)`; as classes `pt-safe-top`, `h-safe-top` etc. saem delas. `Sheet` e
+`Dialog` já tratam a área segura e mantêm o X visível durante a rolagem — não acrescente
+`padding-top` ao conteúdo deles.
+
 ## Ícones
 
 `@phosphor-icons/react`, importados **nominalmente** (tree-shaking), quase sempre com `weight="fill"`.

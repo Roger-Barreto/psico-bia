@@ -304,7 +304,7 @@ export function FinanceDashboard({
               </div>
             </div>
             <div
-              className="grid gap-3"
+              className="grid grid-cols-1 gap-3"
               style={{
                 // Up to 3 share the row (1 → full, 2 → halves, 3 → thirds);
                 // 4+ wrap to the next line (max 3 per row).

@@ -212,7 +212,7 @@ export function FinanceCardsPage() {
         </Button>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[20rem_1fr]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
         <div className="min-w-0 space-y-1.5">
           {cards.length === 0 && (
             <Card>

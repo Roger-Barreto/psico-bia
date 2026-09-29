@@ -13,6 +13,7 @@ Insurance (Convênio) ──< Patient (Paciente) >── DischargeReason (Motivo
                               │         │  1
                               │         └──< Appointment (Atendimento/override)
                               ├──< IndividualChecklistItem (Checklist individual)
+                              ├──< SessionPackage (Pacote) ──< Appointment (sessões que ele pagou)
                               ├──< PatientAnnotation (Anotação)
                               └──< PatientDocument (Documento, no filesystem)
 
@@ -91,6 +92,9 @@ pagamento, checklist marcado, notas, reagendamento). Campos principais:
 - `paid`, `paidValue`, `paidAt` — controle de pagamento.
 - `chargedAbsence` — **falta cobrada**: a falta continua gerando receita. Só é relevante com
   `status = missed`; o banco recusa o contrário e as demais transições zeram a flag.
+- `packageId` — **pacote de sessões** que pagou esta sessão. Preenchido pelo banco quando a
+  sessão vira cobrável e o paciente tem pacote com saldo; vem sempre com `paid = true` e
+  `paidValue = 0`. Ver [pacotes de sessões](../16-pacotes-sessoes/README.md).
 
 ### Chave de unicidade
 

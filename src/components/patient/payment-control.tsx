@@ -1,33 +1,47 @@
 import { useEffect, useMemo, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import {
-  ArrowClockwiseIcon,
   CheckCircleIcon,
-  CheckIcon,
   CurrencyDollarIcon,
-  PlusIcon,
-  WarningCircleIcon,
+  PackageIcon,
   XCircleIcon,
-  XIcon,
 } from "@phosphor-icons/react"
 import type { Appointment, Patient } from "@/db/types"
 import {
-  useCreatePaymentMethod,
+  packageErrorMessage,
+  qk,
+  useCreateSessionPackage,
   usePatchAppointment,
   usePaymentMethods,
+  useSessionPackages,
 } from "@/api/queries"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Skeleton } from "@/components/ui/skeleton"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Spinner } from "@/components/ui/spinner"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
 import { celebrate } from "@/lib/celebrate"
-import { colorForKey } from "@/lib/finance-colors"
 import { effectiveValue, formatBRL } from "@/domain/finance"
+import {
+  openPackage,
+  packageRemaining,
+  packagesOfPatient,
+  positionInPackage,
+  sessionOrdinal,
+  sessionsLabel,
+} from "@/domain/packages"
 import {
   SessionValueField,
   useSessionValue,
 } from "./session-value-field"
+import {
+  PaymentMethodChips,
+  usePaymentMethodChoice,
+} from "./payment-method-chips"
+import {
+  PackageFields,
+  usePackageFields,
+} from "@/components/packages/package-fields"
 import { formatDateTimeBR } from "@/domain/dates"
 import { cn } from "@/lib/utils"
 
@@ -36,26 +50,49 @@ interface Props {
   patient: Patient
 }
 
+/**
+ * Como esta sessão está sendo paga:
+ *   `single`  — sessão avulsa, com valor e forma de pagamento;
+ *   `package` — o paciente está fechando um pacote agora;
+ *   `balance` — descontar de um pacote que ele já tem.
+ */
+type Mode = "single" | "package" | "balance"
+
 export function PaymentControl({ appointment, patient }: Props) {
   const patch = usePatchAppointment()
+  const createPackage = useCreateSessionPackage()
   const methodsQ = usePaymentMethods()
-  const createMethod = useCreatePaymentMethod()
+  const packagesQ = useSessionPackages()
 
   const [editing, setEditing] = useState(false)
+  const [mode, setMode] = useState<Mode>("single")
   const [methodId, setMethodId] = useState<string | null>(
     appointment.paymentMethodId,
   )
-  const [creating, setCreating] = useState(false)
-  const [newName, setNewName] = useState("")
+  const [includeThis, setIncludeThis] = useState(true)
   const [submitted, setSubmitted] = useState(false)
+  const [modeChosen, setModeChosen] = useState(false)
+  const qc = useQueryClient()
 
-  const methods = useMemo(
-    () => (methodsQ.data ?? []).filter((m) => m.active && !m.isLoan),
-    [methodsQ.data],
-  )
   const methodName = appointment.paymentMethodId
     ? methodsQ.data?.find((m) => m.id === appointment.paymentMethodId)?.name
     : undefined
+
+  const patientPackages = useMemo(
+    () => packagesOfPatient(packagesQ.data ?? [], patient.id),
+    [packagesQ.data, patient.id],
+  )
+  const linkedPackage = appointment.packageId
+    ? (patientPackages.find((p) => p.id === appointment.packageId) ?? null)
+    : null
+  // Pacote aberto com vaga (o mais antigo): o que "descontar do pacote" usa.
+  const balance = useMemo(() => openPackage(patientPackages), [patientPackages])
+  // Onde esta sessão entra na ordem do pacote (é pela data).
+  const position = {
+    appointmentId: appointment.id,
+    date: appointment.date,
+    time: appointment.time,
+  }
 
   // `effectiveValue` e não `consultationValue`: uma falta cobrada pode já ter
   // um valor próprio gravado em `paidValue` no momento em que foi marcada, e
@@ -64,45 +101,57 @@ export function PaymentControl({ appointment, patient }: Props) {
   const hasSessionValue = appointment.paidValue != null
 
   const valueState = useSessionValue(defaultValue, editing)
+  const packageFields = usePackageFields(
+    { initialSessions: 4, unitPrice: patient.consultationValue ?? 0 },
+    editing,
+  )
+  const { selected } = usePaymentMethodChoice(methodId)
 
   // Fecha/reabre limpo: nenhum resto do preenchimento anterior.
   useEffect(() => {
     if (editing) return
     setMethodId(appointment.paymentMethodId)
-    setCreating(false)
-    setNewName("")
+    setIncludeThis(true)
     setSubmitted(false)
   }, [editing, appointment.paymentMethodId])
 
-  // Só existe uma forma cadastrada? Já vem escolhida — um toque a menos.
+  // Parte do caminho mais provável: quem tem pacote com saldo quase sempre
+  // quer descontar dele. Vale também para o saldo que chega DEPOIS de o
+  // formulário abrir (pacotes ainda carregando) — mas só enquanto o usuário
+  // não escolheu nada; depois disso a escolha é dele.
   useEffect(() => {
-    if (!editing || methodId) return
-    if (methods.length === 1) setMethodId(methods[0].id)
-  }, [editing, methodId, methods])
+    if (!editing) {
+      setModeChosen(false)
+      return
+    }
+    if (modeChosen) return
+    setMode(balance ? "balance" : "single")
+  }, [editing, balance, modeChosen])
 
-  // Vale só uma forma que ainda existe na lista: se a escolhida foi excluída
-  // ou desativada, nenhum chip fica marcado e confirmar gravaria um id morto.
-  const selected = methods.find((m) => m.id === methodId) ?? null
+  // O pacote com saldo sumiu enquanto o formulário estava aberto (usado em
+  // outro aparelho, encerrado)? Volta para a sessão avulsa.
+  useEffect(() => {
+    if (mode === "balance" && !balance) setMode("single")
+  }, [mode, balance])
 
   const value = valueState.value
   const valueError = valueState.error
+  const pending = patch.isPending || createPackage.isPending
 
-  async function createInline() {
-    const name = newName.trim()
-    if (!name || createMethod.isPending) return
-    try {
-      const m = await createMethod.mutateAsync({ name })
-      setMethodId(m.id)
-      setCreating(false)
-      setNewName("")
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erro ao criar")
-    }
+  function changeMode(next: Mode) {
+    setMode(next)
+    setModeChosen(true)
+    setSubmitted(false)
   }
 
-  async function confirmPaid() {
-    setSubmitted(true)
-    if (patch.isPending) return
+  // O erro veio porque a tela estava desatualizada (pacote cheio, encerrado
+  // ou apagado em outro aparelho): recarrega para a opção errada sumir.
+  function refreshPackages() {
+    qc.invalidateQueries({ queryKey: qk.packages })
+    qc.invalidateQueries({ queryKey: ["appointments"] })
+  }
+
+  async function confirmSingle() {
     if (valueError || value === null) {
       return toast.error(valueError ?? "Valor inválido")
     }
@@ -127,8 +176,68 @@ export function PaymentControl({ appointment, patient }: Props) {
     }
   }
 
+  async function confirmNewPackage() {
+    if (packageFields.sessions === null) {
+      return toast.error(packageFields.sessionsError ?? "Quantidade inválida")
+    }
+    if (packageFields.value === null) {
+      return toast.error(packageFields.valueError ?? "Valor inválido")
+    }
+    if (!selected) {
+      return toast.error("Escolha a forma de pagamento")
+    }
+    try {
+      await createPackage.mutateAsync({
+        patientId: patient.id,
+        totalSessions: packageFields.sessions,
+        totalValue: packageFields.value,
+        paymentMethodId: selected.id,
+        startDate: appointment.date,
+        appointmentId: includeThis ? appointment.id : null,
+      })
+      celebrate("happy")
+      toast.success(
+        includeThis
+          ? `Pacote de ${sessionsLabel(packageFields.sessions)} registrado · esta é a 1ª`
+          : `Pacote de ${sessionsLabel(packageFields.sessions)} registrado`,
+      )
+      setEditing(false)
+    } catch (err) {
+      toast.error(packageErrorMessage(err))
+      refreshPackages()
+    }
+  }
+
+  async function confirmBalance() {
+    if (!balance) return
+    try {
+      // Só o vínculo: pago, valor 0 e forma de pagamento quem grava é o
+      // banco, junto com a checagem de vaga (trigger de 034).
+      await patch.mutateAsync({
+        id: appointment.id,
+        patch: { packageId: balance.id },
+      })
+      celebrate("happy")
+      toast.success(
+        `Descontada do pacote · sessão ${positionInPackage(balance, position)} de ${balance.totalSessions}`,
+      )
+      setEditing(false)
+    } catch (err) {
+      toast.error(packageErrorMessage(err))
+      refreshPackages()
+    }
+  }
+
+  async function confirmPaid() {
+    setSubmitted(true)
+    if (pending) return
+    if (mode === "package") return confirmNewPackage()
+    if (mode === "balance") return confirmBalance()
+    return confirmSingle()
+  }
+
   async function unmark() {
-    if (patch.isPending) return
+    if (pending) return
     if (
       !(await confirmDialog({
         title: "Desmarcar pagamento",
@@ -153,6 +262,85 @@ export function PaymentControl({ appointment, patient }: Props) {
     }
   }
 
+  async function removeFromPackage() {
+    if (pending) return
+    if (
+      !(await confirmDialog({
+        title: "Tirar do pacote",
+        description:
+          "A sessão volta para o saldo do pacote e esta fica como não paga — dá para cobrá-la à parte em seguida.",
+        confirmLabel: "Tirar do pacote",
+      }))
+    )
+      return
+    try {
+      await patch.mutateAsync({
+        id: appointment.id,
+        patch: {
+          packageId: null,
+          paid: false,
+          paidValue: null,
+          paidAt: null,
+          paymentMethodId: null,
+        },
+      })
+      toast.success("Sessão tirada do pacote")
+    } catch (err) {
+      toast.error(packageErrorMessage(err))
+    }
+  }
+
+  if (appointment.packageId) {
+    const ordinal = linkedPackage
+      ? sessionOrdinal(linkedPackage, appointment.id)
+      : null
+    const remaining = linkedPackage ? packageRemaining(linkedPackage) : null
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5 text-sm text-emerald-300">
+        <span className="flex min-w-0 flex-1 items-start gap-2">
+          <PackageIcon weight="fill" className="mt-0.5 size-4 shrink-0" />
+          <span className="min-w-0">
+            <span className="block font-medium">
+              Paga pelo pacote
+              {linkedPackage && ordinal !== null && (
+                <>
+                  {" "}
+                  · sessão {ordinal} de {linkedPackage.totalSessions}
+                </>
+              )}
+            </span>
+            {linkedPackage && remaining !== null && (
+              <span className="block text-xs opacity-80">
+                {linkedPackage.closedAt
+                  ? "Pacote encerrado"
+                  : remaining === 0
+                    ? ordinal === linkedPackage.totalSessions
+                      ? "Era a última do pacote"
+                      : "Pacote concluído"
+                    : remaining === 1
+                      ? "Resta 1 sessão no pacote"
+                      : `Restam ${remaining} sessões no pacote`}
+              </span>
+            )}
+          </span>
+        </span>
+        <button
+          type="button"
+          onClick={removeFromPackage}
+          disabled={pending}
+          className="-mr-1 inline-flex min-h-10 shrink-0 items-center gap-1 rounded-md px-2.5 text-xs text-emerald-300/70 transition-colors hover:bg-emerald-500/15 hover:text-emerald-300 disabled:opacity-60"
+        >
+          {pending ? (
+            <Spinner className="size-3.5" />
+          ) : (
+            <XCircleIcon weight="fill" className="size-3.5" />
+          )}
+          Tirar do pacote
+        </button>
+      </div>
+    )
+  }
+
   if (appointment.paid) {
     return (
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5 text-sm text-emerald-300">
@@ -173,10 +361,10 @@ export function PaymentControl({ appointment, patient }: Props) {
         <button
           type="button"
           onClick={unmark}
-          disabled={patch.isPending}
+          disabled={pending}
           className="-mr-1 inline-flex min-h-10 shrink-0 items-center gap-1 rounded-md px-2.5 text-xs text-emerald-300/70 transition-colors hover:bg-emerald-500/15 hover:text-emerald-300 disabled:opacity-60"
         >
-          {patch.isPending ? (
+          {pending ? (
             <Spinner className="size-3.5" />
           ) : (
             <XCircleIcon weight="fill" className="size-3.5" />
@@ -200,162 +388,137 @@ export function PaymentControl({ appointment, patient }: Props) {
     )
   }
 
+  const modes: { id: Mode; label: string; hint: string }[] = [
+    ...(balance
+      ? [
+          {
+            id: "balance" as const,
+            label: "Descontar do pacote",
+            hint:
+              packageRemaining(balance) === 1
+                ? "Resta 1 sessão"
+                : `Restam ${packageRemaining(balance)} sessões`,
+          },
+        ]
+      : []),
+    { id: "single", label: "Sessão avulsa", hint: "Paga só esta sessão" },
+    { id: "package", label: "Novo pacote", hint: "Várias sessões" },
+  ]
+
   return (
     <div className="space-y-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
       <div className="space-y-1">
         <p className="text-sm font-medium">Confirmar pagamento</p>
       </div>
 
-      <SessionValueField
-        state={valueState}
-        defaultValue={defaultValue}
-        defaultLabel={
-          hasSessionValue
-            ? "Valor definido para esta sessão:"
-            : "Valor padrão do cadastro:"
-        }
-        submitted={submitted}
-      />
-
-      <div className="space-y-1.5">
-        <p className="text-xs text-muted-foreground">Forma de pagamento</p>
-
-        {methodsQ.isLoading ? (
-          <div className="flex flex-wrap gap-2">
-            <Skeleton className="h-11 w-24" />
-            <Skeleton className="h-11 w-28" />
-            <Skeleton className="h-11 w-20" />
-          </div>
-        ) : methodsQ.isError ? (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
-            <span className="flex items-center gap-1.5">
-              <WarningCircleIcon weight="fill" className="size-4 shrink-0" />
-              Não foi possível carregar as formas de pagamento.
-            </span>
+      <div
+        role="radiogroup"
+        aria-label="Tipo de pagamento"
+        className="grid grid-cols-2 gap-2"
+      >
+        {modes.map((m) => {
+          const on = mode === m.id
+          return (
             <button
+              key={m.id}
               type="button"
-              onClick={() => methodsQ.refetch()}
-              className="inline-flex min-h-10 items-center gap-1 rounded-md px-2.5 font-medium text-rose-100 hover:bg-rose-500/20"
-            >
-              <ArrowClockwiseIcon weight="bold" className="size-3.5" />
-              Tentar de novo
-            </button>
-          </div>
-        ) : (
-          <>
-            {/* Chips no lugar de um <select> flutuante: no drawer o menu
-                suspenso é posicionado dentro de um elemento com transform +
-                overflow e em alguns aparelhos simplesmente não aparecia. */}
-            <div
-              role="radiogroup"
-              aria-label="Forma de pagamento"
-              className="flex flex-wrap gap-2"
-            >
-              {methods.map((m) => {
-                const on = methodId === m.id
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={on}
-                    onClick={() => setMethodId(m.id)}
-                    className={cn(
-                      "inline-flex min-h-11 max-w-full items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
-                      on
-                        ? "border-emerald-400/70 bg-emerald-500/20 text-emerald-100"
-                        : "border-border/60 bg-background/40 hover:bg-muted/40",
-                    )}
-                  >
-                    {on ? (
-                      <CheckIcon
-                        weight="bold"
-                        className="size-4 shrink-0 text-emerald-300"
-                      />
-                    ) : (
-                      <span
-                        className="size-2.5 shrink-0 rounded-full"
-                        style={{
-                          backgroundColor: m.color ?? colorForKey(m.name),
-                        }}
-                      />
-                    )}
-                    <span className="truncate">{m.name}</span>
-                  </button>
-                )
-              })}
-
-              {!creating && (
-                <button
-                  type="button"
-                  onClick={() => setCreating(true)}
-                  className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-dashed border-border/70 px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
-                >
-                  <PlusIcon weight="bold" className="size-3.5" />
-                  Nova forma
-                </button>
+              role="radio"
+              aria-checked={on}
+              onClick={() => changeMode(m.id)}
+              className={cn(
+                "flex min-h-11 min-w-0 flex-col items-start justify-center rounded-lg border px-3 py-2 text-left transition-colors",
+                // O pacote com saldo ocupa a linha inteira; as outras duas
+                // dividem a de baixo.
+                m.id === "balance" && "col-span-2",
+                on
+                  ? "border-emerald-400/70 bg-emerald-500/20 text-emerald-100"
+                  : "border-border/60 bg-background/40 hover:bg-muted/40",
               )}
-            </div>
-
-            {methods.length === 0 && !creating && (
-              <p className="text-xs text-muted-foreground">
-                Nenhuma forma de pagamento cadastrada — use “Nova forma” para
-                criar a primeira.
-              </p>
-            )}
-
-            {creating && (
-              <div className="flex items-center gap-1.5 pt-1">
-                <Input
-                  autoFocus
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="Ex.: PIX"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault()
-                      createInline()
-                    } else if (e.key === "Escape") {
-                      setCreating(false)
-                      setNewName("")
-                    }
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={createInline}
-                  disabled={createMethod.isPending || !newName.trim()}
-                  className="grid size-11 shrink-0 place-items-center rounded-md text-emerald-400 hover:bg-emerald-500/15 disabled:opacity-50"
-                  aria-label="Confirmar nova forma"
-                >
-                  {createMethod.isPending ? (
-                    <Spinner className="size-4" />
-                  ) : (
-                    <CheckIcon weight="bold" className="size-4" />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCreating(false)
-                    setNewName("")
-                  }}
-                  className="grid size-11 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted/40"
-                  aria-label="Cancelar nova forma"
-                >
-                  <XIcon weight="bold" className="size-4" />
-                </button>
-              </div>
-            )}
-          </>
-        )}
-
-        {submitted && !selected && !methodsQ.isLoading && (
-          <p className="text-xs text-rose-300">
-            Escolha como o paciente pagou.
-          </p>
-        )}
+            >
+              <span className="text-sm font-medium">{m.label}</span>
+              <span
+                className={cn(
+                  "text-xs",
+                  on ? "text-emerald-200/80" : "text-muted-foreground",
+                )}
+              >
+                {m.hint}
+              </span>
+            </button>
+          )
+        })}
       </div>
+
+      {mode === "single" && (
+        <>
+          <SessionValueField
+            state={valueState}
+            defaultValue={defaultValue}
+            defaultLabel={
+              hasSessionValue
+                ? "Valor definido para esta sessão:"
+                : "Valor padrão do cadastro:"
+            }
+            submitted={submitted}
+          />
+          <PaymentMethodChips
+            value={methodId}
+            onChange={setMethodId}
+            submitted={submitted}
+          />
+        </>
+      )}
+
+      {mode === "package" && (
+        <>
+          <PackageFields state={packageFields} submitted={submitted} />
+
+          {/* Alvo de toque grande: a linha inteira alterna a opção. */}
+          <label className="-mx-1 flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg px-1 text-sm">
+            <Checkbox
+              checked={includeThis}
+              onCheckedChange={(v) => setIncludeThis(v === true)}
+              className="data-[state=checked]:border-emerald-500 data-[state=checked]:bg-emerald-600"
+            />
+            Esta sessão já é a 1ª do pacote
+          </label>
+          {!includeThis && (
+            <p className="text-xs text-muted-foreground">
+              O pacote vale a partir das próximas sessões; esta continua em
+              aberto para ser paga à parte.
+            </p>
+          )}
+
+          <PaymentMethodChips
+            value={methodId}
+            onChange={setMethodId}
+            submitted={submitted}
+            requiredMessage="Escolha como o paciente pagou o pacote."
+          />
+        </>
+      )}
+
+      {mode === "balance" && balance && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-sm">
+          <PackageIcon
+            weight="fill"
+            className="mt-0.5 size-4 shrink-0 text-emerald-300"
+          />
+          <div className="min-w-0">
+            <p className="font-medium">
+              Sessão {positionInPackage(balance, position)} de{" "}
+              {balance.totalSessions}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Pacote de {formatBRL(balance.totalValue)}, já pago. Nada a receber
+              nesta sessão
+              {packageRemaining(balance) - 1 > 0
+                ? ` — depois dela ${packageRemaining(balance) - 1 === 1 ? "resta 1" : `restam ${packageRemaining(balance) - 1}`}.`
+                : " — é a última do pacote."}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* linha, não coluna: `flex-1` num container de coluna zeraria a base
           de altura e os botões encolhiam abaixo do alvo de toque. */}
@@ -364,7 +527,7 @@ export function PaymentControl({ appointment, patient }: Props) {
           type="button"
           variant="ghost"
           onClick={() => setEditing(false)}
-          disabled={patch.isPending}
+          disabled={pending}
           className="h-11 flex-1"
         >
           Cancelar
@@ -372,10 +535,10 @@ export function PaymentControl({ appointment, patient }: Props) {
         <Button
           type="button"
           onClick={confirmPaid}
-          loading={patch.isPending}
+          loading={pending}
           className="h-11 flex-1 bg-emerald-600 text-white hover:bg-emerald-600/90"
         >
-          Confirmar
+          {mode === "package" ? "Registrar pacote" : "Confirmar"}
         </Button>
       </div>
     </div>

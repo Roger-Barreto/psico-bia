@@ -7,6 +7,7 @@ import {
   DotsSixVerticalIcon,
   IdentificationCardIcon,
   ListChecksIcon,
+  PackageIcon,
   PaperclipIcon,
   PlusIcon,
   SealCheckIcon,
@@ -30,8 +31,11 @@ import {
   usePatients,
   useReopenPatient,
   useReorderIndividualItems,
+  useSessionPackages,
   useUpdatePatient,
 } from "@/api/queries"
+import { packageRemaining, packagesOfPatient } from "@/domain/packages"
+import { PatientPackages } from "@/components/packages/patient-packages"
 import { nextOrder } from "@/lib/checklist"
 import { occurrencesForPatient } from "@/domain/recurrence"
 import { Button } from "@/components/ui/button"
@@ -57,9 +61,10 @@ import { formatCpf, isValidCpf, onlyDigits } from "@/lib/cpf"
 import { cn } from "@/lib/utils"
 import { PatientDocuments } from "./patient-documents"
 import { AvatarPicker } from "./avatar-picker"
+import { DischargeReasonField } from "./discharge-reason-field"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
 
-type TabKey = "dados" | "checklist" | "documentos"
+type TabKey = "dados" | "checklist" | "pacotes" | "documentos"
 
 interface Props {
   patient?: Patient
@@ -170,6 +175,14 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
   const [dischargeOpen, setDischargeOpen] = useState(false)
   const [dischargeDate, setDischargeDate] = useState<string>(todayISO())
   const [dischargeReasonId, setDischargeReasonId] = useState<string>("")
+  const [dischargeSubmitted, setDischargeSubmitted] = useState(false)
+
+  // Fecha/reabre limpo: nenhum resto da tentativa anterior.
+  useEffect(() => {
+    if (dischargeOpen) return
+    setDischargeReasonId("")
+    setDischargeSubmitted(false)
+  }, [dischargeOpen])
 
   const createMut = useCreatePatient()
   const updateMut = useUpdatePatient()
@@ -183,6 +196,23 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
   const deleteItemPermanentMut = useDeleteIndividualItemPermanent()
   const insurancesQ = useInsurances()
   const reasonsQ = useDischargeReasons()
+  const packagesQ = useSessionPackages()
+
+  // Pacotes do paciente que ainda têm sessão para realizar.
+  const openPackages = useMemo(
+    () =>
+      patient
+        ? packagesOfPatient(packagesQ.data ?? [], patient.id).filter(
+            (k) => packageRemaining(k) > 0,
+          )
+        : [],
+    [packagesQ.data, patient],
+  )
+  const openPackageCount = openPackages.length
+  const openPackageSessions = openPackages.reduce(
+    (n, k) => n + packageRemaining(k),
+    0,
+  )
 
   // Forecast future occurrences for discharge dialog
   const dischargeForecastRange = useMemo(() => {
@@ -255,9 +285,17 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
     }
   }
 
+  // Vale só um motivo que ainda existe e está ativo: se o escolhido foi
+  // arquivado em outra aba, confirmar gravaria um id que ninguém mais vê.
+  const selectedReason =
+    (reasonsQ.data ?? []).find(
+      (r) => r.active && r.id === dischargeReasonId,
+    ) ?? null
+
   async function confirmDischarge() {
-    if (!patient) return
-    if (!dischargeReasonId) return toast.error("Selecione um motivo")
+    if (!patient || dischargeMut.isPending) return
+    setDischargeSubmitted(true)
+    if (!selectedReason) return toast.error("Escolha o motivo do encerramento")
     if (!dischargeDate) return toast.error("Informe a data")
     const n = futureOccurrenceCount
     const futureMsg =
@@ -266,10 +304,16 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
         : n === 1
         ? "1 atendimento futuro será deletado permanentemente."
         : `${n} atendimentos futuros serão deletados permanentemente.`
+    const packageMsg =
+      openPackageSessions === 0
+        ? ""
+        : openPackageSessions === 1
+          ? " Atenção: resta 1 sessão de pacote já paga e ainda não realizada."
+          : ` Atenção: restam ${openPackageSessions} sessões de pacote já pagas e ainda não realizadas.`
     if (
       !(await confirmDialog({
         title: "Encerrar tratamento?",
-        description: `Encerrando em ${formatDateBR(dischargeDate)}. ${futureMsg} Atendimentos passados permanecem para histórico. Você poderá reabrir o tratamento depois.`,
+        description: `Encerrando em ${formatDateBR(dischargeDate)}. ${futureMsg} Atendimentos passados permanecem para histórico. Você poderá reabrir o tratamento depois.${packageMsg}`,
         confirmLabel: "Encerrar",
         cancelLabel: "Cancelar",
         destructive: n > 0,
@@ -280,7 +324,7 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
       const result = await dischargeMut.mutateAsync({
         id: patient.id,
         dischargedAt: dischargeDate,
-        dischargeReasonId,
+        dischargeReasonId: selectedReason.id,
       })
       setDischargeOpen(false)
       const removed = result.deletedAppointments
@@ -487,6 +531,12 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
             label={`Checklist${activeItems.length > 0 ? ` (${activeItems.length})` : ""}`}
           />
           <TabButton
+            active={tab === "pacotes"}
+            onClick={() => setTab("pacotes")}
+            icon={PackageIcon}
+            label={`Pacotes${openPackageCount > 0 ? ` (${openPackageCount})` : ""}`}
+          />
+          <TabButton
             active={tab === "documentos"}
             onClick={() => setTab("documentos")}
             icon={PaperclipIcon}
@@ -521,7 +571,9 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            {/* Uma coluna no celular: lado a lado, o rótulo do nascimento
+                quebrava em duas linhas e passava por cima do gênero. */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Gênero</Label>
                 <RadioGroup
@@ -715,56 +767,42 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
                     Todos os atendimentos futuros deste paciente serão
                     cancelados. O cadastro permanece para reagendamento.
                   </p>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <div className="space-y-1">
-                      <label className="text-xs text-muted-foreground">
-                        Data
-                      </label>
-                      <DatePicker
-                        value={dischargeDate}
-                        onChange={setDischargeDate}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs text-muted-foreground">
-                        Motivo
-                      </label>
-                      <Select
-                        value={dischargeReasonId}
-                        onValueChange={setDischargeReasonId}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(reasonsQ.data ?? [])
-                            .filter((r) => r.active)
-                            .map((r) => (
-                              <SelectItem key={r.id} value={r.id}>
-                                {r.name}
-                              </SelectItem>
-                            ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">
+                      Data
+                    </label>
+                    <DatePicker
+                      value={dischargeDate}
+                      onChange={setDischargeDate}
+                    />
                   </div>
-                  <div className="flex justify-end gap-2">
+
+                  <DischargeReasonField
+                    value={dischargeReasonId}
+                    onChange={setDischargeReasonId}
+                    showError={dischargeSubmitted && !selectedReason}
+                  />
+
+                  {/* linha, não coluna: `flex-1` num container de coluna
+                      zeraria a base de altura e os botões encolhiam abaixo do
+                      alvo de toque. */}
+                  <div className="flex gap-2">
                     <Button
                       type="button"
                       variant="ghost"
-                      size="sm"
                       onClick={() => setDischargeOpen(false)}
+                      disabled={dischargeMut.isPending}
+                      className="h-11 flex-1"
                     >
                       Cancelar
                     </Button>
                     <Button
                       type="button"
-                      size="sm"
                       onClick={confirmDischarge}
-                      disabled={dischargeMut.isPending}
-                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      loading={dischargeMut.isPending}
+                      className="h-11 flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     >
-                      Confirmar
+                      Encerrar
                     </Button>
                   </div>
                 </div>
@@ -849,6 +887,12 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
         </SectionBlock>
       )}
 
+      {isEdit && tab === "pacotes" && patient && (
+        <SectionBlock title="Pacotes de sessões" icon={PackageIcon}>
+          <PatientPackages patient={patient} />
+        </SectionBlock>
+      )}
+
       {isEdit && tab === "documentos" && patient && (
         <SectionBlock title="Documentos" icon={PaperclipIcon}>
           <PatientDocuments patientId={patient.id} />
@@ -883,7 +927,9 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+        // No celular, ícone em cima do rótulo: quatro abas lado a lado não
+        // cabem em 375px com o texto na mesma linha do ícone.
+        "flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1.5 text-[11px] font-medium transition-colors sm:flex-row sm:gap-2 sm:px-3 sm:py-2 sm:text-sm",
         active
           ? "bg-primary/15 text-foreground"
           : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
@@ -891,9 +937,9 @@ function TabButton({
     >
       <Icon
         weight="fill"
-        className={cn("size-4", active ? "text-primary" : "")}
+        className={cn("size-4 shrink-0", active ? "text-primary" : "")}
       />
-      <span>{label}</span>
+      <span className="max-w-full truncate">{label}</span>
     </button>
   )
 }

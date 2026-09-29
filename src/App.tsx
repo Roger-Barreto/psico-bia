@@ -5,6 +5,7 @@ import { AppShell } from "@/components/app-shell"
 import { LoginPage } from "@/pages/login"
 import { HomePage } from "@/pages/home"
 import { PatientsPage } from "@/pages/patients"
+import { PackagesPage } from "@/pages/packages"
 import { SharedChecklistPage } from "@/pages/checklist"
 import { DashboardPage } from "@/pages/dashboard"
 import { InsurancesPage } from "@/pages/insurances"
@@ -35,6 +36,7 @@ export default function App() {
         >
           <Route path="/" element={<DashboardPage />} />
           <Route path="/agenda" element={<HomePage />} />
+          <Route path="/pacotes" element={<PackagesPage />} />
           <Route path="/financeiro" element={<FinanceLayout />}>
             <Route index element={<FinanceLedgerPage />} />
             <Route path="dashboard" element={<FinanceDashboardPage />} />

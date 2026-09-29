@@ -49,13 +49,33 @@ status === "attended" || (status === "missed" && chargedAbsence)
 - Falta cobrada **não** abre checklist nem gera pendência de checklist — o alerta dela é
   financeiro (`isUnpaidBillable`).
 
+## Pacote de sessões
+
+O paciente fecha N sessões por um valor combinado e paga na hora (migração
+[034](../16-pacotes-sessoes/034_pacotes_sessoes.sql); tudo em
+[pacotes de sessões](../16-pacotes-sessoes/README.md)).
+
+- **Regime de caixa:** o valor do pacote entra inteiro no **dia da venda**.
+- As sessões que o pacote paga ficam `paid = true` com `paidValue = 0` e `packageId`
+  preenchido. Como `effectiveValue` devolve `paidValue`, elas valem **0** em todos os
+  agregados sem nenhum caso especial — e não são "não pagas".
+- Quem desconta a sessão do pacote é o **banco** (trigger), na hora em que ela vira
+  cobrável. `isBillable` não mudou: falta cobrada também consome pacote.
+- Os agregados somam a venda à parte, pela data dela (`packagesSoldInRange`).
+
 ## Pagamento de uma sessão
 
 Controlado em [`payment-control.tsx`](../../src/components/patient/payment-control.tsx), visível no
 drawer quando a sessão está **atendida** ou é uma **falta cobrada**.
 
-- **Marcar como paga:** define `paid = true`, `paidValue` (valor padrão do cadastro **ou** valor
-  customizado da sessão se o usuário marcar "usar valor diferente"), `paidAt = now`. Dispara confete.
+- **Marcar como paga** tem três caminhos:
+  - **Sessão avulsa** — define `paid = true`, `paidValue` (valor padrão do cadastro **ou** valor
+    customizado da sessão se o usuário marcar "usar valor diferente"), `paidAt = now`.
+  - **Novo pacote** — quantidade de sessões + valor total; cria o pacote e, por padrão, já
+    desconta esta sessão como a 1ª.
+  - **Descontar do pacote** — só aparece quando o paciente tem pacote com saldo (e já vem
+    escolhido); grava apenas o vínculo, o resto é do banco.
+- **Sessão paga por pacote** mostra *"Paga pelo pacote · sessão X de N"* e *Tirar do pacote*.
 - **Desmarcar:** confirma e zera `paid = false`, `paidValue = null`, `paidAt = null`.
 - Validação: valor finito e ≥ 0.
 
@@ -63,7 +83,8 @@ drawer quando a sessão está **atendida** ou é uma **falta cobrada**.
 
 ### `totalRevenue(appts, patientsById)` — Faturado
 
-Soma de `effectiveValue` de todas as sessões com `paid === true`.
+Soma de `effectiveValue` de todas as sessões com `paid === true`. No dashboard, mais o valor
+dos **pacotes vendidos no período**.
 
 ### `pendingRevenue(appts, patientsById, today)` — Pendente
 
@@ -80,6 +101,11 @@ Calculado em `dashboard.tsx` materializando as ocorrências do mês por paciente
 - sem override (virtual) → `consultationValue`.
 
 Representa o **potencial de faturamento do mês** se tudo for atendido.
+
+Com pacotes: soma os **pacotes vendidos no mês** e **pula** as ocorrências que o saldo de um
+pacote vai pagar (`projectedCoverage`) — senão uma sessão já paga lá atrás contaria como receita
+nova. A projeção distribui o saldo pelas ocorrências ainda não concluídas do paciente, em ordem
+de data, a partir do dia da venda.
 
 ### `formatBRL(n)`
 

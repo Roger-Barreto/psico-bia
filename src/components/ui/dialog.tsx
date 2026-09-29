@@ -53,7 +53,20 @@ const DialogContent = React.forwardRef<
       <DialogPrimitive.Content
         ref={setRefs}
         className={cn(
-          "fixed left-1/2 top-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-md -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto overscroll-contain rounded-xl border border-border/70 bg-card/95 p-6 shadow-2xl backdrop-blur-md duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+          // Coluna flex (e não grid) por causa do X: `sticky` num item de grid
+          // fica preso à própria linha, e a âncora do botão tem altura zero.
+          // `[&>*]:shrink-0` devolve o comportamento do grid — nenhum filho
+          // encolhe; quando não cabe, quem rola é o diálogo.
+          "fixed left-1/2 z-50 flex w-[calc(100vw-1.5rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-y-auto overscroll-contain rounded-xl border border-border/70 bg-card/95 p-6 shadow-2xl backdrop-blur-md duration-200 [&>*]:shrink-0",
+          // Sem padding em cima: quem dá os 24px do topo é a âncora do X
+          // (8px) + o gap-4. Os navegadores não concordam sobre medir o `top`
+          // de um `sticky` a partir da borda do padding ou do conteúdo; sem
+          // padding as duas contas dão o mesmo lugar.
+          "pt-0",
+          // Centralizado na área segura, não na tela: no PWA do iPhone o topo
+          // do diálogo (e o X) ficaria embaixo da barra de status.
+          "top-[calc(50%+(var(--safe-top)-var(--safe-bottom))/2)] max-h-[calc(100dvh-2rem-var(--safe-top)-var(--safe-bottom))]",
+          "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
           className,
         )}
         {...props}
@@ -65,10 +78,16 @@ const DialogContent = React.forwardRef<
         <DialogBodyContext.Provider value={node}>
           {children}
         </DialogBodyContext.Provider>
-        <DialogPrimitive.Close className="absolute right-3 top-3 grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring">
-          <XIcon weight="bold" className="size-4" />
-          <span className="sr-only">Fechar</span>
-        </DialogPrimitive.Close>
+        {/* Por último no DOM (o foco inicial continua indo para o primeiro
+            campo) e primeiro na tela (`order-first`). A âncora gruda no topo
+            da área rolável: em diálogo comprido o X acompanha a rolagem em
+            vez de sumir. */}
+        <div className="pointer-events-none sticky top-0 z-20 order-first h-2">
+          <DialogPrimitive.Close className="pointer-events-auto absolute -right-3 top-3 grid size-10 place-items-center rounded-full border border-border/60 bg-card/90 text-muted-foreground shadow-md backdrop-blur transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <XIcon weight="bold" className="size-4" />
+            <span className="sr-only">Fechar</span>
+          </DialogPrimitive.Close>
+        </div>
       </DialogPrimitive.Content>
     </DialogPortal>
   )
@@ -80,7 +99,8 @@ const DialogHeader = ({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn("flex flex-col space-y-1.5 text-left", className)}
+    // pr-10: o título não passa por baixo do botão de fechar.
+    className={cn("flex flex-col space-y-1.5 pr-10 text-left", className)}
     {...props}
   />
 )

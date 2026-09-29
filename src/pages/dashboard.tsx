@@ -15,7 +15,10 @@ import {
   useInsurances,
   usePatients,
   usePaymentMethods,
+  useSessionPackages,
 } from "@/api/queries"
+import { isCovered, packagesSoldInRange } from "@/domain/packages"
+import { usePackageCoverage } from "@/components/packages/use-package-coverage"
 import { colorForKey } from "@/lib/finance-colors"
 import { pendencyBreakdown } from "@/domain/pendencies"
 import {
@@ -103,6 +106,7 @@ export function DashboardPage() {
   const insurancesQ = useInsurances()
   const reasonsQ = useDischargeReasons()
   const methodsQ = usePaymentMethods()
+  const packagesQ = useSessionPackages()
 
   const longRangeStart = useMemo(() => {
     let m = month - 11
@@ -313,9 +317,28 @@ export function DashboardPage() {
     return { count, totalValue, items }
   }, [appts, patientsById, insurances, seriesById])
 
+  // ── Pacotes de sessões ───────────────────────────────────
+  // Regime de caixa: o pacote entra inteiro no dia da venda; as sessões que
+  // ele paga valem 0 (já chegam assim do banco, `paidValue = 0`).
+  const packages = useMemo(
+    () => (packagesQ.data ?? []).filter((k) => patientsById.has(k.patientId)),
+    [packagesQ.data, patientsById],
+  )
+  const packagesSold = useMemo(
+    () => packagesSoldInRange(packages, from, to, patientsById),
+    [packages, from, to, patientsById],
+  )
+  const packagesRevenue = useMemo(
+    () => packagesSold.reduce((sum, k) => sum + k.totalValue, 0),
+    [packagesSold],
+  )
+  // Sessões ainda não concluídas que o saldo dos pacotes vai pagar — contando
+  // o que ficou pendente em meses anteriores, que gasta o saldo primeiro.
+  const { covered, isLoading: coverageLoading } = usePackageCoverage(to)
+
   // ── KPIs ─────────────────────────────────────────────────
   const revenue = useMemo(() => {
-    let sum = 0
+    let sum = packagesRevenue
     for (const a of appts) {
       // `isBillable` é rede de segurança: sem ele, uma linha paga que deixasse
       // de ser cobrável seguiria somando aqui e sumiria do ledger.
@@ -323,7 +346,7 @@ export function DashboardPage() {
         sum += effectiveValue(a, patientsById.get(a.patientId))
     }
     return sum
-  }, [appts, patientsById])
+  }, [appts, patientsById, packagesRevenue])
 
   const pendingValue = useMemo(() => {
     let sum = 0
@@ -332,31 +355,37 @@ export function DashboardPage() {
       if (!p) continue
       if (isBillable(a) && !a.paid)
         sum += effectiveValue(a, p)
-      else if (a.status === "scheduled" && a.date < today)
+      else if (
+        a.status === "scheduled" &&
+        a.date < today &&
+        // paga pelo pacote quando for concluída: nada a receber
+        !isCovered(covered, a)
+      )
         sum += p.consultationValue ?? 0
     }
     return sum
-  }, [appts, patientsById, today])
+  }, [appts, patientsById, today, covered])
 
   const estimatedBilling = useMemo(() => {
-    const range = { fromISO: from, toISO: to }
-    let sum = 0
-    for (const p of patients) {
-      const occs = occurrencesForPatient(p, allSeries, range, appts)
-      for (const o of occs) {
-        const a = o.appointment
-        if (a) {
-          // Falta cobrada continua no potencial do mês; falta comum, não.
-          if (a.status === "cancelled") continue
-          if (a.status === "missed" && !a.chargedAbsence) continue
-          sum += effectiveValue(a, p)
-        } else {
-          sum += p.consultationValue ?? 0
-        }
+    // O pacote vendido no mês é receita do mês; as sessões que ele (ou um
+    // pacote anterior) paga não são receita nova.
+    let sum = packagesRevenue
+    for (const o of monthOccurrences) {
+      const p = patientsById.get(o.patientId)
+      if (!p) continue
+      const a = o.appointment
+      if (isCovered(covered, o)) continue
+      if (a) {
+        // Falta cobrada continua no potencial do mês; falta comum, não.
+        if (a.status === "cancelled") continue
+        if (a.status === "missed" && !a.chargedAbsence) continue
+        sum += effectiveValue(a, p)
+      } else {
+        sum += p.consultationValue ?? 0
       }
     }
     return sum
-  }, [patients, allSeries, appts, from, to])
+  }, [monthOccurrences, patientsById, covered, packagesRevenue])
 
   const attendedCount = appts.filter((a) => a.status === "attended").length
   const missedCount = appts.filter((a) => a.status === "missed").length
@@ -388,8 +417,12 @@ export function DashboardPage() {
       const prev = map.get(day) ?? 0
       map.set(day, prev + effectiveValue(a, patientsById.get(a.patientId)))
     }
+    for (const k of packagesSold) {
+      const day = k.startDate.slice(8, 10)
+      map.set(day, (map.get(day) ?? 0) + k.totalValue)
+    }
     return Array.from(map.entries()).map(([day, value]) => ({ day, value }))
-  }, [appts, patientsById, year, month])
+  }, [appts, patientsById, year, month, packagesSold])
 
   // ── Status pie ───────────────────────────────────────────
   const statusPie = useMemo(() => {
@@ -424,6 +457,12 @@ export function DashboardPage() {
       set.add(a.patientId)
       byMethod.set(a.paymentMethodId, set)
     }
+    for (const k of packagesSold) {
+      if (!k.paymentMethodId) continue
+      const set = byMethod.get(k.paymentMethodId) ?? new Set<string>()
+      set.add(k.patientId)
+      byMethod.set(k.paymentMethodId, set)
+    }
     return Array.from(byMethod.entries())
       .map(([id, patientsSet]) => {
         const pm = methodsById.get(id)
@@ -435,7 +474,7 @@ export function DashboardPage() {
         }
       })
       .sort((a, b) => b.value - a.value)
-  }, [appts, methodsQ.data])
+  }, [appts, methodsQ.data, packagesSold])
 
   // ── Top patients ─────────────────────────────────────────
   const topPatients = useMemo(() => {
@@ -528,8 +567,14 @@ export function DashboardPage() {
       if (idx === -1) continue
       out[idx].value += effectiveValue(a, patientsById.get(a.patientId))
     }
+    for (const k of packages) {
+      const m = Number(k.startDate.slice(5, 7))
+      const y = Number(k.startDate.slice(0, 4))
+      const idx = months.findIndex((mm) => mm.year === y && mm.month === m)
+      if (idx !== -1) out[idx].value += k.totalValue
+    }
     return out
-  }, [longRangeApptsQ.data, patientsById, year, month])
+  }, [longRangeApptsQ.data, patientsById, year, month, packages])
 
   const activeOcc = useMemo<Occurrence | null>(() => {
     if (!activeKey) return null
@@ -551,7 +596,9 @@ export function DashboardPage() {
     patientsQ.isLoading ||
     insurancesQ.isLoading ||
     longRangeApptsQ.isLoading ||
-    reasonsQ.isLoading
+    reasonsQ.isLoading ||
+    packagesQ.isLoading ||
+    coverageLoading
 
   return (
     <div className="space-y-6">
@@ -675,7 +722,7 @@ export function DashboardPage() {
       <div className="grid gap-3 @3xl:grid-cols-2 @6xl:grid-cols-3 [&>*]:min-w-0">
         <ChartCard
           title="Faturamento por dia"
-          subtitle="Sessões pagas no mês"
+          subtitle="Sessões e pacotes pagos no mês"
         >
           <RevenueByDayChart data={revenueByDay} />
         </ChartCard>

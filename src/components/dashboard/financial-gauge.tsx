@@ -138,7 +138,7 @@ export function FinancialGauge({
             <LegendRow
               tone="emerald"
               label="Faturado"
-              sublabel="Sessões cobráveis pagas"
+              sublabel="Sessões pagas e pacotes vendidos"
               value={revenue}
             />
             <LegendRow

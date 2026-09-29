@@ -89,6 +89,46 @@ export interface Appointment {
    * flag, e o banco recusa o contrário (constraint em 033_falta_cobrada.sql).
    */
   chargedAbsence: boolean
+  /**
+   * Pacote que pagou esta sessão. Quem preenche é o banco (trigger de
+   * 034_pacotes_sessoes.sql) — e sempre junto com `paid = true` e
+   * `paidValue = 0`: o dinheiro entrou na venda do pacote, não aqui.
+   */
+  packageId: string | null
+}
+
+/** Sessão que consumiu uma vaga de um pacote (recorte de `Appointment`). */
+export interface PackageSession {
+  appointmentId: string
+  seriesId: string
+  date: string
+  originDate: string
+  time: string | null
+  status: AppointmentStatus
+  chargedAbsence: boolean
+}
+
+/**
+ * Pacote de sessões pré-pago: o paciente fecha N sessões por um valor
+ * combinado e paga na hora. O saldo não é armazenado — sessões usadas são as
+ * que apontam para o pacote (`sessions`).
+ */
+export interface SessionPackage {
+  id: string
+  patientId: string
+  totalSessions: number
+  totalValue: number
+  paymentMethodId: string | null
+  /** Dia da venda: competência da receita e primeiro dia coberto. */
+  startDate: string
+  paidAt: string | null
+  notes: string | null
+  /** Encerrado antes de acabar: o saldo que sobrou não será usado. */
+  closedAt: string | null
+  createdAt: string
+  updatedAt: string
+  /** Sessões já consumidas, da mais antiga para a mais recente. */
+  sessions: PackageSession[]
 }
 
 export interface Occurrence {

@@ -83,8 +83,32 @@ interface Appointment {
   paidAt: string | null
   paymentMethodId: string | null
   chargedAbsence: boolean          // falta cobrada (só com status = missed)
+  packageId: string | null         // pacote que pagou a sessão (preenchido pelo banco)
 }
 ```
+
+### `SessionPackage` (pacote de sessões)
+
+```ts
+interface SessionPackage {
+  id: string                       // "pkg_…"
+  patientId: string
+  totalSessions: number            // 1..200
+  totalValue: number               // valor combinado do pacote inteiro
+  paymentMethodId: string | null
+  startDate: string                // YYYY-MM-DD — dia da venda e 1º dia coberto
+  paidAt: string | null
+  notes: string | null
+  closedAt: string | null          // encerrado antes de acabar
+  createdAt: string
+  updatedAt: string
+  sessions: PackageSession[]       // DERIVADO: appointments com package_id = id
+}
+```
+
+Tabela `session_packages`. **O saldo não é coluna**: sessões usadas são as linhas de
+`appointments` que apontam para o pacote, trazidas embutidas na mesma consulta. Regras em
+[pacotes de sessões](../16-pacotes-sessoes/README.md).
 
 > **`user_id` não aparece nos tipos do front.** Toda tabela de domínio tem
 > `user_id uuid not null default auth.uid()` com RLS `user_id = auth.uid()`; o banco preenche
@@ -231,3 +255,11 @@ Coluna nova em `appointments`: **`payment_method_id`** (escolhida ao marcar a se
   [`022_cofrinhos.sql`](../11-cofrinhos/022_cofrinhos.sql) e
   [`033_falta_cobrada.sql`](../15-falta-cobrada/033_falta_cobrada.sql) — **toda recriação precisa
   repetir `with (security_invoker = true)`**, senão a view deixa de respeitar RLS.
+  A versão vigente das duas views está em
+  [`034_pacotes_sessoes.sql`](../16-pacotes-sessoes/034_pacotes_sessoes.sql): quarto braço
+  (**venda de pacotes**, categoria `Pacotes de sessões`) e sessões pagas por pacote fora dos
+  braços 2 e 3.
+
+**Trigger** `appointments_package` (`before insert or update on appointments`): mantém o
+invariante `package_id` ⇒ sessão cobrável, `paid = true`, `paid_value = 0`, e desconta a sessão
+do pacote quando ela vira cobrável.

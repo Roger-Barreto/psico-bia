@@ -23,8 +23,8 @@ Computações (memoizadas):
 - **Não pagos:** agrega atendidos não pagos por paciente (valor via `effectiveValue`).
 - **KPIs:** atendidos, faltas, em tratamento, encerrados (total + no mês), novos no mês, total de
   sessões.
-- **Financeiro:** faturado (pagos), pendente (atendidos não pagos + scheduled vencidos), estimado
-  (ocorrências do mês).
+- **Financeiro:** faturado (pagos + pacotes vendidos no mês), pendente (atendidos não pagos +
+  scheduled vencidos), estimado (ocorrências do mês, sem as que o saldo de um pacote vai pagar).
 - **Gráficos:** faturamento por dia; pizza de status; top pacientes; faturamento 6 meses; pizzas de
   gênero/convênio/motivo de alta.
 
@@ -42,9 +42,23 @@ Gestão diária. Layout: mini-calendário (340px) + lista do dia.
 - Selecionar um dia filtra `dayOccurrences`; busca client-side por nome; ordena por horário e nome.
 - Cada card mostra horário, avatar, nome, valor, idade·gênero·convênio, status e badges (pendência,
   não pago). Clicar abre o `PatientDrawer`.
+- Sessão de **pacote**: no lugar do valor vai o selo *Pacote 2/4* (já descontada) ou
+  *Pacote · restam 2* (o saldo cobre a sessão que ainda vai acontecer).
 - Botões: **Novo atendimento** (`ScheduleAppointmentDialog`) e **Novo paciente** (`Sheet` com
   `PatientForm`).
 - As ocorrências do mês são calculadas com `occurrencesForPatient` + `pendencyCount`.
+
+## `/pacotes` — `packages.tsx`
+
+Acompanhamento dos [pacotes de sessões](../16-pacotes-sessoes/README.md).
+
+- Totais: pacotes em andamento, **sessões a realizar** (pagas e ainda não feitas) e o valor
+  recebido por elas.
+- Filtro *Em andamento / Concluídos / Encerrados / Todos* (com contagem) e busca por paciente.
+- Cada cartão: paciente, barra de uso, *N de M realizadas · restam K*, valor total e por sessão.
+  Clicar abre o `PackageDetailDialog`.
+- **Novo pacote** (`PackageDialog`) para o pacote combinado fora de uma sessão.
+- Pacote de paciente arquivado não aparece.
 
 ## `/patients` — `patients.tsx`
 
@@ -69,7 +83,7 @@ Gestão diária. Layout: mini-calendário (340px) + lista do dia.
 ## `/discharge-reasons` — `discharge-reasons.tsx`
 
 - CRUD de **motivos de encerramento** (só nome). Mesma mecânica de inline edit + arquivar/restaurar.
-- Alimenta o select de motivo na alta do paciente.
+- Alimenta as opções de motivo na alta do paciente (que também cria motivo no lugar).
 
 ## Padrões comuns às páginas de cadastro
 

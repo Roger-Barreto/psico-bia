@@ -45,6 +45,17 @@ A view **`finance_ledger`** (`security_invoker=true`, respeita RLS por usuário)
      reescrevê-la às cegas arriscaria perder o `security_invoker` (RLS) e a ordem de colunas de
      que o `finance_ledger` depende. Os braços 2 e 3 são disjuntos.
 
+4. **Venda de pacotes de sessões** (migração
+   [034](../16-pacotes-sessoes/034_pacotes_sessoes.sql)) — quarto braço, derivado de
+   `session_packages` e read-only:
+   - Uma receita por **pacote** de paciente **ativo**, no **dia da venda** (`start_date`),
+     sempre recebida (`settled = true`).
+   - Descrição *"Pacote de 4 sessões — Nome"*, categoria própria **`Pacotes de sessões`**.
+   - As sessões que o pacote paga (`appointments.package_id` preenchido) **saem** dos braços 2
+     e 3: valem R$ 0,00 e só poluiriam a lista.
+   - Para isso a view `finance_clinic_income` ganhou o filtro `package_id is null`; a
+     definição dela, que nunca tinha sido versionada, agora está no arquivo da 034.
+
 > Marcar uma sessão como paga agora **exige escolher a forma de pagamento**
 > ([`payment-control.tsx`](../../src/components/patient/payment-control.tsx)); ela propaga
 > automaticamente para a receita clínica no ledger.

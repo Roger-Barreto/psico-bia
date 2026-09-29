@@ -25,6 +25,8 @@ pessoa (ou agente) que precise entender, manter ou evoluir o sistema.
 | [`13-google-agenda/`](13-google-agenda/) | **Módulo Google Agenda (proposta):** [plano de implementação](13-google-agenda/plano-de-implementacao.md) da sincronização bidirecional com o Google Calendar + duração de sessão (migrações 028–031). |
 | [`14-cadastro-paciente/`](14-cadastro-paciente/) | Evoluções do cadastro de paciente: [migração 032](14-cadastro-paciente/032_nascimento_opcional.sql) — data de nascimento opcional. |
 | [`15-falta-cobrada/`](15-falta-cobrada/) | **Falta cobrada:** [migração 033](15-falta-cobrada/033_falta_cobrada.sql) — `appointments.charged_absence` + terceiro braço do `finance_ledger`. |
+| [`16-pacotes-sessoes/`](16-pacotes-sessoes/) | **Pacotes de sessões:** [migração 034](16-pacotes-sessoes/034_pacotes_sessoes.sql) — `session_packages`, `appointments.package_id`, trigger de consumo automático e 4º braço do `finance_ledger`. |
+| [`17-mobile/`](17-mobile/) | **Celular:** o X de fechar sob a barra de status do iPhone, o motivo de encerramento e o conteúdo cortado na lateral. |
 | [`evolucao/`](evolucao/) | **Migração local → nuvem (Supabase):** plano, passo a passo e tracker de progresso. |
 
 ---

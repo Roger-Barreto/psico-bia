@@ -20,7 +20,8 @@ detalhada.
 - [x] Avatar monstrinho (56 opções; aleatório/estável por ID).
 - [x] Editar cadastro (com renomeação automática da pasta de documentos).
 - [x] Arquivar (soft-delete) e reexibir arquivados.
-- [x] Encerrar tratamento (alta) com data e motivo; prévia de futuros removidos.
+- [x] Encerrar tratamento (alta) com data e motivo (escolhido na própria tela, com criação de
+  motivo no lugar); prévia de futuros removidos e aviso de sessões de pacote ainda não realizadas.
 - [x] Reabrir tratamento.
 - [x] Excluir permanentemente (cascata: séries, atendimentos, anotações, checklist, documentos).
 - [x] Busca por nome; deep-link `?edit=<id>`.
@@ -82,6 +83,12 @@ detalhada.
   categoria "Faltas cobradas" do módulo financeiro.
 - [x] **Escolher a forma de pagamento ao marcar paga** (obrigatório; alimenta o módulo financeiro).
 - [x] Desmarcar pagamento.
+- [x] **Pacote de sessões**: ao marcar paga, vender um pacote (quantidade + valor total); as
+  próximas sessões do paciente — e as faltas cobradas — são descontadas dele automaticamente.
+- [x] Pagar com o saldo do pacote uma sessão em aberto, tirar uma sessão do pacote, editar,
+  encerrar/reabrir e excluir o pacote.
+- [x] Acompanhar em **Clínica › Pacotes**: sessões realizadas e a realizar por pacote, e o total
+  de sessões já pagas ainda por acontecer. → [pacotes](16-pacotes-sessoes/README.md)
 - [x] Registro de `paidAt`.
 - [x] Alertas de "não pago" na agenda, no calendário e no dashboard.
 - → [financeiro](02-regras-de-negocio/financeiro.md)

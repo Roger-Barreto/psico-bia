@@ -83,7 +83,10 @@ export const DatePicker = React.forwardRef<HTMLButtonElement, DatePickerProps>(
                     e.stopPropagation()
                     onChange?.("")
                   }}
-                  className="inline-flex size-5 items-center justify-center rounded hover:bg-muted/50 hover:text-foreground"
+                  // Alvo de toque de 36px (as margens negativas mantêm a altura
+                  // do campo): com 20px um toque um pouco fora abria o
+                  // calendário em vez de limpar a data.
+                  className="-my-2 -mr-1 inline-flex size-9 items-center justify-center rounded-md hover:bg-muted/50 hover:text-foreground"
                   aria-label="Limpar data"
                 >
                   <XIcon weight="bold" className="size-3.5" />

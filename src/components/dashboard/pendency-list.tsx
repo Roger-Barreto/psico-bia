@@ -34,7 +34,7 @@ export function PendencyList({
       <h2 className="text-sm font-semibold text-muted-foreground">
         Pacientes com pendências ({items.length})
       </h2>
-      <div className="grid max-h-[420px] gap-2 overflow-y-auto pr-1">
+      <div className="grid max-h-[420px] grid-cols-1 gap-2 overflow-y-auto pr-1">
         {items.map((it) => (
           <button
             key={it.patient.id}

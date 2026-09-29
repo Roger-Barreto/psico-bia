@@ -14,6 +14,7 @@ import {
   CreditCardIcon,
   HeartbeatIcon,
   PiggyBankIcon,
+  PackageIcon,
   ListIcon,
   ListBulletsIcon,
   ListChecksIcon,
@@ -86,6 +87,7 @@ const navItems: NavEntry[] = [
     children: [
       { to: "/", label: "Dashboard", icon: ChartLineIcon, end: true },
       { to: "/agenda", label: "Agenda", icon: CalendarBlankIcon },
+      { to: "/pacotes", label: "Pacotes", icon: PackageIcon },
       {
         id: "clinica-cadastros",
         label: "Cadastros",
@@ -192,7 +194,7 @@ export function AppShell() {
         <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
           <SheetContent
             side="left"
-            className="w-72 max-w-[85vw] p-0 pt-safe-top pl-safe-left"
+            className="w-72 max-w-[85vw]"
           >
             <SheetHeader className="border-b-0 px-6 pb-2 pt-6">
               <SheetTitle className="flex items-center gap-3">

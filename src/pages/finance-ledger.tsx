@@ -856,7 +856,7 @@ export function FinanceLedgerPage() {
         {/* min-w-0 nos itens do grid: sem isso a trilha cresce até o
             min-content da lista (descrições longas não quebram) e o mês
             inteiro estoura a largura da tela no celular. */}
-        <div className="grid gap-4 @4xl:grid-cols-[320px_1fr] @6xl:grid-cols-[360px_1fr]">
+        <div className="grid grid-cols-1 gap-4 @4xl:grid-cols-[320px_minmax(0,1fr)] @6xl:grid-cols-[360px_minmax(0,1fr)]">
           <div className="min-w-0 space-y-3">
             <LedgerMiniCalendar
               period={period}

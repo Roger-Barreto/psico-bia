@@ -1,11 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
-import {
-  CheckIcon,
-  MagnifyingGlassIcon,
-  WarningIcon,
-  XIcon,
-} from "@phosphor-icons/react"
+import { WarningIcon } from "@phosphor-icons/react"
 import type { Frequency, Patient } from "@/db/types"
 import {
   useAppointmentsInRange,
@@ -26,7 +21,6 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -38,9 +32,8 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { DatePicker } from "@/components/ui/date-picker"
 import { TimePicker } from "@/components/ui/time-picker"
-import { PatientAvatar } from "@/components/patient/patient-avatar"
+import { PatientCombobox } from "@/components/patient/patient-combobox"
 import { addDays, formatLongDateBR, fromISO, todayISO, toISO } from "@/domain/dates"
-import { cn } from "@/lib/utils"
 
 type Tipo = "single" | "recurring"
 
@@ -293,128 +286,5 @@ export function ScheduleAppointmentDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
-}
-
-function normalize(s: string): string {
-  return s
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-}
-
-interface ComboProps {
-  patients: Patient[]
-  value: string
-  onChange: (id: string) => void
-}
-
-function PatientCombobox({ patients, value, onChange }: ComboProps) {
-  const [query, setQuery] = useState("")
-  const [activeIdx, setActiveIdx] = useState(0)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  const sorted = useMemo(
-    () => patients.slice().sort((a, b) => a.name.localeCompare(b.name)),
-    [patients],
-  )
-  const filtered = useMemo(() => {
-    const q = normalize(query.trim())
-    if (!q) return sorted
-    return sorted.filter((p) => normalize(p.name).includes(q))
-  }, [sorted, query])
-
-  const selected = patients.find((p) => p.id === value) ?? null
-
-  useEffect(() => {
-    if (activeIdx >= filtered.length) setActiveIdx(0)
-  }, [filtered, activeIdx])
-
-  function pick(id: string) {
-    onChange(id)
-    setQuery("")
-  }
-
-  function onKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "ArrowDown") {
-      e.preventDefault()
-      setActiveIdx((i) => Math.min(i + 1, filtered.length - 1))
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault()
-      setActiveIdx((i) => Math.max(i - 1, 0))
-    } else if (e.key === "Enter") {
-      e.preventDefault()
-      const p = filtered[activeIdx]
-      if (p) pick(p.id)
-    }
-  }
-
-  if (selected) {
-    return (
-      <div className="flex items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2">
-        <span className="flex min-w-0 items-center gap-2">
-          <PatientAvatar
-            avatarId={selected.avatarId}
-            name={selected.name}
-            size="sm"
-          />
-          <span className="truncate text-sm">{selected.name}</span>
-        </span>
-        <button
-          type="button"
-          onClick={() => onChange("")}
-          className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-          aria-label="Trocar paciente"
-        >
-          <XIcon weight="bold" className="size-4" />
-        </button>
-      </div>
-    )
-  }
-
-  return (
-    <div className="rounded-md border border-input bg-background">
-      <div className="relative border-b border-border/60">
-        <MagnifyingGlassIcon
-          weight="fill"
-          className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-        />
-        <Input
-          ref={inputRef}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder="Buscar por nome..."
-          className="border-0 bg-transparent pl-9 focus-visible:ring-0"
-        />
-      </div>
-      <div className="max-h-56 touch-pan-y overflow-y-auto overscroll-contain py-1 [-webkit-overflow-scrolling:touch]">
-        {filtered.length === 0 && (
-          <div className="px-3 py-4 text-center text-sm text-muted-foreground">
-            {patients.length === 0
-              ? "Nenhum paciente ativo"
-              : "Nenhum resultado"}
-          </div>
-        )}
-        {filtered.map((p, i) => (
-          <button
-            key={p.id}
-            type="button"
-            onMouseEnter={() => setActiveIdx(i)}
-            onClick={() => pick(p.id)}
-            className={cn(
-              "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors",
-              i === activeIdx ? "bg-accent/30" : "hover:bg-accent/20",
-            )}
-          >
-            <PatientAvatar avatarId={p.avatarId} name={p.name} size="sm" />
-            <span className="truncate flex-1">{p.name}</span>
-            {p.id === value && (
-              <CheckIcon weight="bold" className="size-4 text-primary" />
-            )}
-          </button>
-        ))}
-      </div>
-    </div>
   )
 }

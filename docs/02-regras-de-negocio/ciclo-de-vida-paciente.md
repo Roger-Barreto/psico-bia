@@ -60,6 +60,11 @@ Estados e transições de um paciente, do cadastro à exclusão. Lógica em
   3. Remove atendimentos **futuros** do paciente com status `scheduled`/`rescheduled` e
      `date > dischargedAt` (conta `deletedAppointments`). Atendimentos **passados** e
      atendidos/faltas/cancelados permanecem para histórico.
+- O **motivo** é um grupo de opções na própria tela (não um menu flutuante), com criação de
+  motivo inline. Conta que ainda não cadastrou nenhum vê sugestões de um toque. Ver
+  [celular](../17-mobile/README.md#2-motivo-de-encerramento).
+- Se o paciente tem **pacote com sessões pagas e não realizadas**, a confirmação avisa quantas
+  são. Encerrar o tratamento não encerra o pacote.
 - A UI mostra uma **prévia** de quantos atendimentos futuros serão removidos
   (`futureOccurrenceCount`, calculada projetando ocorrências 2 anos à frente) antes de confirmar.
 - Retorna `{ patient, deletedAppointments }`.

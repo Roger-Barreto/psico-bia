@@ -126,7 +126,7 @@ export function PatientsPage() {
         </Card>
       )}
 
-      <div className="grid gap-3 @2xl:grid-cols-2 @4xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2 @4xl:grid-cols-3">
         {filtered.map((p) => {
           const openEdit = () => {
             setEditing(p)
@@ -179,7 +179,7 @@ export function PatientsPage() {
                 </div>
                 <div className="flex flex-col gap-1">
                   <button
-                    className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                    className="grid size-9 place-items-center rounded-md text-muted-foreground hover:bg-muted/40 hover:text-foreground"
                     onClick={(e) => {
                       e.stopPropagation()
                       openEdit()
@@ -190,7 +190,7 @@ export function PatientsPage() {
                   </button>
                   {p.active && (
                     <button
-                      className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+                      className="grid size-9 place-items-center rounded-md text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
                       onClick={async (e) => {
                         e.stopPropagation()
                         if (

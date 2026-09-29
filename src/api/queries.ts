@@ -27,6 +27,7 @@ import type {
   IndividualChecklistItem,
   Insurance,
   LedgerEntry,
+  PackageSession,
   Patient,
   PatientAnnotation,
   PatientDocument,
@@ -34,6 +35,7 @@ import type {
   Person,
   RecurringRule,
   RecurringScope,
+  SessionPackage,
   SharedChecklistItem,
   Transaction,
   TransactionKind,
@@ -171,6 +173,7 @@ interface AppointmentRow {
   paid_at: string | null
   payment_method_id: string | null
   charged_absence: boolean
+  package_id: string | null
 }
 
 function rowToAppointment(r: AppointmentRow): Appointment {
@@ -193,6 +196,8 @@ function rowToAppointment(r: AppointmentRow): Appointment {
     paymentMethodId: r.payment_method_id ?? null,
     // linhas gravadas antes de 033 não trazem a coluna
     chargedAbsence: r.charged_absence ?? false,
+    // idem para 034
+    packageId: r.package_id ?? null,
   }
 }
 
@@ -219,6 +224,7 @@ function appointmentToRow(
     row.payment_method_id = a.paymentMethodId
   if (a.chargedAbsence !== undefined)
     row.charged_absence = a.chargedAbsence
+  if (a.packageId !== undefined) row.package_id = a.packageId
   return row
 }
 
@@ -337,6 +343,7 @@ export const qk = {
   dischargeReasons: ["discharge-reasons"] as const,
   annotations: (patientId?: string) =>
     ["annotations", patientId ?? "all"] as const,
+  packages: ["session-packages"] as const,
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -469,6 +476,7 @@ export function useDischargePatient() {
       qc.invalidateQueries({ queryKey: qk.patients })
       qc.invalidateQueries({ queryKey: ["series"] })
       qc.invalidateQueries({ queryKey: ["appointments"] })
+      qc.invalidateQueries({ queryKey: qk.packages })
     },
   })
 }
@@ -521,6 +529,8 @@ export function useDeletePatientPermanently() {
       qc.invalidateQueries({ queryKey: ["appointments"] })
       qc.invalidateQueries({ queryKey: ["annotations"] })
       qc.invalidateQueries({ queryKey: ["individual-checklist"] })
+      qc.invalidateQueries({ queryKey: qk.packages })
+      qc.invalidateQueries({ queryKey: ["finance-ledger"] })
     },
   })
 }
@@ -902,8 +912,13 @@ export function useDeleteIndividualItemPermanent() {
 // ════════════════════════════════════════════════════════════════
 // APPOINTMENTS
 // ════════════════════════════════════════════════════════════════
-export function useAppointmentsInRange(from: string, to: string) {
+export function useAppointmentsInRange(
+  from: string,
+  to: string,
+  opts?: { enabled?: boolean },
+) {
   return useQuery({
+    enabled: opts?.enabled ?? true,
     queryKey: qk.appointments(from, to),
     queryFn: async () => {
       const { data, error } = await supabase
@@ -938,6 +953,7 @@ export function useUpsertAppointment() {
       paidAt?: string | null
       paymentMethodId?: string | null
       chargedAbsence?: boolean
+      packageId?: string | null
     }) => {
       // Lê a linha INTEIRA, não só o id. O upsert grava a row completa, então
       // tudo que o chamador não informar precisa vir do que já está gravado.
@@ -968,6 +984,11 @@ export function useUpsertAppointment() {
         paid_at: null,
         payment_method_id: null,
         charged_absence: false,
+        // Sempre no payload, mesmo em linha nova: se outro aparelho criar a
+        // linha entre a leitura acima e este upsert, o `DO UPDATE` precisa
+        // levar o pacote que o banco escolheu — sem a coluna, levaria só o
+        // "pago, valor 0" e a sessão ficaria paga sem pacote.
+        package_id: null,
         ...(prev ?? {}),
         // Identidade e status vêm sempre da chamada.
         series_id: input.seriesId,
@@ -988,6 +1009,7 @@ export function useUpsertAppointment() {
           paidAt: input.paidAt,
           paymentMethodId: input.paymentMethodId,
           chargedAbsence: input.chargedAbsence,
+          packageId: input.packageId,
         }),
       } as AppointmentRow
       const { data, error } = await supabase
@@ -1002,6 +1024,8 @@ export function useUpsertAppointment() {
       qc.invalidateQueries({ queryKey: ["appointments"] })
       // attended/paid sessions feed the derived clinic income in the ledger
       qc.invalidateQueries({ queryKey: ["finance-ledger"] })
+      // marcar atendido/falta cobrada pode ter consumido uma vaga de pacote
+      qc.invalidateQueries({ queryKey: qk.packages })
     },
   })
 }
@@ -1036,6 +1060,8 @@ export function useUndoAppointment() {
       // Desfazer apaga sessões que podiam alimentar a receita clínica
       // derivada (atendida paga, falta cobrada) — o ledger precisa recarregar.
       qc.invalidateQueries({ queryKey: ["finance-ledger"] })
+      // …e podiam estar ocupando vaga de pacote.
+      qc.invalidateQueries({ queryKey: qk.packages })
     },
   })
 }
@@ -1064,6 +1090,7 @@ export function usePatchAppointment() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["appointments"] })
       qc.invalidateQueries({ queryKey: ["finance-ledger"] })
+      qc.invalidateQueries({ queryKey: qk.packages })
     },
   })
 }
@@ -1385,6 +1412,215 @@ export function useDeletePatientAnnotation() {
       return rowToAnnotation(data as PatientAnnotationRow)
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["annotations"] }),
+  })
+}
+
+// ════════════════════════════════════════════════════════════════
+// SESSION PACKAGES (pacotes de sessões pré-pagos)
+// ════════════════════════════════════════════════════════════════
+interface PackageSessionRow {
+  id: string
+  series_id: string
+  date: string
+  origin_date: string
+  time: string | null
+  status: AppointmentStatus
+  charged_absence: boolean
+}
+
+interface SessionPackageRow {
+  id: string
+  patient_id: string
+  total_sessions: number
+  total_value: number
+  payment_method_id: string | null
+  start_date: string
+  paid_at: string | null
+  notes: string | null
+  closed_at: string | null
+  created_at: string
+  updated_at: string
+  appointments?: PackageSessionRow[]
+}
+
+function rowToPackageSession(r: PackageSessionRow): PackageSession {
+  return {
+    appointmentId: r.id,
+    seriesId: r.series_id,
+    date: r.date,
+    originDate: r.origin_date,
+    time: r.time,
+    status: r.status,
+    chargedAbsence: r.charged_absence ?? false,
+  }
+}
+
+function rowToSessionPackage(r: SessionPackageRow): SessionPackage {
+  return {
+    id: r.id,
+    patientId: r.patient_id,
+    totalSessions: Number(r.total_sessions),
+    totalValue: Number(r.total_value),
+    paymentMethodId: r.payment_method_id,
+    startDate: r.start_date,
+    paidAt: r.paid_at,
+    notes: r.notes,
+    closedAt: r.closed_at,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    sessions: (r.appointments ?? [])
+      .map(rowToPackageSession)
+      .sort(
+        (a, b) =>
+          a.date.localeCompare(b.date) ||
+          (a.time ?? "").localeCompare(b.time ?? "") ||
+          a.appointmentId.localeCompare(b.appointmentId),
+      ),
+  }
+}
+
+// As sessões vêm embutidas (FK appointments.package_id): uma ida ao banco
+// traz o pacote e o que já foi consumido dele — o saldo nunca é um número
+// guardado, é sempre esta contagem.
+const PACKAGE_SELECT =
+  "*, appointments(id, series_id, date, origin_date, time, status, charged_absence)"
+
+/** Traduz os erros levantados pelos triggers/RPC de 034 para o usuário. */
+export function packageErrorMessage(err: unknown): string {
+  const raw =
+    err && typeof err === "object" && "message" in err
+      ? String((err as { message: unknown }).message)
+      : ""
+  if (raw.includes("package_full"))
+    return "Este pacote não tem mais sessões disponíveis."
+  if (raw.includes("package_closed")) return "Este pacote já foi encerrado."
+  if (raw.includes("package_not_found")) return "Pacote não encontrado."
+  if (raw.includes("package_total_below_used"))
+    return "O pacote não pode ter menos sessões do que as já realizadas."
+  if (raw.includes("appointment_already_paid"))
+    return "Esta sessão já tem um pagamento registrado. Desmarque o pagamento antes de descontá-la do pacote."
+  if (raw.includes("appointment_not_found"))
+    return "Esta sessão não pode mais ser paga com pacote — atualize a tela."
+  if (raw.includes("session_packages_total_sessions_check"))
+    return "A quantidade de sessões deve ficar entre 1 e 200."
+  if (raw.includes("session_packages_total_value_check"))
+    return "O valor do pacote não pode ser negativo."
+  return raw || "Erro"
+}
+
+function invalidatePackages(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: qk.packages })
+  // o pacote paga sessões e é uma linha de receita no ledger
+  qc.invalidateQueries({ queryKey: ["appointments"] })
+  qc.invalidateQueries({ queryKey: ["finance-ledger"] })
+}
+
+export function useSessionPackages() {
+  return useQuery({
+    queryKey: qk.packages,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("session_packages")
+        .select(PACKAGE_SELECT)
+        .order("start_date", { ascending: true })
+        .order("created_at", { ascending: true })
+      if (error) throw error
+      return (data ?? []).map((r) =>
+        rowToSessionPackage(r as unknown as SessionPackageRow),
+      )
+    },
+    staleTime: 15_000,
+  })
+}
+
+export function useCreateSessionPackage() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      patientId: string
+      totalSessions: number
+      totalValue: number
+      paymentMethodId: string | null
+      startDate: string
+      /** Sessão em que o pacote foi fechado: já consome a 1ª vaga. */
+      appointmentId?: string | null
+      notes?: string | null
+    }) => {
+      const { data, error } = await supabase.rpc("create_session_package", {
+        p_id: newId("pkg"),
+        p_patient_id: input.patientId,
+        p_total_sessions: input.totalSessions,
+        p_total_value: input.totalValue,
+        p_payment_method_id: input.paymentMethodId,
+        p_start_date: input.startDate,
+        p_appointment_id: input.appointmentId ?? null,
+        p_notes: input.notes ?? null,
+      })
+      if (error) throw error
+      return rowToSessionPackage(data as SessionPackageRow)
+    },
+    onSuccess: () => invalidatePackages(qc),
+  })
+}
+
+export function useUpdateSessionPackage() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      id,
+      patch,
+    }: {
+      id: string
+      patch: Partial<
+        Pick<
+          SessionPackage,
+          | "totalSessions"
+          | "totalValue"
+          | "paymentMethodId"
+          | "startDate"
+          | "notes"
+          | "closedAt"
+        >
+      >
+    }) => {
+      const row: Partial<SessionPackageRow> = { updated_at: nowIso() }
+      if (patch.totalSessions !== undefined)
+        row.total_sessions = patch.totalSessions
+      if (patch.totalValue !== undefined) row.total_value = patch.totalValue
+      if (patch.paymentMethodId !== undefined)
+        row.payment_method_id = patch.paymentMethodId
+      if (patch.startDate !== undefined) row.start_date = patch.startDate
+      if (patch.notes !== undefined) row.notes = patch.notes
+      if (patch.closedAt !== undefined) row.closed_at = patch.closedAt
+      const { data, error } = await supabase
+        .from("session_packages")
+        .update(row)
+        .eq("id", id)
+        .select(PACKAGE_SELECT)
+        .single()
+      if (error) throw error
+      return rowToSessionPackage(data as unknown as SessionPackageRow)
+    },
+    onSuccess: () => invalidatePackages(qc),
+  })
+}
+
+/**
+ * Apaga o pacote. As sessões que ele tinha pago são soltas pelo banco
+ * (`on delete set null` + trigger) e voltam a "não paga".
+ */
+export function useDeleteSessionPackage() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("session_packages")
+        .delete()
+        .eq("id", id)
+      if (error) throw error
+      return { ok: true as const }
+    },
+    onSuccess: () => invalidatePackages(qc),
   })
 }
 

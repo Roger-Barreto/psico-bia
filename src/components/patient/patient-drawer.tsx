@@ -6,7 +6,9 @@ import {
   CalendarBlankIcon,
   CheckCircleIcon,
   ClockIcon,
+  CaretRightIcon,
   CurrencyDollarIcon,
+  PackageIcon,
   PencilSimpleIcon,
   PlusIcon,
   ProhibitIcon,
@@ -27,6 +29,7 @@ import {
   useInsurances,
   usePatchAppointment,
   usePatientAnnotations,
+  useSessionPackages,
   useSharedChecklist,
   useUndoAppointment,
   useUpsertAppointment,
@@ -59,6 +62,16 @@ import { Spinner } from "@/components/ui/spinner"
 import { UndoAppointmentDialog } from "@/components/appointments/undo-appointment-dialog"
 import { MissedAppointmentDialog } from "@/components/appointments/missed-appointment-dialog"
 import { RescheduleConflictDialog } from "@/components/appointments/reschedule-conflict-dialog"
+import { PackageDetailDialog } from "@/components/packages/package-detail-dialog"
+import { PackageProgress } from "@/components/packages/package-progress"
+import {
+  openPackage,
+  packageForDate,
+  packageRemaining,
+  packagesOfPatient,
+  positionInPackage,
+  sessionsLabel,
+} from "@/domain/packages"
 
 interface Props {
   occurrence: Occurrence | null
@@ -83,6 +96,7 @@ export function PatientDrawer({
   const insurancesQ = useInsurances()
   const seriesQ = useAppointmentSeries()
   const annotationsQ = usePatientAnnotations(patient?.id)
+  const packagesQ = useSessionPackages()
   const deleteAnnotation = useDeletePatientAnnotation()
   const [reschedDate, setReschedDate] = useState("")
   const [reschedTime, setReschedTime] = useState("")
@@ -94,6 +108,12 @@ export function PatientDrawer({
   const [conflictOpen, setConflictOpen] = useState(false)
   const [conflictTarget, setConflictTarget] = useState<Occurrence | null>(null)
   const [missedOpen, setMissedOpen] = useState(false)
+  const [packageDetailId, setPackageDetailId] = useState<string | null>(null)
+
+  const patientPackages = useMemo(
+    () => (patient ? packagesOfPatient(packagesQ.data ?? [], patient.id) : []),
+    [packagesQ.data, patient],
+  )
 
   const shared = sharedQ.data ?? []
   const individual = indivQ.data ?? []
@@ -125,6 +145,7 @@ export function PatientDrawer({
       setAddAnnotationOpen(false)
       setConflictOpen(false)
       setConflictTarget(null)
+      setPackageDetailId(null)
     }
   }, [open])
 
@@ -162,10 +183,40 @@ export function PatientDrawer({
   const canAct = !isFuture && !hasFinalStatus
   const wasRescheduled = !!appt?.rescheduledTo
 
+  // Pacote desta sessão (se ela já foi paga por um), o pacote que o banco
+  // usaria ao concluí-la, e o que aparece no cartão "Pacote" do drawer.
+  const linkedPackage = appt?.packageId
+    ? (patientPackages.find((k) => k.id === appt.packageId) ?? null)
+    : null
+  const coveringPackage =
+    !appt?.paid && !appt?.packageId
+      ? packageForDate(patientPackages, o.date)
+      : null
+  const shownPackage = linkedPackage ?? openPackage(patientPackages)
+  const detailPackage =
+    patientPackages.find((k) => k.id === packageDetailId) ?? null
+
+  /**
+   * Texto do aviso quando o banco descontou a sessão de um pacote. O pacote
+   * em cache ainda é o de ANTES do consumo, então a posição é calculada como
+   * "onde esta sessão entra".
+   */
+  function packageNote(saved: Appointment): string | null {
+    if (!saved.packageId) return null
+    const k = patientPackages.find((x) => x.id === saved.packageId)
+    if (!k) return "descontada do pacote"
+    const n = positionInPackage(k, {
+      appointmentId: saved.id,
+      date: saved.date,
+      time: saved.time,
+    })
+    return `descontada do pacote (sessão ${n} de ${k.totalSessions})`
+  }
+
   async function markAttended() {
     const snapshot = buildSnapshotIds(p.id, shared, individual)
     try {
-      await upsert.mutateAsync({
+      const saved = await upsert.mutateAsync({
         seriesId: o.seriesId,
         patientId: p.id,
         originDate: o.originDate,
@@ -178,7 +229,10 @@ export function PatientDrawer({
         checkedItemIds: appt?.checkedItemIds ?? [],
       })
       celebrate("happy")
-      toast.success("Marcado como atendido")
+      const note = packageNote(saved)
+      toast.success(
+        note ? `Marcado como atendido · ${note}` : "Marcado como atendido",
+      )
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro")
     }
@@ -191,7 +245,7 @@ export function PatientDrawer({
    */
   async function markMissed(charged: boolean, paidValue: number | null) {
     try {
-      await upsert.mutateAsync({
+      const saved = await upsert.mutateAsync({
         seriesId: o.seriesId,
         patientId: p.id,
         originDate: o.originDate,
@@ -210,7 +264,14 @@ export function PatientDrawer({
       setMissedOpen(false)
       // Falta cobrada ainda é uma falta: o confete triste continua valendo.
       celebrate("sad")
-      toast.success(charged ? "Falta cobrada registrada" : "Falta registrada")
+      const note = packageNote(saved)
+      toast.success(
+        note
+          ? `Falta registrada · ${note}`
+          : charged
+            ? "Falta cobrada registrada"
+            : "Falta registrada",
+      )
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro")
     }
@@ -233,15 +294,16 @@ export function PatientDrawer({
       if (
         !(await confirmDialog({
           title: "Deixar de cobrar esta falta",
-          description:
-            "O pagamento já registrado nesta sessão será desmarcado e a receita sai do financeiro. Continuar?",
-          destructive: true,
+          description: appt.packageId
+            ? "A falta deixa de contar como sessão do pacote e a vaga volta para o saldo. Continuar?"
+            : "O pagamento já registrado nesta sessão será desmarcado e a receita sai do financeiro. Continuar?",
+          destructive: !appt.packageId,
         }))
       )
         return
     }
     try {
-      await patch.mutateAsync({
+      const saved = await patch.mutateAsync({
         id: appt.id,
         patch: next
           ? { chargedAbsence: true }
@@ -253,7 +315,14 @@ export function PatientDrawer({
               paymentMethodId: null,
             },
       })
-      toast.success(next ? "Falta passou a ser cobrada" : "Falta não será cobrada")
+      const note = packageNote(saved)
+      toast.success(
+        note
+          ? `Falta ${note}`
+          : next
+            ? "Falta passou a ser cobrada"
+            : "Falta não será cobrada",
+      )
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro")
     }
@@ -287,12 +356,23 @@ export function PatientDrawer({
   async function doReschedule() {
     if (appt?.paid) {
       if (
-        !(await confirmDialog({
-          title: "Reagendar sessão paga",
-          description:
-            "O pagamento registrado será mantido, mas sai do faturamento enquanto a sessão estiver apenas agendada. Ele volta a contar quando você marcar a nova data como atendida.",
-          confirmLabel: "Reagendar",
-        }))
+        !(await confirmDialog(
+          appt.packageId
+            ? {
+                // Sessão de pacote não carrega pagamento próprio: o banco
+                // devolve a vaga ao saldo e desconta de novo na nova data.
+                title: "Reagendar sessão do pacote",
+                description:
+                  "A sessão volta para o saldo do pacote e é descontada de novo quando você marcar a nova data como atendida.",
+                confirmLabel: "Reagendar",
+              }
+            : {
+                title: "Reagendar sessão paga",
+                description:
+                  "O pagamento registrado será mantido, mas sai do faturamento enquanto a sessão estiver apenas agendada. Ele volta a contar quando você marcar a nova data como atendida.",
+                confirmLabel: "Reagendar",
+              },
+        ))
       )
         return
     }
@@ -534,6 +614,38 @@ export function PatientDrawer({
             </Button>
           )}
 
+          {/* PACOTE — saldo do paciente, sempre à vista durante o atendimento */}
+          {shownPackage && (
+            <button
+              type="button"
+              onClick={() => setPackageDetailId(shownPackage.id)}
+              className="flex w-full items-start gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-left transition-colors hover:border-emerald-500/50 hover:bg-emerald-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <PackageIcon
+                weight="fill"
+                className="mt-0.5 size-5 shrink-0 text-emerald-300"
+              />
+              <span className="min-w-0 flex-1 space-y-2">
+                <span className="block text-sm font-medium">
+                  Pacote de {sessionsLabel(shownPackage.totalSessions)}
+                </span>
+                <PackageProgress pkg={shownPackage} />
+                {canAct && coveringPackage && (
+                  <span className="block text-xs text-emerald-200/80">
+                    Ao marcar como atendido, esta sessão é descontada do pacote
+                    {packageRemaining(coveringPackage) === 1
+                      ? " — é a última."
+                      : "."}
+                  </span>
+                )}
+              </span>
+              <CaretRightIcon
+                weight="bold"
+                className="mt-1 size-4 shrink-0 text-muted-foreground"
+              />
+            </button>
+          )}
+
           {/* MENSAGEM CONTEXTUAL quando não pode agir */}
           {isFuture && !hasFinalStatus && (
             <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
@@ -578,7 +690,9 @@ export function PatientDrawer({
                     "Atendimento concluído. Preencha o checklist abaixo."}
                   {isMissed &&
                     (isChargedAbsence
-                      ? "Paciente faltou — esta sessão está sendo cobrada."
+                      ? appt?.packageId
+                        ? "Paciente faltou — a falta foi descontada do pacote."
+                        : "Paciente faltou — esta sessão está sendo cobrada."
                       : "Paciente faltou neste atendimento.")}
                 </span>
                 {isMissed && (
@@ -594,7 +708,11 @@ export function PatientDrawer({
                     )}
                   >
                     {patch.isPending && <Spinner className="size-3" />}
-                    {isChargedAbsence ? "Deixar de cobrar" : "Cobrar esta falta"}
+                    {isChargedAbsence
+                      ? "Deixar de cobrar"
+                      : coveringPackage
+                        ? "Descontar do pacote"
+                        : "Cobrar esta falta"}
                   </button>
                 )}
               </span>
@@ -721,7 +839,7 @@ export function PatientDrawer({
               {annotations.map((a) => (
                 <div
                   key={a.id}
-                  className="relative rounded-lg border border-secondary/40 bg-secondary/10 px-3 py-2.5 pr-9"
+                  className="relative rounded-lg border border-secondary/40 bg-secondary/10 px-3 py-2.5 pr-11"
                 >
                   <p className="whitespace-pre-wrap break-words text-sm text-foreground">
                     {a.text}
@@ -748,7 +866,7 @@ export function PatientDrawer({
                           ),
                       })
                     }}
-                    className="absolute right-2 top-2 grid size-6 place-items-center rounded-md text-secondary/80 transition-colors hover:bg-secondary/20 hover:text-secondary"
+                    className="absolute right-1 top-1 grid size-9 place-items-center rounded-md text-secondary/80 transition-colors hover:bg-secondary/20 hover:text-secondary"
                     aria-label="Excluir anotação"
                     title="Excluir anotação"
                   >
@@ -808,7 +926,23 @@ export function PatientDrawer({
         patientName={p.name}
         consultationValue={p.consultationValue ?? 0}
         pending={upsert.isPending}
+        packageBalance={
+          coveringPackage
+            ? {
+                remaining: packageRemaining(coveringPackage),
+                total: coveringPackage.totalSessions,
+              }
+            : null
+        }
         onConfirm={markMissed}
+      />
+      <PackageDetailDialog
+        open={!!packageDetailId}
+        onOpenChange={(v) => {
+          if (!v) setPackageDetailId(null)
+        }}
+        pkg={detailPackage}
+        patient={patient}
       />
     </Sheet>
   )

@@ -46,6 +46,16 @@
     --sidebar-accent: 353 78% 74%;
   }
 
+  /* Áreas seguras (notch, barra de status, indicador de home). Ficam em
+     variáveis — e não em env() direto nas classes — para que dê para
+     simular um iPhone no navegador do desktop trocando só o valor delas. */
+  :root {
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+  }
+
   * {
     @apply border-border;
   }

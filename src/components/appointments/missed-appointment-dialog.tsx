@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import {
   ArrowLeftIcon,
   CurrencyDollarIcon,
+  PackageIcon,
   ProhibitIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react"
@@ -28,6 +29,12 @@ interface Props {
   consultationValue: number
   pending: boolean
   /**
+   * Pacote com saldo que cobre a data desta sessão. Quando existe, cobrar a
+   * falta é descontá-la do pacote (quem faz isso é o banco) — não há valor
+   * para escolher, então o segundo passo não aparece.
+   */
+  packageBalance?: { remaining: number; total: number } | null
+  /**
    * `charged` decide se a falta continua gerando receita. `paidValue` só vem
    * preenchido quando o usuário escolheu um valor diferente do padrão —
    * `null` deixa a sessão seguir o valor do cadastro, como as atendidas.
@@ -50,6 +57,7 @@ export function MissedAppointmentDialog({
   patientName,
   consultationValue,
   pending,
+  packageBalance,
   onConfirm,
 }: Props) {
   const [step, setStep] = useState<"choice" | "value">("choice")
@@ -76,9 +84,11 @@ export function MissedAppointmentDialog({
         <DialogHeader>
           <DialogTitle>Registrar falta</DialogTitle>
           <DialogDescription>
-            {step === "choice"
-              ? `${patientName} faltou. O contrato prevê cobrança desta sessão?`
-              : `Quanto cobrar da falta de ${patientName}?`}
+            {step === "value"
+              ? `Quanto cobrar da falta de ${patientName}?`
+              : packageBalance
+                ? `${patientName} faltou. A falta desconta uma sessão do pacote?`
+                : `${patientName} faltou. O contrato prevê cobrança desta sessão?`}
           </DialogDescription>
         </DialogHeader>
 
@@ -87,22 +97,41 @@ export function MissedAppointmentDialog({
             <ChoiceButton
               icon={ProhibitIcon}
               label="Não cobrar"
-              hint="A falta fica registrada e a sessão não entra no financeiro."
+              hint={
+                packageBalance
+                  ? "A falta fica registrada e o saldo do pacote não muda."
+                  : "A falta fica registrada e a sessão não entra no financeiro."
+              }
               disabled={pending}
               onClick={() => onConfirm(false, null)}
             />
-            <ChoiceButton
-              icon={CurrencyDollarIcon}
-              tone="charged"
-              label="Cobrar esta sessão"
-              hint={
-                consultationValue > 0
-                  ? `Vale ${formatBRL(consultationValue)} como uma sessão atendida — dá para cobrar outro valor no passo seguinte.`
-                  : "O valor continua entrando como receita, igual a uma sessão atendida."
-              }
-              disabled={pending}
-              onClick={() => setStep("value")}
-            />
+            {packageBalance ? (
+              <ChoiceButton
+                icon={PackageIcon}
+                tone="charged"
+                label="Descontar do pacote"
+                hint={`A falta conta como uma sessão do pacote (${
+                  packageBalance.remaining === 1
+                    ? "resta 1"
+                    : `restam ${packageBalance.remaining}`
+                } de ${packageBalance.total}). Nada a receber.`}
+                disabled={pending}
+                onClick={() => onConfirm(true, null)}
+              />
+            ) : (
+              <ChoiceButton
+                icon={CurrencyDollarIcon}
+                tone="charged"
+                label="Cobrar esta sessão"
+                hint={
+                  consultationValue > 0
+                    ? `Vale ${formatBRL(consultationValue)} como uma sessão atendida — dá para cobrar outro valor no passo seguinte.`
+                    : "O valor continua entrando como receita, igual a uma sessão atendida."
+                }
+                disabled={pending}
+                onClick={() => setStep("value")}
+              />
+            )}
           </div>
         ) : (
           <div className="space-y-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">

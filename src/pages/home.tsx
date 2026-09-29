@@ -3,6 +3,7 @@ import {
   CalendarBlankIcon,
   CurrencyDollarIcon,
   MagnifyingGlassIcon,
+  PackageIcon,
   PlusIcon,
   WarningIcon,
 } from "@phosphor-icons/react"
@@ -11,7 +12,14 @@ import {
   useAppointmentsInRange,
   useInsurances,
   usePatients,
+  useSessionPackages,
 } from "@/api/queries"
+import {
+  coveringPackageId,
+  packageRemaining,
+  sessionOrdinal,
+} from "@/domain/packages"
+import { usePackageCoverage } from "@/components/packages/use-package-coverage"
 import {
   MiniCalendar,
   monthRange,
@@ -26,7 +34,7 @@ import {
   pendencyIndex,
   unpaidIndex,
 } from "@/domain/pendencies"
-import type { Occurrence, Patient } from "@/db/types"
+import type { Occurrence, Patient, SessionPackage } from "@/db/types"
 import { ageLabel } from "@/domain/age"
 import { ScheduleAppointmentDialog } from "@/components/appointments/schedule-appointment-dialog"
 import { Input } from "@/components/ui/input"
@@ -76,6 +84,7 @@ export function HomePage() {
   const apptQ = useAppointmentsInRange(range.fromISO, range.toISO)
   const seriesQ = useAppointmentSeries()
   const insurancesQ = useInsurances()
+  const packagesQ = useSessionPackages()
 
   const patients = patientsQ.data ?? []
   const appointments = apptQ.data ?? []
@@ -165,6 +174,42 @@ export function HomePage() {
       })
   }, [dayOccurrences, patientById, query])
 
+  const packagesByPatient = useMemo(() => {
+    const m = new Map<string, SessionPackage[]>()
+    for (const k of packagesQ.data ?? []) {
+      const list = m.get(k.patientId) ?? []
+      list.push(k)
+      m.set(k.patientId, list)
+    }
+    return m
+  }, [packagesQ.data])
+
+  // Sessões ainda não concluídas que o saldo de um pacote vai pagar. O saldo
+  // é distribuído em ordem de data: com 1 sessão no pacote e 4 na agenda, só
+  // a primeira leva o selo — as outras seguem mostrando o valor a cobrar.
+  const { covered } = usePackageCoverage(range.toISO)
+
+  /**
+   * Selo de pacote do cartão da agenda: a posição da sessão que já foi
+   * descontada ("Pacote 2/4") ou, na que ainda vai acontecer e o saldo
+   * alcança, quanto há no pacote ("Pacote · restam 2").
+   */
+  function packageLabelFor(o: Occurrence): string | null {
+    const list = packagesByPatient.get(o.patientId)
+    if (!list) return null
+    const a = o.appointment
+    if (a?.packageId) {
+      const k = list.find((x) => x.id === a.packageId)
+      const n = k ? sessionOrdinal(k, a.id) : null
+      return k && n !== null ? `Pacote ${n}/${k.totalSessions}` : "Pacote"
+    }
+    const id = coveringPackageId(covered, o)
+    const k = id ? list.find((x) => x.id === id) : undefined
+    if (!k) return null
+    const left = packageRemaining(k)
+    return left === 1 ? "Pacote · resta 1" : `Pacote · restam ${left}`
+  }
+
   const dayBirthdays = birthdayByDate.get(selectedISO) ?? []
 
   // Horário da sessão do aniversariante naquele dia, quando existe.
@@ -217,7 +262,7 @@ export function HomePage() {
         </div>
       </div>
 
-      <div className="grid gap-4 @4xl:grid-cols-[320px_1fr] @6xl:grid-cols-[360px_1fr]">
+      <div className="grid grid-cols-1 gap-4 @4xl:grid-cols-[320px_minmax(0,1fr)] @6xl:grid-cols-[360px_minmax(0,1fr)]">
         <div className="space-y-4">
           <MiniCalendar
             visibleMonth={visibleMonth}
@@ -290,6 +335,7 @@ export function HomePage() {
               const value = o.appointment
                 ? effectiveValue(o.appointment, p!)
                 : p!.consultationValue ?? 0
+              const pkgLabel = packageLabelFor(o)
               return (
                 <button
                   key={`${o.seriesId}-${o.originDate}`}
@@ -315,10 +361,19 @@ export function HomePage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <p className="truncate text-sm font-medium">{p!.name}</p>
-                      {value > 0 && (
-                        <span className="shrink-0 rounded-md bg-muted/40 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
-                          {formatBRL(value)}
+                      {/* Sessão de pacote não tem valor a receber: no lugar
+                          dele vai a posição no pacote. */}
+                      {pkgLabel ? (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-emerald-300">
+                          <PackageIcon weight="fill" className="size-3" />
+                          {pkgLabel}
                         </span>
+                      ) : (
+                        value > 0 && (
+                          <span className="shrink-0 rounded-md bg-muted/40 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
+                            {formatBRL(value)}
+                          </span>
+                        )
                       )}
                     </div>
                     <p className="truncate text-[11px] text-muted-foreground">
