@@ -71,6 +71,7 @@ import { PatientDocuments } from "./patient-documents"
 import { AvatarPicker } from "./avatar-picker"
 import { DischargeReasonField } from "./discharge-reason-field"
 import { ClientAvatar } from "./patient-avatar"
+import { UnarchivePatientDialog } from "./unarchive-patient-dialog"
 import {
   CoupleMembersField,
   draftName,
@@ -226,6 +227,7 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
   const [dischargeDate, setDischargeDate] = useState<string>(todayISO())
   const [dischargeReasonId, setDischargeReasonId] = useState<string>("")
   const [dischargeSubmitted, setDischargeSubmitted] = useState(false)
+  const [unarchiveOpen, setUnarchiveOpen] = useState(false)
 
   // Fecha/reabre limpo: nenhum resto da tentativa anterior.
   useEffect(() => {
@@ -717,6 +719,27 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
 
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4 p-6">
+      {/* Acima das abas: vale para o cadastro inteiro, não só para "Dados". */}
+      {isEdit && patient && !patient.active && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/30 px-3 py-2.5">
+          <div className="min-w-0 text-sm">
+            <p className="font-medium">Paciente arquivado</p>
+            <p className="text-xs text-muted-foreground">
+              Fora da agenda, do dashboard e das listas.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setUnarchiveOpen(true)}
+          >
+            <ArrowCounterClockwiseIcon weight="fill" />
+            Desarquivar
+          </Button>
+        </div>
+      )}
+
       {isEdit && (
         <div className="flex gap-1 rounded-lg border border-border/60 bg-background/40 p-1">
           <TabButton
@@ -1281,6 +1304,11 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
           {saving ? "Salvando..." : isEdit ? "Salvar" : "Cadastrar"}
         </Button>
       </div>
+
+      <UnarchivePatientDialog
+        patient={unarchiveOpen && patient ? patient : null}
+        onClose={() => setUnarchiveOpen(false)}
+      />
     </form>
   )
 }

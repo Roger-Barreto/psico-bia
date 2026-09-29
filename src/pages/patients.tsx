@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import {
+  ArchiveIcon,
+  ArrowCounterClockwiseIcon,
   MagnifyingGlassIcon,
   PencilSimpleIcon,
   PlusIcon,
-  TrashIcon,
   UsersIcon,
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
@@ -33,6 +34,7 @@ import {
   matchesPatient,
 } from "@/domain/couples"
 import { PatientForm } from "@/components/patient/patient-form"
+import { UnarchivePatientDialog } from "@/components/patient/unarchive-patient-dialog"
 import { Breadcrumbs } from "@/components/breadcrumbs"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
 import { CopyButton } from "@/components/ui/copy-button"
@@ -46,6 +48,7 @@ export function PatientsPage() {
   const [editing, setEditing] = useState<Patient | null>(null)
   const [open, setOpen] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
+  const [unarchiving, setUnarchiving] = useState<Patient | null>(null)
   const [kindFilter, setKindFilter] = useState<PatientKind | "all">("all")
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -76,6 +79,16 @@ export function PatientsPage() {
   const coupleCount = visible.filter(isCouple).length
   const totalActive = all.filter((p) => p.active).length
   const totalArchived = all.length - totalActive
+  // Arquivados que a busca acharia se estivessem à mostra: sem isto, procurar
+  // um paciente arquivado dava só "nenhum paciente".
+  const hiddenArchivedMatches = showArchived
+    ? 0
+    : all.filter(
+        (p) =>
+          !p.active &&
+          (kindFilter === "all" || p.kind === kindFilter) &&
+          matchesPatient(p, query),
+      ).length
 
   return (
     <div className="space-y-6">
@@ -174,8 +187,19 @@ export function PatientsPage() {
 
       {!isLoading && filtered.length === 0 && (
         <Card>
-          <CardContent className="p-10 text-center text-muted-foreground">
-            Nenhum paciente cadastrado ainda.
+          <CardContent className="space-y-3 p-10 text-center text-muted-foreground">
+            <p>
+              {all.length === 0
+                ? "Nenhum paciente cadastrado ainda."
+                : hiddenArchivedMatches > 0
+                  ? `Nenhum paciente ativo${query.trim() ? " com esse nome" : ""}. ${hiddenArchivedMatches === 1 ? "1 arquivado corresponde" : `${hiddenArchivedMatches} arquivados correspondem`}.`
+                  : "Nenhum paciente encontrado."}
+            </p>
+            {hiddenArchivedMatches > 0 && (
+              <Button variant="outline" onClick={() => setShowArchived(true)}>
+                Mostrar arquivados
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
@@ -269,7 +293,7 @@ export function PatientsPage() {
                   >
                     <PencilSimpleIcon weight="fill" className="size-3.5" />
                   </button>
-                  {p.active && (
+                  {p.active ? (
                     <button
                       className="grid size-9 place-items-center rounded-md text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
                       onClick={async (e) => {
@@ -277,7 +301,8 @@ export function PatientsPage() {
                         if (
                           await confirmDialog({
                             title: "Arquivar paciente",
-                            description: `Arquivar ${p.name}?`,
+                            description: `Arquivar ${p.name}? Sai da agenda, do dashboard e das listas, mas nada é apagado: dá para desarquivar em "Mostrar arquivados".`,
+                            confirmLabel: "Arquivar",
                             destructive: true,
                           })
                         ) {
@@ -287,8 +312,24 @@ export function PatientsPage() {
                         }
                       }}
                       aria-label="Arquivar"
+                      title="Arquivar"
                     >
-                      <TrashIcon weight="fill" className="size-3.5" />
+                      <ArchiveIcon weight="fill" className="size-3.5" />
+                    </button>
+                  ) : (
+                    <button
+                      className="grid size-9 place-items-center rounded-md text-muted-foreground hover:bg-primary/15 hover:text-primary"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setUnarchiving(p)
+                      }}
+                      aria-label="Desarquivar"
+                      title="Desarquivar"
+                    >
+                      <ArrowCounterClockwiseIcon
+                        weight="fill"
+                        className="size-3.5"
+                      />
                     </button>
                   )}
                 </div>
@@ -321,6 +362,11 @@ export function PatientsPage() {
           />
         </SheetContent>
       </Sheet>
+
+      <UnarchivePatientDialog
+        patient={unarchiving}
+        onClose={() => setUnarchiving(null)}
+      />
     </div>
   )
 }

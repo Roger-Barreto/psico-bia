@@ -20,6 +20,8 @@ detalhada.
 - [x] Avatar monstrinho (56 opções; aleatório/estável por ID).
 - [x] Editar cadastro (com renomeação automática da pasta de documentos).
 - [x] Arquivar (soft-delete) e reexibir arquivados.
+- [x] Desarquivar (lista ou cadastro), com a opção de cancelar as sessões recorrentes que ficaram
+  sem registro enquanto o paciente esteve arquivado.
 - [x] Encerrar tratamento (alta) com data e motivo (escolhido na própria tela, com criação de
   motivo no lugar); prévia de futuros removidos e aviso de sessões de pacote ainda não realizadas.
 - [x] Reabrir tratamento.

@@ -74,6 +74,11 @@ const weekdaysLong = [
   "sábado",
 ]
 
+/** ISO date (YYYY-MM-DD) → "terça" */
+export function weekdayBR(iso: string): string {
+  return weekdaysLong[fromISO(iso).getDay()]
+}
+
 /** ISO date (YYYY-MM-DD) → DD/MM/YYYY */
 export function formatDateBR(iso: string): string {
   const [y, m, d] = iso.split("-")

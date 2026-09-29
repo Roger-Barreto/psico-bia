@@ -10,10 +10,10 @@ Estados e transições de um paciente, do cadastro à exclusão. Lógica em
         criar
           │
           ▼
-   ┌─────────────┐   arquivar (DELETE)      ┌──────────────┐
+   ┌─────────────┐   arquivar               ┌──────────────┐
    │ Ativo / Em  │ ───────────────────────► │  Arquivado   │
    │ tratamento  │ ◄─────────────────────── │ (active=false)│
-   └─────────────┘   (editar active=true)   └──────────────┘
+   └─────────────┘   desarquivar            └──────────────┘
        │   ▲
  alta  │   │ reabrir (reopen)
        ▼   │
@@ -52,11 +52,35 @@ pessoa segue no casal. Ver [terapia de casal](../18-casais/README.md).
 
 ## 3. Arquivar (soft-delete)
 
-- `DELETE /api/patients/:id` → `active=false`.
-- Some das listas por padrão; reaparece com "Mostrar arquivados".
-- Confirmação na UI. Dados preservados.
+- `useArchivePatient` → `active=false`. Ícone de arquivar no card da lista, com confirmação.
+- Some das listas por padrão; reaparece com "Mostrar arquivados". Buscar o nome de um arquivado
+  com eles ocultos avisa quantos correspondem e oferece mostrá-los.
+- Dados preservados. As séries **não** são encerradas — só deixam de aparecer.
 - Ocorrências de pacientes inativos **não são geradas** (`occurrencesForPatient` retorna vazio se
   `!active`).
+
+## 3.1. Desarquivar
+
+- Pelo ícone ↺ no card do arquivado (com "Mostrar arquivados") ou pela faixa **Paciente
+  arquivado › Desarquivar** no topo do cadastro. Diálogo em
+  [`unarchive-patient-dialog.tsx`](../../src/components/patient/unarchive-patient-dialog.tsx);
+  `useUnarchivePatient` → `active=true`. Nada muda no banco além disso — sem migração.
+- Como arquivar não encerra as séries, a recorrência "continuou correndo" escondida. Antes de
+  confirmar, [`unarchivePreview`](../../src/domain/unarchive.ts) calcula:
+  - **sessões sem registro** — ocorrências passadas sem linha em `appointments` depois da
+    **última sessão registrada** do paciente (qualquer status). Sem esse tratamento voltariam
+    todas como *Pendente* (o dashboard olha 12 meses para trás). Não há data de arquivamento
+    gravada; a última sessão registrada é o marco de quando o paciente parou de vir. Sessões
+    esquecidas **antes** dela já eram pendência e continuam sendo.
+  - **horários que voltam** — séries com ocorrências de hoje em diante (nada, se o tratamento
+    foi encerrado).
+- Havendo sessões sem registro, a escolha é explícita:
+  - **Cancelar as N sessões** — grava uma linha `cancelled` para cada uma (a mesma do
+    *Desfazer › Apenas este*), com `ON CONFLICT DO NOTHING`: sessão registrada em outro
+    aparelho no meio-tempo fica como está. Os cancelamentos são gravados **antes** de reativar;
+    se falharem, o paciente continua arquivado.
+  - **Manter como pendentes** — só reativa.
+- Não havendo, é uma confirmação simples.
 
 ## 4. Encerramento (alta)
 
@@ -94,5 +118,5 @@ pessoa segue no casal. Ver [terapia de casal](../18-casais/README.md).
 |---|---|---|---|
 | Ativo/Em tratamento | sim | sim | sim (todas as métricas) |
 | Encerrado | só histórico | não (após `dischargedAt`) | sim (histórico; fora de "em tratamento") |
-| Arquivado | não | não | não (filtrado) |
+| Arquivado | não | não | não (filtrado) — volta ao desarquivar |
 | Excluído | — | — | — (dados removidos) |

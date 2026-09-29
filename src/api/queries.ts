@@ -481,6 +481,75 @@ export function useArchivePatient() {
   })
 }
 
+/**
+ * Volta o paciente para as listas e a agenda. `cancelSessions` são sessões
+ * passadas sem registro que a recorrência gerou enquanto ele esteve
+ * arquivado: viram cancelamento (a mesma linha que "Desfazer › Apenas este"
+ * grava), senão voltariam todas como pendência.
+ */
+export function useUnarchivePatient() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      id,
+      cancelSessions = [],
+    }: {
+      id: string
+      cancelSessions?: { seriesId: string; originDate: string }[]
+    }) => {
+      // Cancela antes de reativar: se falhar, o paciente segue arquivado e
+      // nada aparece pela metade.
+      if (cancelSessions.length > 0) {
+        const stamp = nowIso()
+        const rows: AppointmentRow[] = cancelSessions.map((s) => ({
+          id: newId("ap"),
+          series_id: s.seriesId,
+          patient_id: id,
+          date: s.originDate,
+          origin_date: s.originDate,
+          status: "cancelled",
+          rescheduled_to: null,
+          time: null,
+          checked_item_ids: [],
+          snapshot_item_ids: [],
+          notes: null,
+          updated_at: stamp,
+          paid: false,
+          paid_value: null,
+          paid_at: null,
+          payment_method_id: null,
+          charged_absence: false,
+          package_id: null,
+          present_member_ids: null,
+        }))
+        // Sessão registrada em outro aparelho enquanto o diálogo estava
+        // aberto fica como está.
+        const { error } = await supabase
+          .from("appointments")
+          .upsert(rows, {
+            onConflict: "series_id,origin_date",
+            ignoreDuplicates: true,
+          })
+        if (error) throw error
+      }
+      const { data, error } = await supabase
+        .from("patients")
+        .update({ active: true })
+        .eq("id", id)
+        .select()
+        .single()
+      if (error) throw error
+      return rowToPatient(data as PatientRow)
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: qk.patients })
+      if (vars.cancelSessions?.length) {
+        qc.invalidateQueries({ queryKey: ["appointments"] })
+      }
+    },
+  })
+}
+
 export function useDischargePatient() {
   const qc = useQueryClient()
   return useMutation({
@@ -580,8 +649,12 @@ export function useDeletePatientPermanently() {
 // ════════════════════════════════════════════════════════════════
 // APPOINTMENT SERIES
 // ════════════════════════════════════════════════════════════════
-export function useAppointmentSeries(patientId?: string) {
+export function useAppointmentSeries(
+  patientId?: string,
+  opts?: { enabled?: boolean },
+) {
   return useQuery({
+    enabled: opts?.enabled ?? true,
     queryKey: qk.series(patientId),
     queryFn: async () => {
       let q = supabase.from("appointment_series").select("*")
@@ -973,6 +1046,27 @@ export function useAppointmentsInRange(
     },
     staleTime: 15_000,
     gcTime: 5 * 60_000,
+  })
+}
+
+/** Todas as sessões registradas de um paciente, de qualquer data. */
+export function usePatientAppointments(
+  patientId?: string,
+  opts?: { enabled?: boolean },
+) {
+  return useQuery({
+    enabled: !!patientId && (opts?.enabled ?? true),
+    // Começa com "appointments": toda invalidação de sessões chega aqui.
+    queryKey: ["appointments", "patient", patientId ?? "none"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("appointments")
+        .select("*")
+        .eq("patient_id", patientId!)
+      if (error) throw error
+      return (data ?? []).map((r) => rowToAppointment(r as AppointmentRow))
+    },
+    staleTime: 15_000,
   })
 }
 

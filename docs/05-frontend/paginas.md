@@ -70,7 +70,8 @@ Acompanhamento dos [pacotes de sessões](../16-pacotes-sessoes/README.md).
   faz parte de um casal mostra *"Casal: …"*.
 - Contadores (ativos / arquivados).
 - Clicar no card abre o `PatientForm` em `Sheet` (editar). Ícones de editar e arquivar (com
-  confirmação) por card.
+  confirmação) por card; no card arquivado, **desarquivar** (`UnarchivePatientDialog`).
+- Lista vazia com arquivados ocultos que a busca acharia: avisa quantos e oferece mostrá-los.
 - Suporta deep-link `?edit=<id>` (abre o formulário daquele paciente).
 
 ## `/checklist` — `checklist.tsx`
