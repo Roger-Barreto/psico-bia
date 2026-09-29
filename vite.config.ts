@@ -58,6 +58,9 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,svg,png,ico,woff2}"],
+        // O app é um bundle só e já passa dos 2 MiB padrão; acima do limite o
+        // build falha e, se só avisasse, o PWA ficaria sem o JS offline.
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [/^\/api\//],
         cleanupOutdatedCaches: true,
