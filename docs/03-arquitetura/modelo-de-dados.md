@@ -45,8 +45,24 @@ interface Patient {
   dischargeReasonId: string | null
   cpf: string | null               // 11 dígitos do CPF do paciente (beneficiário); opcional
   payerCpf: string | null          // 11 dígitos do CPF do pagador; null = mesmo que o paciente
+  kind: "individual" | "couple"    // casal = terapia de casal
+  members: CoupleMember[]          // pessoas do casal (2..4); [] no individual
+}
+
+interface CoupleMember {           // dentro de patients.members (jsonb)
+  id: string                       // "m_…" estável (a presença aponta para ele)
+  name: string
+  gender: Gender | null
+  birthdate: string | null
+  cpf: string | null
+  avatarId: number
+  patientId: string | null         // vínculo com o cadastro individual da pessoa
 }
 ```
+
+`members` é validado no banco por CHECK (`patient_members_valid`). Apagar um paciente
+individual desfaz o vínculo nos casais (trigger `patients_unlink_members`). Ver
+[terapia de casal](../18-casais/README.md).
 
 ### `AppointmentSeries`
 
@@ -84,6 +100,7 @@ interface Appointment {
   paymentMethodId: string | null
   chargedAbsence: boolean          // falta cobrada (só com status = missed)
   packageId: string | null         // pacote que pagou a sessão (preenchido pelo banco)
+  presentMemberIds: string[] | null // casal: quem veio; null = todos (só com attended)
 }
 ```
 

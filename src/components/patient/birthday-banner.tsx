@@ -1,15 +1,14 @@
 import { useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { CakeIcon, CaretRightIcon } from "@phosphor-icons/react"
-import type { Patient } from "@/db/types"
 import { PatientAvatar } from "./patient-avatar"
-import { turningAgeLabel } from "@/domain/birthdays"
+import { turningAgeLabel, type BirthdayPerson } from "@/domain/birthdays"
 import { todayISO } from "@/domain/dates"
 import { celebrateBirthday } from "@/lib/celebrate"
 import { cn } from "@/lib/utils"
 
 interface Props {
-  patients: Patient[]
+  patients: BirthdayPerson[]
   /** Dia selecionado na agenda (ISO). Define "hoje" vs. outra data. */
   dateISO: string
   /** patientId → horário da sessão daquele paciente no dia, se houver. */
@@ -77,8 +76,9 @@ export function BirthdayBanner({
       </div>
 
       <div className={cn("relative mt-3", many ? "space-y-2" : "")}>
-        {patients.map((p) => {
-          const age = turningAgeLabel(p.birthdate, dateISO)
+        {patients.map((b) => {
+          const p = b.patient
+          const age = turningAgeLabel(b.birthdate, dateISO)
           const time = sessionTimeByPatient?.get(p.id)
           const details = [
             age ? `${age}${isToday ? " hoje" : ""}` : null,
@@ -86,15 +86,20 @@ export function BirthdayBanner({
           ].filter(Boolean)
           return (
             <button
-              key={p.id}
+              key={b.key}
               type="button"
               onClick={() => navigate(`/patients?edit=${p.id}`)}
               className="flex w-full items-center gap-3 rounded-xl px-1 py-1 text-left transition-colors hover:bg-primary/10"
             >
-              <PatientAvatar avatarId={p.avatarId} name={p.name} />
+              <PatientAvatar avatarId={b.avatarId} name={b.name} />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <p className="truncate text-sm font-medium">{p.name}</p>
+                  <p className="truncate text-sm font-medium">{b.name}</p>
+                  {b.coupleName && (
+                    <span className="shrink-0 rounded-full bg-secondary/20 px-1.5 py-0.5 text-[10px] font-medium text-secondary">
+                      casal {b.coupleName}
+                    </span>
+                  )}
                   {p.dischargedAt && (
                     <span className="shrink-0 rounded-full bg-muted/50 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                       encerrado

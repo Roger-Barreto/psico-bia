@@ -7,9 +7,31 @@ export type AppointmentStatus =
   | "rescheduled"
   | "cancelled"
 
-export interface Patient {
+/** `individual`: uma pessoa · `couple`: terapia de casal (ver `members`). */
+export type PatientKind = "individual" | "couple"
+
+/**
+ * Pessoa de um casal. Fica dentro do cadastro do casal (`patients.members`).
+ * `patientId` liga a pessoa ao cadastro individual dela, quando ela também é
+ * paciente sozinha — os outros campos são uma cópia, para o casal não perder
+ * o nome se o cadastro individual for apagado.
+ */
+export interface CoupleMember {
+  /** Estável: a presença nas sessões (`presentMemberIds`) aponta para ele. */
   id: string
   name: string
+  gender: Gender | null
+  birthdate: string | null // YYYY-MM-DD; opcional
+  cpf: string | null // 11 dígitos; opcional
+  avatarId: number
+  patientId: string | null
+}
+
+export interface Patient {
+  id: string
+  /** Num casal, o nome do caso ("Ana & Bruno", "Casal Souza"). */
+  name: string
+  /** Num casal não significa nada (fica `other`); use `members`. */
   gender: Gender
   birthdate: string | null // YYYY-MM-DD; opcional (null = não informada)
   avatarId: number
@@ -22,6 +44,9 @@ export interface Patient {
   dischargeReasonId: string | null
   cpf: string | null // dígitos do CPF do paciente (beneficiário)
   payerCpf: string | null // dígitos do CPF do pagador; null = mesmo que o paciente
+  kind: PatientKind
+  /** Pessoas do casal (2 a 4). Vazio em cadastro individual. */
+  members: CoupleMember[]
 }
 
 export interface AppointmentSeries {
@@ -95,6 +120,11 @@ export interface Appointment {
    * `paidValue = 0`: o dinheiro entrou na venda do pacote, não aqui.
    */
   packageId: string | null
+  /**
+   * Sessão de casal atendida: `members[].id` de quem veio. `null` = todos
+   * (o comum). O banco limpa quando a sessão deixa de estar atendida.
+   */
+  presentMemberIds: string[] | null
 }
 
 /** Sessão que consumiu uma vaga de um pacote (recorte de `Appointment`). */

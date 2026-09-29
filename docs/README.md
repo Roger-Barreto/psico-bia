@@ -27,6 +27,7 @@ pessoa (ou agente) que precise entender, manter ou evoluir o sistema.
 | [`15-falta-cobrada/`](15-falta-cobrada/) | **Falta cobrada:** [migração 033](15-falta-cobrada/033_falta_cobrada.sql) — `appointments.charged_absence` + terceiro braço do `finance_ledger`. |
 | [`16-pacotes-sessoes/`](16-pacotes-sessoes/) | **Pacotes de sessões:** [migração 034](16-pacotes-sessoes/034_pacotes_sessoes.sql) — `session_packages`, `appointments.package_id`, trigger de consumo automático e 4º braço do `finance_ledger`. |
 | [`17-mobile/`](17-mobile/) | **Celular:** o X de fechar sob a barra de status do iPhone, o motivo de encerramento e o conteúdo cortado na lateral. |
+| [`18-casais/`](18-casais/) | **Terapia de casal:** [migração 035](18-casais/035_casais.sql) — o casal é um paciente do tipo `couple` com as pessoas dentro (`members`); presença por sessão (`present_member_ids`). |
 | [`evolucao/`](evolucao/) | **Migração local → nuvem (Supabase):** plano, passo a passo e tracker de progresso. |
 
 ---

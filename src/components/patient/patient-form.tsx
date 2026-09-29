@@ -13,9 +13,17 @@ import {
   SealCheckIcon,
   TrashIcon,
   UserCircleIcon,
+  UserIcon,
+  UsersIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react"
-import type { Gender, IndividualChecklistItem, Patient } from "@/db/types"
+import { useNavigate } from "react-router-dom"
+import type {
+  Gender,
+  IndividualChecklistItem,
+  Patient,
+  PatientKind,
+} from "@/db/types"
 import {
   useAppointmentSeries,
   useAppointmentsInRange,
@@ -62,6 +70,23 @@ import { cn } from "@/lib/utils"
 import { PatientDocuments } from "./patient-documents"
 import { AvatarPicker } from "./avatar-picker"
 import { DischargeReasonField } from "./discharge-reason-field"
+import { ClientAvatar } from "./patient-avatar"
+import {
+  CoupleMembersField,
+  draftName,
+  draftsFromMembers,
+  draftsToMembers,
+  membersError,
+  newMemberDraft,
+  type MemberDraft,
+} from "./couple-members-field"
+import {
+  coupleAutoName,
+  couplesOfPatient,
+  firstName,
+  splitCoupleName,
+} from "@/domain/couples"
+import { birthdateError } from "@/domain/age"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
 
 type TabKey = "dados" | "checklist" | "pacotes" | "documentos"
@@ -146,13 +171,38 @@ function SortableIndivRow({
 }
 
 export function PatientForm({ patient: patientProp, onDone }: Props) {
-  const patientsQ = usePatients({ enabled: !!patientProp })
+  // Sempre carregado: o casal vincula pessoas a cadastros individuais.
+  const patientsQ = usePatients()
+  const navigate = useNavigate()
   const patient = patientProp
     ? patientsQ.data?.find((p) => p.id === patientProp.id) ?? patientProp
     : undefined
   const isEdit = !!patient
+  const allPatients = useMemo(() => patientsQ.data ?? [], [patientsQ.data])
+  const patientsById = useMemo(
+    () => new Map(allPatients.map((p) => [p.id, p] as const)),
+    [allPatients],
+  )
   const [tab, setTab] = useState<TabKey>("dados")
   const [name, setName] = useState(patient?.name ?? "")
+  // Nome do casal num estado próprio: tocar em Casal e voltar para
+  // Individual não pode reescrever o nome da pessoa.
+  const [coupleName, setCoupleName] = useState(
+    patient?.kind === "couple" ? patient.name : "",
+  )
+  const [kind, setKind] = useState<PatientKind>(patient?.kind ?? "individual")
+  const [drafts, setDrafts] = useState<MemberDraft[]>(() =>
+    patient?.kind === "couple" ? draftsFromMembers(patient.members) : [],
+  )
+  // O nome do casal acompanha as pessoas até a psicóloga escrever o dela.
+  const [nameAuto, setNameAuto] = useState<boolean>(
+    () =>
+      !patient ||
+      (patient.kind === "couple" &&
+        patient.name === coupleAutoName(patient.members)),
+  )
+  const [submitted, setSubmitted] = useState(false)
+  const isCoupleForm = kind === "couple"
   const [gender, setGender] = useState<Gender>(patient?.gender ?? "female")
   const [avatarId, setAvatarId] = useState<number>(
     patient?.avatarId ?? randomMonsterAvatarId(),
@@ -260,6 +310,11 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
       return
     }
     setName("")
+    setCoupleName("")
+    setKind("individual")
+    setDrafts([])
+    setNameAuto(true)
+    setSubmitted(false)
     setGender("female")
     setAvatarId(randomMonsterAvatarId())
     setBirthdate("")
@@ -270,6 +325,94 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
     setInsuranceId("__none__")
     setTab("dados")
   }, [patient])
+
+  const autoName = useMemo(
+    () =>
+      coupleAutoName(drafts.map((d) => ({ name: draftName(d, patientsById) }))),
+    [drafts, patientsById],
+  )
+  useEffect(() => {
+    if (isCoupleForm && nameAuto) setCoupleName(autoName)
+  }, [isCoupleForm, nameAuto, autoName])
+
+  // Pacientes individuais que podem ser uma das pessoas do casal.
+  const linkable = useMemo(
+    () =>
+      allPatients
+        .filter((p) => p.active && p.kind === "individual" && p.id !== patient?.id)
+        .sort((a, b) => a.name.localeCompare(b.name, "pt-BR")),
+    [allPatients, patient?.id],
+  )
+
+  // Casais de que este paciente individual faz parte.
+  const couplesOfThis = useMemo(
+    () =>
+      patient && patient.kind === "individual"
+        ? couplesOfPatient(patient.id, allPatients)
+        : [],
+    [patient, allPatients],
+  )
+
+  /**
+   * Individual ↔ Casal. Vale também na edição: é assim que um cadastro feito
+   * como contorno ("Ana e Bruno", gênero "Outro") vira casal sem perder agenda,
+   * pagamentos e histórico — o id é o mesmo.
+   */
+  function changeKind(next: PatientKind) {
+    if (next === kind) return
+    // (2) Quem já é pessoa vinculada em outro casal continua individual: se o
+    // cadastro dele virasse casal, aquele casal passaria a ler os dados deste.
+    if (next === "couple" && couplesOfThis.length > 0) {
+      toast.error(
+        `${firstName(name) || "Este paciente"} faz parte do casal ${couplesOfThis[0].name}. Para atendê-lo(a) em casal com outra pessoa, cadastre um novo casal e vincule este cadastro.`,
+      )
+      return
+    }
+    // Ainda não há ninguém preenchido (ex.: tocou em Casal, voltou, digitou
+    // o nome da pessoa e tocou de novo)? Monta as pessoas a partir de agora.
+    const blank = drafts.every((d) => !d.name.trim() && !d.patientId)
+    if (next === "couple" && blank) {
+      const parts = splitCoupleName(name)
+      const firstData = {
+        cpf,
+        birthdate,
+        // "Outro" era como o contorno marcava o casal — não é da pessoa.
+        gender: gender === "other" ? null : gender,
+        avatarId,
+      }
+      if (parts.length >= 2) {
+        setDrafts(
+          parts.map((n, i) =>
+            newMemberDraft(i === 0 ? { name: n, ...firstData } : { name: n }),
+          ),
+        )
+        // Mantém o nome que ela já usava ("Ana e Bruno").
+        setCoupleName(name.trim())
+        setNameAuto(false)
+      } else {
+        const typed = name.trim()
+        setDrafts([
+          newMemberDraft(typed ? { name: typed, ...firstData } : {}),
+          newMemberDraft(),
+        ])
+        setNameAuto(true)
+      }
+      // Quem pagava era o próprio paciente: o CPF dele segue como pagador.
+      if (payerSameAsPatient && onlyDigits(cpf)) setPayerCpf(cpf)
+    }
+    if (next === "individual" && patient?.kind === "couple" && drafts[0]) {
+      // Os campos individuais de um casal gravado são só marcadores; parte
+      // dos dados da primeira pessoa.
+      const d = drafts[0]
+      setGender(d.gender ?? "female")
+      setBirthdate(d.birthdate)
+      setCpf(d.cpf)
+      setAvatarId(d.avatarId)
+      setPayerSameAsPatient(!payerCpf)
+    }
+    setSubmitted(false)
+    setKind(next)
+  }
 
   function bumpValue(delta: number) {
     const current = Number(consultationValue) || 0
@@ -377,29 +520,13 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
     }
   }
 
-  // Nascimento é opcional: só validamos o que foi preenchido.
-  function validateBirthdate(iso: string): string | null {
-    if (!iso) return null
-    const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-    if (!m) return "Data inválida"
-    const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])]
-    if (y < 1900 || y > new Date().getFullYear())
-      return "Ano fora do intervalo"
-    const date = new Date(y, mo - 1, d)
-    if (
-      date.getFullYear() !== y ||
-      date.getMonth() !== mo - 1 ||
-      date.getDate() !== d
-    )
-      return "Data inválida"
-    if (iso > todayISO()) return "Data não pode estar no futuro"
-    return null
-  }
-
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
+    setSubmitted(true)
+    if (isCoupleForm) return submitCouple()
     if (!name.trim()) return toast.error("Nome é obrigatório")
-    const bdErr = validateBirthdate(birthdate)
+    // Nascimento é opcional: só validamos o que foi preenchido.
+    const bdErr = birthdateError(birthdate, todayISO())
     if (bdErr) return toast.error(bdErr)
     const valueNum = Number(consultationValue)
     if (!Number.isFinite(valueNum) || valueNum < 0)
@@ -416,6 +543,16 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
     // nascimento é opcional — vazio grava null
     const birthdateFinal = birthdate || null
     const insuranceFinal = insuranceId === "__none__" ? null : insuranceId
+    if (
+      patient?.kind === "couple" &&
+      !(await confirmDialog({
+        title: "Transformar em cadastro individual?",
+        description:
+          "As pessoas do casal saem deste cadastro. Agenda, pagamentos, pacotes e anotações continuam como estão.",
+        confirmLabel: "Transformar",
+      }))
+    )
+      return
     try {
       if (isEdit && patient) {
         await updateMut.mutateAsync({
@@ -429,6 +566,11 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
             payerCpf: payerCpfFinal,
             consultationValue: valueNum,
             insuranceId: insuranceFinal,
+            // Só quando está deixando de ser casal: um formulário velho aberto
+            // em outro aparelho não pode desfazer uma conversão feita aqui.
+            ...(patient.kind === "couple"
+              ? { kind: "individual" as const, members: [] }
+              : {}),
           },
         })
         toast.success("Paciente atualizado")
@@ -454,6 +596,65 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
       toast.error(err instanceof Error ? err.message : "Erro ao salvar")
     }
   }
+
+  async function submitCouple() {
+    const err = membersError(drafts, patientsById)
+    if (err) return toast.error(err)
+    const finalName = (coupleName.trim() || autoName).trim()
+    if (!finalName) return toast.error("Informe o nome do casal")
+    const valueNum = Number(consultationValue)
+    if (!Number.isFinite(valueNum) || valueNum < 0)
+      return toast.error("Valor de consulta inválido")
+    const payerDigits = onlyDigits(payerCpf)
+    if (payerDigits && !isValidCpf(payerDigits))
+      return toast.error("CPF do pagador inválido")
+    const members = draftsToMembers(drafts, patientsById)
+    const fields = {
+      name: finalName,
+      kind: "couple" as const,
+      members,
+      // Campos de pessoa não se aplicam ao casal: ficam neutros, e quem
+      // abrir o cadastro num app antigo vê o mesmo que via no contorno.
+      gender: "other" as const,
+      birthdate: null,
+      cpf: null,
+      avatarId: members[0].avatarId,
+      payerCpf: payerDigits || null,
+      consultationValue: valueNum,
+      insuranceId: insuranceId === "__none__" ? null : insuranceId,
+    }
+    try {
+      if (isEdit && patient) {
+        await updateMut.mutateAsync({ id: patient.id, patch: fields })
+        toast.success(
+          patient.kind === "couple"
+            ? "Casal atualizado"
+            : "Cadastro transformado em casal",
+        )
+      } else {
+        await createMut.mutateAsync({
+          ...fields,
+          individualChecklistItemIds: [],
+          active: true,
+          dischargedAt: null,
+          dischargeReasonId: null,
+        })
+        toast.success("Casal cadastrado")
+      }
+      onDone()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao salvar")
+    }
+  }
+
+  // CPFs das pessoas, para preencher o pagador com um toque.
+  const memberCpfs = drafts
+    .map((d) => {
+      const linked = d.patientId ? patientsById.get(d.patientId) : undefined
+      const digits = linked ? (linked.cpf ?? "") : onlyDigits(d.cpf)
+      return { name: firstName(draftName(d, patientsById)), digits }
+    })
+    .filter((m) => m.digits && isValidCpf(m.digits))
 
   async function addIndividualItem() {
     if (!patient || !newItem.trim()) return
@@ -548,123 +749,296 @@ export function PatientForm({ patient: patientProp, onDone }: Props) {
       {tab === "dados" && (
         <>
           <SectionBlock title="Identificação" icon={UserCircleIcon}>
-            <div className="flex flex-col items-center gap-1 pb-1">
-              <AvatarPicker
-                value={avatarId}
-                onChange={setAvatarId}
-                name={name}
-                size="lg"
-              />
-              <p className="text-[11px] text-muted-foreground">
-                Toque para escolher o avatar
-              </p>
+            <div
+              role="radiogroup"
+              aria-label="Tipo de atendimento"
+              className="grid grid-cols-2 gap-1 rounded-lg border border-border/60 bg-background/40 p-1"
+            >
+              {(
+                [
+                  { id: "individual", label: "Individual", icon: UserIcon },
+                  { id: "couple", label: "Casal", icon: UsersIcon },
+                ] as const
+              ).map((k) => {
+                const on = kind === k.id
+                const KIcon = k.icon
+                return (
+                  <button
+                    key={k.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    onClick={() => changeKind(k.id)}
+                    className={cn(
+                      "flex min-h-11 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium transition-colors",
+                      on
+                        ? "bg-primary/15 text-foreground"
+                        : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+                    )}
+                  >
+                    <KIcon
+                      weight="fill"
+                      className={cn("size-4", on && "text-primary")}
+                    />
+                    {k.label}
+                  </button>
+                )
+              })}
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="name">Nome</Label>
-              <Input
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-                placeholder="Nome completo"
-              />
-            </div>
-
-            {/* Uma coluna no celular: lado a lado, o rótulo do nascimento
-                quebrava em duas linhas e passava por cima do gênero. */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Gênero</Label>
-                <RadioGroup
-                  value={gender}
-                  onValueChange={(v) => setGender(v as Gender)}
-                  className="flex gap-3 pt-2"
-                >
-                  {(["female", "male", "other"] as Gender[]).map((g) => (
-                    <label
-                      key={g}
-                      className="flex cursor-pointer items-center gap-2 text-sm"
-                    >
-                      <RadioGroupItem value={g} id={`g-${g}`} />
-                      {g === "female" ? "F" : g === "male" ? "M" : "Outro"}
-                    </label>
-                  ))}
-                </RadioGroup>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="birthdate">
-                  Data de nascimento{" "}
-                  <span className="font-normal text-muted-foreground">
-                    (opcional)
-                  </span>
-                </Label>
-                <DatePicker
-                  id="birthdate"
-                  value={birthdate}
-                  onChange={setBirthdate}
-                  max={todayISO()}
-                  clearable
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="cpf">
-                CPF{" "}
-                <span className="font-normal text-muted-foreground">
-                  (opcional)
-                </span>
-              </Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="cpf"
-                  inputMode="numeric"
-                  value={cpf}
-                  onChange={(e) => setCpf(formatCpf(e.target.value))}
-                  placeholder="000.000.000-00"
-                />
-                <CopyButton
-                  variant="boxed"
-                  value={cpf}
-                  label="CPF"
-                  disabled={!cpf}
-                />
-              </div>
-            </div>
-
-            <label className="flex cursor-pointer items-center gap-2 text-sm">
-              <Checkbox
-                checked={payerSameAsPatient}
-                onCheckedChange={(v) => setPayerSameAsPatient(v === true)}
-              />
-              <span>CPF do pagador é o mesmo do paciente</span>
-            </label>
-
-            {!payerSameAsPatient && (
-              <div className="space-y-2">
-                <Label htmlFor="payer-cpf">
-                  CPF do pagador{" "}
-                  <span className="font-normal text-muted-foreground">
-                    (opcional)
-                  </span>
-                </Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="payer-cpf"
-                    inputMode="numeric"
-                    value={payerCpf}
-                    onChange={(e) => setPayerCpf(formatCpf(e.target.value))}
-                    placeholder="000.000.000-00"
+            {isCoupleForm ? (
+              <>
+                <div className="flex flex-col items-center gap-1 pb-1">
+                  <ClientAvatar
+                    patient={{
+                      kind: "couple",
+                      name: coupleName,
+                      avatarId: drafts[0]?.avatarId ?? avatarId,
+                      members: draftsToMembers(drafts, patientsById),
+                    }}
+                    size="lg"
                   />
-                  <CopyButton
-                    variant="boxed"
-                    value={payerCpf}
-                    label="CPF do pagador"
-                    disabled={!payerCpf}
+                  <p className="text-[11px] text-muted-foreground">
+                    Os avatares são escolhidos em cada pessoa
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="name">Nome do casal</Label>
+                  <Input
+                    id="name"
+                    value={coupleName}
+                    onChange={(e) => {
+                      setCoupleName(e.target.value)
+                      setNameAuto(false)
+                    }}
+                    // Saiu do campo vazio? Volta a acompanhar os nomes. No
+                    // onChange não: apagar para reescrever voltaria a encher.
+                    onBlur={() => {
+                      if (!coupleName.trim()) setNameAuto(true)
+                    }}
+                    placeholder={autoName || "Ex.: Ana & Bruno"}
+                  />
+                  {nameAuto ? (
+                    <p className="text-xs text-muted-foreground">
+                      Montado com os nomes abaixo. Pode trocar — ex.: “Casal
+                      Souza”.
+                    </p>
+                  ) : (
+                    autoName &&
+                    coupleName !== autoName && (
+                      <button
+                        type="button"
+                        onClick={() => setNameAuto(true)}
+                        className="inline-flex min-h-9 items-center text-xs font-medium text-primary hover:underline"
+                      >
+                        Usar “{autoName}”
+                      </button>
+                    )
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Pessoas do casal</p>
+                  <CoupleMembersField
+                    drafts={drafts}
+                    onChange={setDrafts}
+                    linkable={linkable}
+                    patientsById={patientsById}
+                    submitted={submitted}
                   />
                 </div>
-              </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="payer-cpf">
+                    CPF de quem paga{" "}
+                    <span className="font-normal text-muted-foreground">
+                      (opcional)
+                    </span>
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="payer-cpf"
+                      inputMode="numeric"
+                      value={payerCpf}
+                      onChange={(e) => setPayerCpf(formatCpf(e.target.value))}
+                      placeholder="000.000.000-00"
+                    />
+                    <CopyButton
+                      variant="boxed"
+                      value={payerCpf}
+                      label="CPF do pagador"
+                      disabled={!payerCpf}
+                    />
+                  </div>
+                  {memberCpfs.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {memberCpfs.map((m) => {
+                        const on = onlyDigits(payerCpf) === m.digits
+                        return (
+                          <button
+                            key={m.digits}
+                            type="button"
+                            onClick={() => setPayerCpf(formatCpf(m.digits))}
+                            className={cn(
+                              "inline-flex min-h-9 items-center rounded-lg border px-3 text-xs font-medium transition-colors",
+                              on
+                                ? "border-primary/60 bg-primary/15 text-foreground"
+                                : "border-border/60 bg-background/40 text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+                            )}
+                          >
+                            {on ? "Paga: " : "Usar CPF de "}
+                            {m.name}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex flex-col items-center gap-1 pb-1">
+                  <AvatarPicker
+                    value={avatarId}
+                    onChange={setAvatarId}
+                    name={name}
+                    size="lg"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Toque para escolher o avatar
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="name">Nome</Label>
+                  <Input
+                    id="name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                    placeholder="Nome completo"
+                  />
+                </div>
+
+                {/* Uma coluna no celular: lado a lado, o rótulo do nascimento
+                    quebrava em duas linhas e passava por cima do gênero. */}
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Gênero</Label>
+                    <RadioGroup
+                      value={gender}
+                      onValueChange={(v) => setGender(v as Gender)}
+                      className="flex gap-3 pt-2"
+                    >
+                      {(["female", "male", "other"] as Gender[]).map((g) => (
+                        <label
+                          key={g}
+                          className="flex cursor-pointer items-center gap-2 text-sm"
+                        >
+                          <RadioGroupItem value={g} id={`g-${g}`} />
+                          {g === "female" ? "F" : g === "male" ? "M" : "Outro"}
+                        </label>
+                      ))}
+                    </RadioGroup>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="birthdate">
+                      Data de nascimento{" "}
+                      <span className="font-normal text-muted-foreground">
+                        (opcional)
+                      </span>
+                    </Label>
+                    <DatePicker
+                      id="birthdate"
+                      value={birthdate}
+                      onChange={setBirthdate}
+                      max={todayISO()}
+                      clearable
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="cpf">
+                    CPF{" "}
+                    <span className="font-normal text-muted-foreground">
+                      (opcional)
+                    </span>
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="cpf"
+                      inputMode="numeric"
+                      value={cpf}
+                      onChange={(e) => setCpf(formatCpf(e.target.value))}
+                      placeholder="000.000.000-00"
+                    />
+                    <CopyButton
+                      variant="boxed"
+                      value={cpf}
+                      label="CPF"
+                      disabled={!cpf}
+                    />
+                  </div>
+                </div>
+
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={payerSameAsPatient}
+                    onCheckedChange={(v) => setPayerSameAsPatient(v === true)}
+                  />
+                  <span>CPF do pagador é o mesmo do paciente</span>
+                </label>
+
+                {!payerSameAsPatient && (
+                  <div className="space-y-2">
+                    <Label htmlFor="payer-cpf">
+                      CPF do pagador{" "}
+                      <span className="font-normal text-muted-foreground">
+                        (opcional)
+                      </span>
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="payer-cpf"
+                        inputMode="numeric"
+                        value={payerCpf}
+                        onChange={(e) => setPayerCpf(formatCpf(e.target.value))}
+                        placeholder="000.000.000-00"
+                      />
+                      <CopyButton
+                        variant="boxed"
+                        value={payerCpf}
+                        label="CPF do pagador"
+                        disabled={!payerCpf}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {couplesOfThis.length > 0 && (
+                  <div className="space-y-1.5 rounded-lg border border-secondary/40 bg-secondary/10 px-3 py-2.5">
+                    <p className="flex items-center gap-1.5 text-xs font-medium text-secondary">
+                      <UsersIcon weight="fill" className="size-3.5" />
+                      Também em terapia de casal
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {couplesOfThis.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => navigate(`/patients?edit=${c.id}`)}
+                          className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border/60 bg-background/40 px-2.5 text-xs font-medium hover:bg-muted/40"
+                        >
+                          <ClientAvatar patient={c} size="sm" />
+                          {c.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </SectionBlock>
 

@@ -42,6 +42,8 @@ Gestão diária. Layout: mini-calendário (340px) + lista do dia.
 - Selecionar um dia filtra `dayOccurrences`; busca client-side por nome; ordena por horário e nome.
 - Cada card mostra horário, avatar, nome, valor, idade·gênero·convênio, status e badges (pendência,
   não pago). Clicar abre o `PatientDrawer`.
+- Sessão de **casal**: avatares sobrepostos, *"Casal · convênio"* e, quando nem todos vieram,
+  *"Atendido · só Ana"*. A busca acha o casal pelo nome de qualquer pessoa.
 - Sessão de **pacote**: no lugar do valor vai o selo *Pacote 2/4* (já descontada) ou
   *Pacote · restam 2* (o saldo cobre a sessão que ainda vai acontecer).
 - Botões: **Novo atendimento** (`ScheduleAppointmentDialog`) e **Novo paciente** (`Sheet` com
@@ -62,7 +64,10 @@ Acompanhamento dos [pacotes de sessões](../16-pacotes-sessoes/README.md).
 
 ## `/patients` — `patients.tsx`
 
-- Grid de cards de pacientes. Busca por nome; toggle "Mostrar arquivados".
+- Grid de cards de pacientes. Busca por nome (no casal, também pelo nome das pessoas); toggle
+  "Mostrar arquivados"; filtro *Todos / Individuais / Casais* quando existe algum casal.
+- Card de casal: selo *casal*, pessoas com idade e CPF de cada uma. Paciente individual que
+  faz parte de um casal mostra *"Casal: …"*.
 - Contadores (ativos / arquivados).
 - Clicar no card abre o `PatientForm` em `Sheet` (editar). Ícones de editar e arquivar (com
   confirmação) por card.

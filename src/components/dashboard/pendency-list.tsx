@@ -4,10 +4,12 @@ import {
   WarningIcon,
 } from "@phosphor-icons/react"
 import type { Occurrence, Patient } from "@/db/types"
-import { PatientAvatar, genderLabel } from "@/components/patient/patient-avatar"
+import {
+  ClientAvatar,
+  patientSummary,
+} from "@/components/patient/patient-avatar"
 import { Card, CardContent } from "@/components/ui/card"
 import { formatDateBR } from "@/domain/dates"
-import { ageLabel } from "@/domain/age"
 import { cn } from "@/lib/utils"
 
 export interface PendencyBreakdown {
@@ -48,7 +50,7 @@ export function PendencyList({
             )}
           >
             <CardContent className="flex items-start gap-3 p-3">
-              <PatientAvatar avatarId={it.patient.avatarId} name={it.patient.name} size="md" />
+              <ClientAvatar patient={it.patient} size="md" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-start justify-between gap-2">
                   <span className="truncate text-sm font-semibold">
@@ -60,9 +62,7 @@ export function PendencyList({
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {[ageLabel(it.patient.birthdate), genderLabel(it.patient.gender)]
-                    .filter(Boolean)
-                    .join(" · ")}
+                  {patientSummary(it.patient).join(" · ")}
                   {it.insuranceName && ` · ${it.insuranceName}`}
                   {!it.insuranceName && " · Particular"}
                 </p>

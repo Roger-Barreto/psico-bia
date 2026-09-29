@@ -5,9 +5,10 @@ import {
   PencilSimpleIcon,
   PlusIcon,
   TrashIcon,
+  UsersIcon,
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
-import type { Patient } from "@/db/types"
+import type { Patient, PatientKind } from "@/db/types"
 import { useArchivePatient, usePatients } from "@/api/queries"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -21,13 +22,22 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { PatientAvatar, genderLabel } from "@/components/patient/patient-avatar"
+import {
+  ClientAvatar,
+  patientSummary,
+} from "@/components/patient/patient-avatar"
+import {
+  couplesOfPatient,
+  firstName,
+  isCouple,
+  matchesPatient,
+} from "@/domain/couples"
 import { PatientForm } from "@/components/patient/patient-form"
 import { Breadcrumbs } from "@/components/breadcrumbs"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
 import { CopyButton } from "@/components/ui/copy-button"
 import { formatCpf } from "@/lib/cpf"
-import { ageLabel } from "@/domain/age"
+import { cn } from "@/lib/utils"
 
 export function PatientsPage() {
   const { data, isLoading } = usePatients()
@@ -36,6 +46,7 @@ export function PatientsPage() {
   const [editing, setEditing] = useState<Patient | null>(null)
   const [open, setOpen] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
+  const [kindFilter, setKindFilter] = useState<PatientKind | "all">("all")
   const [searchParams, setSearchParams] = useSearchParams()
 
   useEffect(() => {
@@ -52,14 +63,17 @@ export function PatientsPage() {
 
   const filtered = useMemo(() => {
     const list = data ?? []
-    const q = query.trim().toLowerCase()
     return list
       .filter((p) => (showArchived ? true : p.active))
-      .filter((p) => (q ? p.name.toLowerCase().includes(q) : true))
+      .filter((p) => kindFilter === "all" || p.kind === kindFilter)
+      // Acha o casal pelo nome de qualquer uma das pessoas.
+      .filter((p) => matchesPatient(p, query))
       .sort((a, b) => a.name.localeCompare(b.name))
-  }, [data, query, showArchived])
+  }, [data, query, showArchived, kindFilter])
 
   const all = data ?? []
+  const visible = all.filter((p) => (showArchived ? true : p.active))
+  const coupleCount = visible.filter(isCouple).length
   const totalActive = all.filter((p) => p.active).length
   const totalArchived = all.length - totalActive
 
@@ -114,6 +128,46 @@ export function PatientsPage() {
         </Button>
       </div>
 
+      {/* Só aparece quando existe casal: sem casais, seria ruído. */}
+      {(coupleCount > 0 || kindFilter !== "all") && (
+        <div
+          role="tablist"
+          aria-label="Tipo de atendimento"
+          className="grid grid-cols-3 gap-1 rounded-lg border border-border/60 bg-background/40 p-1 sm:inline-grid"
+        >
+          {(
+            [
+              { id: "all", label: "Todos", n: visible.length },
+              {
+                id: "individual",
+                label: "Individuais",
+                n: visible.length - coupleCount,
+              },
+              { id: "couple", label: "Casais", n: coupleCount },
+            ] as const
+          ).map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              role="tab"
+              aria-selected={kindFilter === f.id}
+              onClick={() => setKindFilter(f.id)}
+              className={cn(
+                "inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors",
+                kindFilter === f.id
+                  ? "bg-primary/15 text-foreground"
+                  : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+              )}
+            >
+              {f.label}
+              <span className="rounded-full bg-muted px-1.5 text-[11px] tabular-nums text-muted-foreground">
+                {f.n}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {isLoading && (
         <p className="text-sm text-muted-foreground">Carregando...</p>
       )}
@@ -147,21 +201,48 @@ export function PatientsPage() {
               className={`cursor-pointer transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${!p.active ? "opacity-60" : ""}`}
             >
               <CardContent className="flex items-start gap-3 p-4">
-                <PatientAvatar avatarId={p.avatarId} name={p.name} />
+                <ClientAvatar patient={p} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <p className="truncate text-sm font-semibold">{p.name}</p>
+                    {isCouple(p) && (
+                      <span className="shrink-0 rounded-full bg-secondary/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-secondary">
+                        casal
+                      </span>
+                    )}
                     {!p.active && (
                       <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
                         arquivado
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    {[ageLabel(p.birthdate), genderLabel(p.gender)]
-                      .filter(Boolean)
-                      .join(" · ")}
+                  <p className="truncate text-xs text-muted-foreground">
+                    {(isCouple(p)
+                      ? patientSummary(p).slice(1)
+                      : patientSummary(p)
+                    ).join(" · ")}
                   </p>
+                  {isCouple(p) &&
+                    p.members
+                      .filter((m) => m.cpf)
+                      .map((m) => (
+                        <CpfLine
+                          key={m.id}
+                          label={firstName(m.name)}
+                          copyLabel={`CPF de ${firstName(m.name)}`}
+                          digits={m.cpf!}
+                        />
+                      ))}
+                  {!isCouple(p) &&
+                    couplesOfPatient(p.id, all).map((c) => (
+                      <p
+                        key={c.id}
+                        className="mt-0.5 flex items-center gap-1 truncate text-xs text-secondary"
+                      >
+                        <UsersIcon weight="fill" className="size-3 shrink-0" />
+                        Casal: {c.name}
+                      </p>
+                    ))}
                   {p.cpf && (
                     <CpfLine
                       label="CPF"

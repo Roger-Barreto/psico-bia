@@ -16,11 +16,13 @@ Inventário dos componentes não-primitivos (os primitivos `ui/` estão em
 | Componente | Arquivo | Papel |
 |---|---|---|
 | `PatientDrawer` | `patient/patient-drawer.tsx` | **Central de atendimento.** Cabeçalho com avatar editável, valor, convênio; data/status; ações (Atendido/Falta/Reagendar); mensagens contextuais; reagendamento; `PaymentControl`; checklist do dia (toggle otimista); anotações. Sub-sheets: editar cadastro, adicionar item de checklist, adicionar anotação, desfazer. |
-| `PatientForm` | `patient/patient-form.tsx` | Cadastro/edição em abas (Dados, Checklist, **Pacotes**, Documentos). Seções: Identificação, Financeiro (convênio + valor com atalhos +110/+80), Tratamento (encerrar/reabrir/excluir). Valida nascimento quando preenchido (campo opcional). `CopyButton` ao lado dos CPFs. Prévia de futuros ao encerrar. |
+| `PatientForm` | `patient/patient-form.tsx` | Cadastro/edição em abas (Dados, Checklist, **Pacotes**, Documentos). Seletor **Individual \| Casal** — também na edição, para converter um cadastro no lugar. Seções: Identificação, Financeiro (convênio + valor com atalhos +110/+80), Tratamento (encerrar/reabrir/excluir). Valida nascimento quando preenchido (campo opcional). `CopyButton` ao lado dos CPFs. Prévia de futuros ao encerrar. |
 | `PaymentControl` | `patient/payment-control.tsx` | Marcar/desmarcar pagamento. Três caminhos: **sessão avulsa** (valor padrão ou customizado + forma de pagamento), **novo pacote** (quantidade + valor total) e **descontar do pacote** (quando há saldo — já vem escolhido). Sessão paga por pacote mostra a posição (*sessão 2 de 4*) e *Tirar do pacote*. Aparece quando atendido **ou** em falta cobrada. |
 | `PaymentMethodChips` | `patient/payment-method-chips.tsx` | Forma de pagamento como chips, com criação inline, estados de carregando/erro e a forma única já escolhida. Hook `usePaymentMethodChoice`. Usado pelo `PaymentControl` e pelo `PackageDialog`. |
 | `DischargeReasonField` | `patient/discharge-reason-field.tsx` | Motivo do encerramento como grupo de opções **inline** (linhas de 44px), com criação de motivo no lugar e sugestões de um toque para a conta que ainda não tem nenhum. |
-| `PatientCombobox` | `patient/patient-combobox.tsx` | Busca de paciente com a lista na própria tela (acento-insensível, teclado). Usado em *Novo atendimento* e *Novo pacote*. |
+| `PatientCombobox` | `patient/patient-combobox.tsx` | Busca de paciente com a lista na própria tela (acento-insensível, teclado). Acha casal pelo nome de qualquer pessoa e mostra o selo *Casal*. Usado em *Novo atendimento*, *Novo pacote* e para vincular pessoa de casal. |
+| `ClientAvatar` / `patientSummary` | `patient/patient-avatar.tsx` | Avatar do cadastro — no casal, os das duas primeiras pessoas sobrepostos, no mesmo quadrado do individual. `patientSummary` monta a linha de resumo (*"34 anos · Feminino"* / *"Casal · Ana, 34 · Rafael"*). |
+| `CoupleMembersField` | `patient/couple-members-field.tsx` | As pessoas do casal no cadastro: um cartão por pessoa (avatar, nome, gênero, nascimento, CPF), vínculo com cadastro individual, adicionar/remover (2 a 4). |
 | `SessionValueField` | `patient/session-value-field.tsx` | Seletor "usar valor diferente" + `parseAmount` + hook `useSessionValue`. Compartilhado pelo `PaymentControl` e pelo `MissedAppointmentDialog`. |
 | `PatientDocuments` | `patient/patient-documents.tsx` | Upload (drag-drop/seleção, multi), ícone por tipo de arquivo, download, exclusão, "abrir pasta". |
 | `PatientAvatar` | `patient/patient-avatar.tsx` | Avatar monstrinho + `genderLabel`. |
@@ -34,7 +36,7 @@ Inventário dos componentes não-primitivos (os primitivos `ui/` estão em
 |---|---|---|
 | `ScheduleAppointmentDialog` | `appointments/schedule-appointment-dialog.tsx` | Novo atendimento: combobox de paciente (busca acento-insensível, navegação por teclado), data/hora, único vs recorrente (frequência + data final). |
 | `UndoAppointmentDialog` | `appointments/undo-appointment-dialog.tsx` | Desfazer com 3 escopos (este / este e futuros / todos), avisos por escopo, confirmação. |
-| `MissedAppointmentDialog` | `appointments/missed-appointment-dialog.tsx` | Escolha ao marcar falta: **Não cobrar** (padrão) ou **Cobrar esta sessão** — esta abre um 2º passo com o valor a cobrar (`SessionValueField`). Quando o paciente tem pacote com saldo, a segunda opção vira **Descontar do pacote** e não há valor a escolher. Cartões de opção grandes (alvo de toque). |
+| `MissedAppointmentDialog` | `appointments/missed-appointment-dialog.tsx` | No casal, a opção **"Só parte do casal veio"** registra a sessão como atendida com a presença certa. Escolha ao marcar falta: **Não cobrar** (padrão) ou **Cobrar esta sessão** — esta abre um 2º passo com o valor a cobrar (`SessionValueField`). Quando o paciente tem pacote com saldo, a segunda opção vira **Descontar do pacote** e não há valor a escolher. Cartões de opção grandes (alvo de toque). |
 
 ## Pacotes de sessões
 
@@ -91,6 +93,9 @@ do iPhone, com 40px de alvo. Detalhes e a regra para quem cria um drawer novo em
 
 ## Libs auxiliares
 
+- `domain/couples.ts` — terapia de casal: `isCouple`, `resolveMembers` (dados vivos do vínculo),
+  `coupleAutoName`, `splitCoupleName` (converter contorno), `matchesPatient` (busca pelas pessoas),
+  `couplesOfPatient`, `presentIds`/`toPresenceValue`/`presenceLabel`, `peopleGenders`.
 - `domain/packages.ts` — pacotes de sessões: `packageUsed`/`packageRemaining`/`packageState`,
   `positionInPackage`, `packageForDate` (o pacote que o banco usaria), `openPackage`,
   `packageTotals`, `packagesSoldInRange`, `projectedCoverage`.

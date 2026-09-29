@@ -24,3 +24,24 @@ export function ageLabel(iso: string | null | undefined): string | null {
   if (age === null) return null
   return `${age} ${age === 1 ? "ano" : "anos"}`
 }
+
+/**
+ * Valida uma data de nascimento **opcional**: vazio passa. Devolve a
+ * mensagem de erro, ou `null` quando está tudo certo.
+ */
+export function birthdateError(iso: string, todayIso: string): string | null {
+  if (!iso) return null
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!m) return "Data inválida"
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])]
+  if (y < 1900 || y > Number(todayIso.slice(0, 4))) return "Ano fora do intervalo"
+  const date = new Date(y, mo - 1, d)
+  if (
+    date.getFullYear() !== y ||
+    date.getMonth() !== mo - 1 ||
+    date.getDate() !== d
+  )
+    return "Data inválida"
+  if (iso > todayIso) return "Data não pode estar no futuro"
+  return null
+}

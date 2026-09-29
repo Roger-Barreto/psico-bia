@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
-import { PatientAvatar } from "@/components/patient/patient-avatar"
+import { ClientAvatar } from "@/components/patient/patient-avatar"
 import { formatBRL } from "@/domain/finance"
 import {
   formatDateBR,
@@ -155,11 +155,7 @@ export function PackageDetailDialog({
 
           {patient && (
             <div className="flex items-center gap-3">
-              <PatientAvatar
-                avatarId={patient.avatarId}
-                name={patient.name}
-                size="sm"
-              />
+              <ClientAvatar patient={patient} size="sm" />
               <p className="min-w-0 flex-1 truncate text-sm font-medium">
                 {patient.name}
               </p>

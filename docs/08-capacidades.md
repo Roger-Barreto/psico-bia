@@ -25,6 +25,10 @@ detalhada.
 - [x] Reabrir tratamento.
 - [x] Excluir permanentemente (cascata: séries, atendimentos, anotações, checklist, documentos).
 - [x] Busca por nome; deep-link `?edit=<id>`.
+- [x] **Terapia de casal**: cadastro do casal com 2 a 4 pessoas (nome, gênero, nascimento e CPF
+  de cada uma), nome do casal automático ou livre, CPF de quem paga; vínculo de uma pessoa ao
+  cadastro individual dela; **converter** um cadastro antigo em casal (e vice-versa) sem perder
+  agenda, pagamentos e histórico; filtro *Individuais / Casais*. → [casais](18-casais/README.md)
 - → [domínio](02-regras-de-negocio/dominio.md), [ciclo de vida](02-regras-de-negocio/ciclo-de-vida-paciente.md)
 
 ## Checklist individual (por paciente)
@@ -64,6 +68,8 @@ detalhada.
 - [x] Ligar/desligar a cobrança de uma falta depois de registrada (inclusive faltas antigas);
   deixar de cobrar uma falta paga desmarca o pagamento junto.
 - [x] Reagendar a partir do drawer.
+- [x] Casal: registrar **quem veio** ("Só parte do casal veio" na falta; *Quem veio* no
+  atendimento), mostrado na agenda como *"Atendido · só Ana"*.
 - [x] Mensagens contextuais (sessão futura, concluída, reagendada).
 - [x] Editar cadastro do paciente sem sair do fluxo.
 - [x] Trocar avatar inline.

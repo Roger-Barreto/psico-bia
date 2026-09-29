@@ -18,6 +18,7 @@ import {
   useSessionPackages,
 } from "@/api/queries"
 import { isCovered, packagesSoldInRange } from "@/domain/packages"
+import { isCouple, peopleGenders } from "@/domain/couples"
 import { usePackageCoverage } from "@/components/packages/use-package-coverage"
 import { colorForKey } from "@/lib/finance-colors"
 import { pendencyBreakdown } from "@/domain/pendencies"
@@ -393,6 +394,9 @@ export function DashboardPage() {
     (a) => a.status === "missed" && a.chargedAbsence,
   ).length
   const ongoingPatients = patients.filter((p) => !p.dischargedAt).length
+  const ongoingCouples = patients.filter(
+    (p) => !p.dischargedAt && isCouple(p),
+  ).length
   const dischargedTotal = patients.filter((p) => !!p.dischargedAt).length
   const dischargedThisMonth = patients.filter(
     (p) =>
@@ -493,20 +497,24 @@ export function DashboardPage() {
   }, [appts, patientsById])
 
   // ── Gender pie (ongoing only) ───────────────────────────
+  // Conta PESSOAS: num casal, cada uma entra com o próprio gênero (antes o
+  // casal cadastrado como contorno inflava o "Outro").
   const genderPie = useMemo(() => {
     let f = 0
     let m = 0
     let o = 0
-    for (const p of patients) {
-      if (p.dischargedAt) continue
-      if (p.gender === "female") f++
-      else if (p.gender === "male") m++
-      else o++
+    let unknown = 0
+    for (const g of peopleGenders(patients.filter((p) => !p.dischargedAt))) {
+      if (g === "female") f++
+      else if (g === "male") m++
+      else if (g === "other") o++
+      else unknown++
     }
     return [
       { name: "Feminino", value: f },
       { name: "Masculino", value: m },
       { name: "Outro", value: o },
+      ...(unknown > 0 ? [{ name: "Não informado", value: unknown }] : []),
     ]
   }, [patients])
 
@@ -700,6 +708,11 @@ export function DashboardPage() {
         <KpiCard
           label="Em tratamento"
           value={ongoingPatients}
+          hint={
+            ongoingCouples > 0
+              ? `${ongoingCouples} ${ongoingCouples === 1 ? "casal" : "casais"}`
+              : undefined
+          }
           tone="secondary"
         />
         <KpiCard
@@ -757,7 +770,7 @@ export function DashboardPage() {
       </div>
 
       <div className="grid gap-3 @2xl:grid-cols-2 @5xl:grid-cols-3 [&>*]:min-w-0">
-        <ChartCard title="Pacientes por gênero" subtitle="Em tratamento">
+        <ChartCard title="Pessoas por gênero" subtitle="Em tratamento · casais contam cada pessoa">
           <CategoryPie data={genderPie} />
         </ChartCard>
         <ChartCard title="Pacientes por convênio" subtitle="Em tratamento">

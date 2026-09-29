@@ -43,28 +43,77 @@ export function ageOn(
 }
 
 /**
+ * Quem faz aniversário. Num casal, cada pessoa conta — `patient` é o
+ * cadastro que abre ao tocar (o do casal), e `coupleName` diz de qual casal.
+ */
+export interface BirthdayPerson {
+  /** Único na lista: o id do paciente, ou `casal:pessoa`. */
+  key: string
+  patient: Patient
+  name: string
+  birthdate: string
+  avatarId: number
+  coupleName: string | null
+}
+
+/**
  * Aniversariantes por data ISO, restrito às datas informadas (as 42 células
- * visíveis do mini-calendário). Considera todo paciente **não arquivado** —
+ * visíveis do mini-calendário). Considera todo cadastro **não arquivado** —
  * inclusive quem já teve alta, que a UI marca à parte.
+ *
+ * Pessoas de casal entram também, exceto quem está ligado a um cadastro
+ * individual ativo: essa pessoa já aparece pelo cadastro dela.
  */
 export function birthdayIndex(
   patients: Patient[],
   isoDates: string[],
-): Map<string, Patient[]> {
-  const byKey = new Map<string, Patient[]>()
+): Map<string, BirthdayPerson[]> {
+  const activeIds = new Set(
+    patients
+      .filter((p) => p.active && p.kind !== "couple")
+      .map((p) => p.id),
+  )
+  const people: BirthdayPerson[] = []
   for (const p of patients) {
     if (!p.active) continue
-    const key = monthDay(p.birthdate)
-    if (!key) continue
+    if (p.kind === "couple") {
+      for (const m of p.members) {
+        if (m.patientId && activeIds.has(m.patientId)) continue
+        if (!monthDay(m.birthdate) || !m.birthdate) continue
+        people.push({
+          key: `${p.id}:${m.id}`,
+          patient: p,
+          name: m.name,
+          birthdate: m.birthdate,
+          avatarId: m.avatarId,
+          coupleName: p.name,
+        })
+      }
+      continue
+    }
+    if (!monthDay(p.birthdate) || !p.birthdate) continue
+    people.push({
+      key: p.id,
+      patient: p,
+      name: p.name,
+      birthdate: p.birthdate,
+      avatarId: p.avatarId,
+      coupleName: null,
+    })
+  }
+
+  const byKey = new Map<string, BirthdayPerson[]>()
+  for (const person of people) {
+    const key = monthDay(person.birthdate)!
     const list = byKey.get(key)
-    if (list) list.push(p)
-    else byKey.set(key, [p])
+    if (list) list.push(person)
+    else byKey.set(key, [person])
   }
   if (byKey.size === 0) return new Map()
 
-  const out = new Map<string, Patient[]>()
+  const out = new Map<string, BirthdayPerson[]>()
   for (const iso of isoDates) {
-    const found: Patient[] = []
+    const found: BirthdayPerson[] = []
     for (const key of keysCelebratedOn(iso)) {
       const list = byKey.get(key)
       if (list) found.push(...list)

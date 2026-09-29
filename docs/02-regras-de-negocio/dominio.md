@@ -34,6 +34,11 @@ Campos (ver [modelo de dados](../03-arquitetura/modelo-de-dados.md) para tipos e
 
 - `name`, `gender` (`male`/`female`/`other`), `birthdate` (ISO `YYYY-MM-DD` — a **idade é derivada**,
   nunca armazenada), `avatarId` (1..56, monstrinho).
+- `kind` — `individual` ou **`couple`** (terapia de casal). No casal, `name` é o nome do caso
+  (*"Ana & Rafael"*), as pessoas ficam em `members` (2 a 4, cada uma com nome, gênero,
+  nascimento e CPF opcionais, avatar e, opcionalmente, o vínculo com o cadastro individual
+  dela), e `gender`/`birthdate`/`cpf` do próprio registro não se aplicam. Ver
+  [terapia de casal](../18-casais/README.md).
 - `consultationValue` — valor padrão da consulta.
 - `insuranceId` — convênio (ou `null` = particular).
 - `individualChecklistItemIds` — campo legado/auxiliar (os itens individuais reais vivem na coleção
@@ -90,6 +95,8 @@ pagamento, checklist marcado, notas, reagendamento). Campos principais:
 - `snapshotItemIds` — itens vigentes no fechamento (congelado).
 - `notes`, `updatedAt`.
 - `paid`, `paidValue`, `paidAt` — controle de pagamento.
+- `presentMemberIds` — numa sessão de **casal** atendida, quem veio (`null` = todos). O banco
+  limpa quando a sessão deixa de estar atendida.
 - `chargedAbsence` — **falta cobrada**: a falta continua gerando receita. Só é relevante com
   `status = missed`; o banco recusa o contrário e as demais transições zeram a flag.
 - `packageId` — **pacote de sessões** que pagou esta sessão. Preenchido pelo banco quando a

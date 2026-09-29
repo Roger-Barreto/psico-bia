@@ -7,10 +7,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { PatientAvatar, genderLabel } from "@/components/patient/patient-avatar"
+import {
+  ClientAvatar,
+  patientSummary,
+} from "@/components/patient/patient-avatar"
 import { formatBRL } from "@/domain/finance"
 import { formatDateBR } from "@/domain/dates"
-import { ageLabel } from "@/domain/age"
 
 export interface UnpaidPatientEntry {
   patient: Patient
@@ -61,11 +63,7 @@ export function UnpaidPatientsDialog({
                 onClick={() => onSelect(it)}
                 className="flex w-full items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-left transition-colors hover:border-amber-500/60 hover:bg-amber-500/10"
               >
-                <PatientAvatar
-                  avatarId={it.patient.avatarId}
-                  name={it.patient.name}
-                  size="md"
-                />
+                <ClientAvatar patient={it.patient} size="md" />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">
                     <span className="truncate text-sm font-semibold">
@@ -77,9 +75,7 @@ export function UnpaidPatientsDialog({
                     </span>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {[ageLabel(it.patient.birthdate), genderLabel(it.patient.gender)]
-                      .filter(Boolean)
-                      .join(" · ")}
+                    {patientSummary(it.patient).join(" · ")}
                     {it.insuranceName ? ` · ${it.insuranceName}` : " · Particular"}
                   </p>
                   <p className="mt-1 text-[11px] uppercase tracking-wider text-amber-200/80">

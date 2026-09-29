@@ -18,6 +18,7 @@ import type {
   CofrinhoEntryStatus,
   CofrinhoGoalType,
   CofrinhoIncomeScope,
+  CoupleMember,
   DischargeReason,
   FinanceCard,
   FinanceCategory,
@@ -31,6 +32,7 @@ import type {
   Patient,
   PatientAnnotation,
   PatientDocument,
+  PatientKind,
   PaymentMethod,
   Person,
   RecurringRule,
@@ -72,6 +74,30 @@ interface PatientRow {
   discharge_reason_id: string | null
   cpf: string | null
   payer_cpf: string | null
+  kind: PatientKind
+  members: CoupleMember[]
+}
+
+/**
+ * Lê as pessoas do casal de forma defensiva: é jsonb, e um campo ausente não
+ * pode derrubar a tela inteira. O banco já valida a forma (035_casais.sql).
+ */
+function rowToMembers(raw: unknown): CoupleMember[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((m): m is Record<string, unknown> => !!m && typeof m === "object")
+    .map((m) => ({
+      id: String(m.id ?? ""),
+      name: String(m.name ?? ""),
+      gender:
+        m.gender === "male" || m.gender === "female" || m.gender === "other"
+          ? m.gender
+          : null,
+      birthdate: typeof m.birthdate === "string" && m.birthdate ? m.birthdate : null,
+      cpf: typeof m.cpf === "string" && m.cpf ? m.cpf : null,
+      avatarId: typeof m.avatarId === "number" ? m.avatarId : 1,
+      patientId: typeof m.patientId === "string" && m.patientId ? m.patientId : null,
+    }))
 }
 
 function rowToPatient(r: PatientRow): Patient {
@@ -90,6 +116,9 @@ function rowToPatient(r: PatientRow): Patient {
     dischargeReasonId: r.discharge_reason_id,
     cpf: r.cpf ?? null,
     payerCpf: r.payer_cpf ?? null,
+    // linhas gravadas antes de 035 não trazem as colunas
+    kind: r.kind === "couple" ? "couple" : "individual",
+    members: rowToMembers(r.members),
   }
 }
 
@@ -114,6 +143,8 @@ function patientToRow(
     row.discharge_reason_id = p.dischargeReasonId
   if (p.cpf !== undefined) row.cpf = p.cpf
   if (p.payerCpf !== undefined) row.payer_cpf = p.payerCpf
+  if (p.kind !== undefined) row.kind = p.kind
+  if (p.members !== undefined) row.members = p.members
   return row
 }
 
@@ -174,6 +205,7 @@ interface AppointmentRow {
   payment_method_id: string | null
   charged_absence: boolean
   package_id: string | null
+  present_member_ids: string[] | null
 }
 
 function rowToAppointment(r: AppointmentRow): Appointment {
@@ -198,6 +230,8 @@ function rowToAppointment(r: AppointmentRow): Appointment {
     chargedAbsence: r.charged_absence ?? false,
     // idem para 034
     packageId: r.package_id ?? null,
+    // idem para 035
+    presentMemberIds: r.present_member_ids ?? null,
   }
 }
 
@@ -225,6 +259,8 @@ function appointmentToRow(
   if (a.chargedAbsence !== undefined)
     row.charged_absence = a.chargedAbsence
   if (a.packageId !== undefined) row.package_id = a.packageId
+  if (a.presentMemberIds !== undefined)
+    row.present_member_ids = a.presentMemberIds
   return row
 }
 
@@ -369,7 +405,11 @@ export function useCreatePatient() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (
-      input: Omit<Patient, "id" | "createdAt"> & { avatarId?: number },
+      input: Omit<Patient, "id" | "createdAt" | "kind" | "members"> & {
+        avatarId?: number
+        kind?: PatientKind
+        members?: CoupleMember[]
+      },
     ) => {
       const row: PatientRow = {
         id: newId("p"),
@@ -386,6 +426,8 @@ export function useCreatePatient() {
         discharge_reason_id: input.dischargeReasonId ?? null,
         cpf: input.cpf ?? null,
         payer_cpf: input.payerCpf ?? null,
+        kind: input.kind ?? "individual",
+        members: input.members ?? [],
       }
       const { data, error } = await supabase
         .from("patients")
@@ -954,6 +996,7 @@ export function useUpsertAppointment() {
       paymentMethodId?: string | null
       chargedAbsence?: boolean
       packageId?: string | null
+      presentMemberIds?: string[] | null
     }) => {
       // Lê a linha INTEIRA, não só o id. O upsert grava a row completa, então
       // tudo que o chamador não informar precisa vir do que já está gravado.
@@ -989,6 +1032,7 @@ export function useUpsertAppointment() {
         // levar o pacote que o banco escolheu — sem a coluna, levaria só o
         // "pago, valor 0" e a sessão ficaria paga sem pacote.
         package_id: null,
+        present_member_ids: null,
         ...(prev ?? {}),
         // Identidade e status vêm sempre da chamada.
         series_id: input.seriesId,
@@ -1010,6 +1054,7 @@ export function useUpsertAppointment() {
           paymentMethodId: input.paymentMethodId,
           chargedAbsence: input.chargedAbsence,
           packageId: input.packageId,
+          presentMemberIds: input.presentMemberIds,
         }),
       } as AppointmentRow
       const { data, error } = await supabase

@@ -35,6 +35,14 @@ Estados e transições de um paciente, do cadastro à exclusão. Lógica em
 - Opcionais: avatar (aleatório se omitido), convênio, valor da consulta.
 - `POST /api/patients`. `active=true`, `dischargedAt=null`.
 
+### Casal
+
+Um casal é um paciente com `kind = 'couple'` e as pessoas em `members` — o ciclo de vida
+(arquivar, alta, reabrir, excluir) é o mesmo. Na edição dá para **converter** individual ↔
+casal: o id não muda, então agenda, pagamentos, pacotes e anotações continuam. Excluir
+permanentemente um paciente individual que estava vinculado a um casal desfaz o vínculo; a
+pessoa segue no casal. Ver [terapia de casal](../18-casais/README.md).
+
 ## 2. Edição
 
 - `PATCH /api/patients/:id`. Merge parcial.

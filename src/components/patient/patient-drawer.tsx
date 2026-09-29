@@ -12,6 +12,8 @@ import {
   PencilSimpleIcon,
   PlusIcon,
   ProhibitIcon,
+  UserIcon,
+  UsersIcon,
   WarningIcon,
   XIcon,
 } from "@phosphor-icons/react"
@@ -29,6 +31,7 @@ import {
   useInsurances,
   usePatchAppointment,
   usePatientAnnotations,
+  usePatients,
   useSessionPackages,
   useSharedChecklist,
   useUndoAppointment,
@@ -47,7 +50,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { genderLabel } from "./patient-avatar"
+import { ClientAvatar, patientSummary } from "./patient-avatar"
 import { AvatarPicker } from "./avatar-picker"
 import { PaymentControl } from "./payment-control"
 import { PatientForm } from "./patient-form"
@@ -57,7 +60,15 @@ import { buildSnapshotIds, checklistFor } from "@/domain/pendencies"
 import { occurrencesForPatient } from "@/domain/recurrence"
 import { todayISO, formatLongDateBR } from "@/domain/dates"
 import { cn } from "@/lib/utils"
-import { ageLabel } from "@/domain/age"
+import { useNavigate } from "react-router-dom"
+import {
+  couplesOfPatient,
+  firstName,
+  isCouple,
+  presentIds,
+  resolveMembers,
+  toPresenceValue,
+} from "@/domain/couples"
 import { Spinner } from "@/components/ui/spinner"
 import { UndoAppointmentDialog } from "@/components/appointments/undo-appointment-dialog"
 import { MissedAppointmentDialog } from "@/components/appointments/missed-appointment-dialog"
@@ -97,6 +108,8 @@ export function PatientDrawer({
   const seriesQ = useAppointmentSeries()
   const annotationsQ = usePatientAnnotations(patient?.id)
   const packagesQ = useSessionPackages()
+  const patientsQ = usePatients()
+  const navigate = useNavigate()
   const deleteAnnotation = useDeletePatientAnnotation()
   const [reschedDate, setReschedDate] = useState("")
   const [reschedTime, setReschedTime] = useState("")
@@ -183,6 +196,26 @@ export function PatientDrawer({
   const canAct = !isFuture && !hasFinalStatus
   const wasRescheduled = !!appt?.rescheduledTo
 
+  const allPatients = patientsQ.data ?? []
+  const patientsById = new Map(allPatients.map((x) => [x.id, x] as const))
+  const coupleSession = isCouple(p)
+  const members = coupleSession ? resolveMembers(p, patientsById) : []
+  const present = coupleSession ? presentIds(appt, p) : new Set<string>()
+  const crossLinks: { id: string; label: string; couple: boolean }[] =
+    coupleSession
+      ? members
+          .filter((m) => m.linked)
+          .map((m) => ({
+            id: m.linked!.id,
+            label: `${firstName(m.name)} também em individual`,
+            couple: false,
+          }))
+      : couplesOfPatient(p.id, allPatients).map((c) => ({
+          id: c.id,
+          label: `Em terapia de casal: ${c.name}`,
+          couple: true,
+        }))
+
   // Pacote desta sessão (se ela já foi paga por um), o pacote que o banco
   // usaria ao concluí-la, e o que aparece no cartão "Pacote" do drawer.
   const linkedPackage = appt?.packageId
@@ -213,10 +246,15 @@ export function PatientDrawer({
     return `descontada do pacote (sessão ${n} de ${k.totalSessions})`
   }
 
-  async function markAttended() {
+  /**
+   * `presentMemberIds`: numa sessão de casal em que nem todos vieram, quem
+   * veio. `null` (padrão) = todos.
+   */
+  async function markAttended(presentMemberIds: string[] | null = null) {
     const snapshot = buildSnapshotIds(p.id, shared, individual)
     try {
       const saved = await upsert.mutateAsync({
+        presentMemberIds,
         seriesId: o.seriesId,
         patientId: p.id,
         originDate: o.originDate,
@@ -229,9 +267,16 @@ export function PatientDrawer({
         checkedItemIds: appt?.checkedItemIds ?? [],
       })
       celebrate("happy")
+      setMissedOpen(false)
       const note = packageNote(saved)
+      const who =
+        presentMemberIds && presentMemberIds.length === 1
+          ? ` · só ${firstName(p.members.find((m) => m.id === presentMemberIds[0])?.name ?? "")}`
+          : ""
       toast.success(
-        note ? `Marcado como atendido · ${note}` : "Marcado como atendido",
+        note
+          ? `Marcado como atendido${who} · ${note}`
+          : `Marcado como atendido${who}`,
       )
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro")
@@ -324,6 +369,47 @@ export function PatientDrawer({
             : "Falta não será cobrada",
       )
     } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro")
+    }
+  }
+
+  /**
+   * Liga/desliga uma pessoa na presença da sessão do casal. Ninguém presente
+   * não existe numa sessão atendida — para isso há a falta.
+   */
+  async function togglePresence(memberId: string) {
+    if (!appt || patch.isPending) return
+    const next = presentIds(appt, p)
+    if (next.has(memberId)) next.delete(memberId)
+    else next.add(memberId)
+    if (next.size === 0) {
+      toast.error("Se ninguém veio, desfaça o atendimento e registre a falta.")
+      return
+    }
+    const value = toPresenceValue(next, p)
+
+    // Otimista, como o checklist: o próximo toque parte do que está na tela,
+    // e não do registro antigo que o refetch ainda não trocou.
+    const matched: { key: readonly unknown[]; prev: Appointment[] }[] = []
+    qc.getQueriesData<Appointment[]>({ queryKey: ["appointments"] }).forEach(
+      ([key, data]) => {
+        if (!data?.some((a) => a.id === appt.id)) return
+        matched.push({ key, prev: data })
+        qc.setQueryData<Appointment[]>(
+          key,
+          data.map((a) =>
+            a.id === appt.id ? { ...a, presentMemberIds: value } : a,
+          ),
+        )
+      },
+    )
+    try {
+      await patch.mutateAsync({
+        id: appt.id,
+        patch: { presentMemberIds: value },
+      })
+    } catch (err) {
+      matched.forEach(({ key, prev }) => qc.setQueryData(key, prev))
       toast.error(err instanceof Error ? err.message : "Erro")
     }
   }
@@ -495,13 +581,18 @@ export function PatientDrawer({
 
         <div className="space-y-6 p-6">
           <div className="flex items-start gap-4">
-            <AvatarPicker
-              value={patient.avatarId}
-              onChange={changeAvatar}
-              name={patient.name}
-              size="lg"
-              disabled={updatePatient.isPending}
-            />
+            {isCouple(patient) ? (
+              // No casal os avatares são de cada pessoa (edita no cadastro).
+              <ClientAvatar patient={patient} size="lg" />
+            ) : (
+              <AvatarPicker
+                value={patient.avatarId}
+                onChange={changeAvatar}
+                name={patient.name}
+                size="lg"
+                disabled={updatePatient.isPending}
+              />
+            )}
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-2">
                 <p className="text-lg font-semibold">{patient.name}</p>
@@ -516,9 +607,7 @@ export function PatientDrawer({
                 </button>
               </div>
               <p className="text-sm text-muted-foreground">
-                {[ageLabel(patient.birthdate), genderLabel(patient.gender)]
-                  .filter(Boolean)
-                  .join(" · ")}
+                {patientSummary(patient).join(" · ")}
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {patient.consultationValue > 0 && (
@@ -532,6 +621,30 @@ export function PatientDrawer({
                   </span>
                 )}
               </div>
+              {/* Ligações entre atendimento individual e de casal: saber que
+                  a pessoa também é atendida no outro formato importa. */}
+              {crossLinks.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {crossLinks.map((l) => (
+                    <button
+                      key={l.id}
+                      type="button"
+                      onClick={() => {
+                        onOpenChange(false)
+                        navigate(`/patients?edit=${l.id}`)
+                      }}
+                      className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-secondary/40 bg-secondary/10 px-2.5 text-xs text-secondary hover:bg-secondary/20"
+                    >
+                      {l.couple ? (
+                        <UsersIcon weight="fill" className="size-3.5" />
+                      ) : (
+                        <UserIcon weight="fill" className="size-3.5" />
+                      )}
+                      {l.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -579,7 +692,7 @@ export function PatientDrawer({
           {canAct ? (
             <div className="grid grid-cols-3 gap-2">
               <Button
-                onClick={markAttended}
+                onClick={() => markAttended()}
                 disabled={upsert.isPending}
                 className="bg-emerald-500 text-white hover:bg-emerald-500/90 hover:brightness-110 shadow-[0_0_0_1px_rgba(16,185,129,0.25),0_8px_28px_-10px_rgba(16,185,129,0.55)]"
               >
@@ -716,6 +829,51 @@ export function PatientDrawer({
                   </button>
                 )}
               </span>
+            </div>
+          )}
+
+          {/* PRESENÇA — sessão de casal atendida */}
+          {isAttended && coupleSession && (
+            <div className="space-y-1.5 rounded-xl border border-border/60 bg-background/40 p-3">
+              <p className="text-xs font-medium text-muted-foreground">
+                Quem veio
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {members.map((m) => {
+                  const on = present.has(m.id)
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      role="checkbox"
+                      aria-checked={on}
+                      disabled={patch.isPending}
+                      onClick={() => togglePresence(m.id)}
+                      className={cn(
+                        "inline-flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm font-medium transition-colors disabled:opacity-60",
+                        on
+                          ? "border-emerald-400/60 bg-emerald-500/15 text-foreground"
+                          : "border-border/60 bg-background/40 text-muted-foreground line-through decoration-muted-foreground/60",
+                      )}
+                    >
+                      {on ? (
+                        <CheckCircleIcon
+                          weight="fill"
+                          className="size-4 text-emerald-400"
+                        />
+                      ) : (
+                        <XIcon weight="bold" className="size-4" />
+                      )}
+                      {firstName(m.name)}
+                    </button>
+                  )
+                })}
+              </div>
+              {present.size < members.length && (
+                <p className="text-xs text-muted-foreground">
+                  Sessão atendida com parte do casal. Toque para corrigir.
+                </p>
+              )}
             </div>
           )}
 
@@ -935,6 +1093,12 @@ export function PatientDrawer({
             : null
         }
         onConfirm={markMissed}
+        members={
+          coupleSession
+            ? members.map((m) => ({ id: m.id, name: firstName(m.name) }))
+            : undefined
+        }
+        onPartial={(ids) => markAttended(ids)}
       />
       <PackageDetailDialog
         open={!!packageDetailId}

@@ -1,5 +1,5 @@
 import type { Patient, SessionPackage } from "@/db/types"
-import { PatientAvatar } from "@/components/patient/patient-avatar"
+import { ClientAvatar } from "@/components/patient/patient-avatar"
 import { formatBRL } from "@/domain/finance"
 import { formatDateBR } from "@/domain/dates"
 import {
@@ -31,11 +31,7 @@ export function PackageCard({ pkg, patient, onOpen }: Props) {
     >
       <div className="flex min-w-0 items-center gap-3">
         {patient && (
-          <PatientAvatar
-            avatarId={patient.avatarId}
-            name={patient.name}
-            size="sm"
-          />
+          <ClientAvatar patient={patient} size="sm" />
         )}
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold">

@@ -6,14 +6,17 @@ import {
 } from "@phosphor-icons/react"
 import type { Patient } from "@/db/types"
 import { Input } from "@/components/ui/input"
-import { PatientAvatar } from "@/components/patient/patient-avatar"
+import { ClientAvatar } from "@/components/patient/patient-avatar"
+import { isCouple, matchesPatient } from "@/domain/couples"
 import { cn } from "@/lib/utils"
 
-function normalize(s: string): string {
-  return s
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+/** Selo "Casal" ao lado do nome. */
+function CoupleTag() {
+  return (
+    <span className="shrink-0 rounded-full bg-secondary/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-secondary">
+      Casal
+    </span>
+  )
 }
 
 interface Props {
@@ -35,11 +38,11 @@ export function PatientCombobox({ patients, value, onChange }: Props) {
     () => patients.slice().sort((a, b) => a.name.localeCompare(b.name)),
     [patients],
   )
-  const filtered = useMemo(() => {
-    const q = normalize(query.trim())
-    if (!q) return sorted
-    return sorted.filter((p) => normalize(p.name).includes(q))
-  }, [sorted, query])
+  // Acha o casal pelo nome de qualquer uma das pessoas.
+  const filtered = useMemo(
+    () => sorted.filter((p) => matchesPatient(p, query)),
+    [sorted, query],
+  )
 
   const selected = patients.find((p) => p.id === value) ?? null
 
@@ -70,12 +73,9 @@ export function PatientCombobox({ patients, value, onChange }: Props) {
     return (
       <div className="flex items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2">
         <span className="flex min-w-0 items-center gap-2">
-          <PatientAvatar
-            avatarId={selected.avatarId}
-            name={selected.name}
-            size="sm"
-          />
+          <ClientAvatar patient={selected} size="sm" />
           <span className="truncate text-sm">{selected.name}</span>
+          {isCouple(selected) && <CoupleTag />}
         </span>
         <button
           type="button"
@@ -121,8 +121,9 @@ export function PatientCombobox({ patients, value, onChange }: Props) {
               i === activeIdx ? "bg-accent/30" : "hover:bg-accent/20",
             )}
           >
-            <PatientAvatar avatarId={p.avatarId} name={p.name} size="sm" />
+            <ClientAvatar patient={p} size="sm" />
             <span className="flex-1 truncate">{p.name}</span>
+            {isCouple(p) && <CoupleTag />}
             {p.id === value && (
               <CheckIcon weight="bold" className="size-4 text-primary" />
             )}

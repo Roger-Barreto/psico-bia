@@ -35,11 +35,14 @@ import {
   unpaidIndex,
 } from "@/domain/pendencies"
 import type { Occurrence, Patient, SessionPackage } from "@/db/types"
-import { ageLabel } from "@/domain/age"
 import { ScheduleAppointmentDialog } from "@/components/appointments/schedule-appointment-dialog"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
-import { PatientAvatar, genderLabel } from "@/components/patient/patient-avatar"
+import {
+  ClientAvatar,
+  patientSummary,
+} from "@/components/patient/patient-avatar"
+import { isCouple, matchesPatient, presenceLabel } from "@/domain/couples"
 import { effectiveValue, formatBRL } from "@/domain/finance"
 import { PatientDrawer } from "@/components/patient/patient-drawer"
 import {
@@ -165,7 +168,8 @@ export function HomePage() {
       .map((o) => ({ o, p: patientById.get(o.patientId) }))
       .filter((x) => !!x.p)
       .filter((x) =>
-        q ? x.p!.name.toLowerCase().includes(q) : true,
+        // Acha o casal pelo nome de qualquer uma das pessoas.
+        q ? matchesPatient(x.p!, q) : true,
       )
       .sort((a, b) => {
         const t = (a.o.time || "").localeCompare(b.o.time || "")
@@ -216,7 +220,7 @@ export function HomePage() {
   const birthdaySessionTime = useMemo(() => {
     const m = new Map<string, string>()
     if (dayBirthdays.length === 0) return m
-    const ids = new Set(dayBirthdays.map((p) => p.id))
+    const ids = new Set(dayBirthdays.map((b) => b.patient.id))
     for (const o of dayOccurrences) {
       if (o.time && ids.has(o.patientId) && !m.has(o.patientId)) {
         m.set(o.patientId, o.time)
@@ -357,7 +361,7 @@ export function HomePage() {
                       {o.time}
                     </span>
                   )}
-                  <PatientAvatar avatarId={p!.avatarId} name={p!.name} />
+                  <ClientAvatar patient={p!} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <p className="truncate text-sm font-medium">{p!.name}</p>
@@ -377,12 +381,16 @@ export function HomePage() {
                       )}
                     </div>
                     <p className="truncate text-[11px] text-muted-foreground">
-                      {[ageLabel(p!.birthdate), genderLabel(p!.gender), insuranceName]
+                      {/* No casal os nomes já estão no título: só o tipo. */}
+                      {[
+                        ...(isCouple(p!) ? ["Casal"] : patientSummary(p!)),
+                        insuranceName,
+                      ]
                         .filter(Boolean)
                         .join(" · ")}
                     </p>
                     <p className={cn("mt-0.5 text-xs", statusTextClass(o))}>
-                      {statusLabel(o)}
+                      {statusLabel(o, p!)}
                     </p>
                   </div>
                   <div className="flex flex-col items-end gap-1">
@@ -534,10 +542,14 @@ function StatusBadge({ occurrence }: { occurrence: Occurrence }) {
   )
 }
 
-function statusLabel(o: Occurrence): string {
+function statusLabel(o: Occurrence, p: Patient): string {
   const a = o.appointment
   if (a?.status === "attended") {
-    return o.pendencyCount > 0 ? "Atendido · checklist incompleto" : "Atendido"
+    const base =
+      o.pendencyCount > 0 ? "Atendido · checklist incompleto" : "Atendido"
+    // Casal em que nem todos vieram: "Atendido · só Ana".
+    const who = presenceLabel(a, p)
+    return who ? `${base} · ${who}` : base
   }
   if (a?.status === "missed")
     return a.chargedAbsence ? "Faltou · sessão cobrada" : "Faltou"
