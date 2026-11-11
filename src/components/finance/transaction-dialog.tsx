@@ -64,6 +64,8 @@ interface Props {
   presetCardId?: string | null
   /** Pre-select a cofrinho + its method when creating (from the Cofrinhos page). */
   presetCofrinhoId?: string | null
+  /** Pre-select the person when creating (from the Pessoas page). */
+  presetPersonId?: string | null
 }
 
 /** number → "1.234,56" */
@@ -137,6 +139,7 @@ export function TransactionDialog({
   editing,
   presetCardId,
   presetCofrinhoId,
+  presetPersonId,
 }: Props) {
   const isEdit = !!editing
 
@@ -214,7 +217,7 @@ export function TransactionDialog({
       setAmount("")
       setDate(todayISO())
       setCategoryId(null)
-      setPersonId(null)
+      setPersonId(presetPersonId ?? null)
       setMode("single")
       setInstallments("2")
       setRecurrenceKind("forever")

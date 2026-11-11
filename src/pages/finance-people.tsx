@@ -95,6 +95,8 @@ export function FinancePeoplePage() {
   // Edit a launch from the person's ledger (same dialog as Lançamentos).
   const [txOpen, setTxOpen] = useState(false)
   const [txEditing, setTxEditing] = useState<LedgerEntry | null>(null)
+  // New launch opened from a person: the dialog starts with them selected.
+  const [txPersonId, setTxPersonId] = useState<string | null>(null)
 
   const [deleting, setDeleting] = useState<Person | null>(null)
   const [deleteCount, setDeleteCount] = useState(0)
@@ -169,6 +171,13 @@ export function FinancePeoplePage() {
   }
   function openEditTx(entry: LedgerEntry) {
     setTxEditing(entry)
+    setTxPersonId(null)
+    setTxOpen(true)
+  }
+  function openNewTx(personId: string) {
+    setTxEditing(null)
+    setTxPersonId(personId)
+    setSelected(personId)
     setTxOpen(true)
   }
   async function askDelete(p: Person) {
@@ -331,6 +340,9 @@ export function FinancePeoplePage() {
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => openNewTx(p.id)}>
+                    <PlusIcon weight="bold" /> Novo lançamento
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => openEdit(p)}>
                     <PencilSimpleIcon weight="fill" /> Editar
                   </DropdownMenuItem>
@@ -359,6 +371,7 @@ export function FinancePeoplePage() {
               categoriesById={categoriesById}
               period={period}
               onEditTx={openEditTx}
+              onNewTx={() => openNewTx(selected)}
             />
           ) : (
             <Card>
@@ -382,6 +395,7 @@ export function FinancePeoplePage() {
         onOpenChange={setTxOpen}
         viewPeriod={period}
         editing={txEditing}
+        presetPersonId={txPersonId}
       />
       <ConfirmDeleteDialog
         open={!!deleting}
@@ -402,6 +416,7 @@ function PersonDetail({
   categoriesById,
   period,
   onEditTx,
+  onNewTx,
 }: {
   personId: string
   methodsById: Map<string, PaymentMethod>
@@ -409,7 +424,9 @@ function PersonDetail({
   categoriesById: Map<string, FinanceCategory>
   period: string
   onEditTx: (entry: LedgerEntry) => void
+  onNewTx: () => void
 }) {
+  const person = peopleById.get(personId)
   const ledgerQ = usePersonLedger(personId)
   const all = ledgerQ.data ?? []
   const [query, setQuery] = useState("")
@@ -531,8 +548,17 @@ function PersonDetail({
         </Card>
       )}
 
-      <div className="flex items-center justify-between gap-3 px-1">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-1">
         <p className="text-sm font-semibold">Lançamentos de {periodLabel(period)}</p>
+        <Button size="sm" onClick={onNewTx}>
+          <PlusIcon weight="bold" />
+          Novo lançamento
+          {person && (
+            <span className="hidden max-w-[10rem] truncate font-normal opacity-80 sm:inline">
+              · {person.name}
+            </span>
+          )}
+        </Button>
       </div>
 
       <div className="relative">
