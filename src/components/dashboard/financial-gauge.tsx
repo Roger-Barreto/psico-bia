@@ -32,12 +32,11 @@ export function FinancialGauge({
 }: Props) {
   const empty = estimated <= 0
   const domainMax = Math.max(estimated, revenue + pending, 1)
-  const realizedPct = empty
+  // Só o que entrou. Antes o selo somava o pendente e dizia "realizado" —
+  // sessão que passou sem ninguém confirmar contava como dinheiro realizado.
+  const receivedPct = empty
     ? 0
-    : Math.min(
-        999,
-        Math.round(((revenue + pending) / Math.max(estimated, 1)) * 100),
-      )
+    : Math.min(999, Math.round((revenue / Math.max(estimated, 1)) * 100))
 
   // Order: outer ring first, inner second
   const data = [
@@ -62,12 +61,13 @@ export function FinancialGauge({
               Financeiro do mês
             </p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              Agendados e faltas cobradas, sem reagendados de outro mês
+              Estimado: sessões do mês e faltas cobradas · reagendada conta
+              no mês da nova data
             </p>
           </div>
           {!empty && (
             <span className="rounded-full border border-border/60 bg-muted/30 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-              {realizedPct}% realizado
+              {receivedPct}% recebido
             </span>
           )}
         </div>
@@ -144,7 +144,7 @@ export function FinancialGauge({
             <LegendRow
               tone="amber"
               label="Pendente"
-              sublabel="Cobráveis não pagos e agendados vencidos"
+              sublabel="Atendidas não pagas e sessões passadas sem confirmação"
               value={pending}
               extra={
                 unpaidCount > 0 ? (

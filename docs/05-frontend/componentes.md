@@ -63,7 +63,7 @@ Regras em [pacotes de sessões](../16-pacotes-sessoes/README.md).
 
 | Componente | Arquivo | Papel |
 |---|---|---|
-| `FinancialGauge` | `dashboard/financial-gauge.tsx` | Medidor meia-lua (Recharts RadialBar): estimado × faturado × pendente, % realizado, atalho para não-pagos. |
+| `FinancialGauge` | `dashboard/financial-gauge.tsx` | Medidor meia-lua (Recharts RadialBar): estimado × faturado × pendente, % recebido, atalho para não-pagos. |
 | `KpiCard` | `dashboard/kpi-card.tsx` | Cartão de indicador (label, valor, tom, hint). |
 | `MonthSelector` | `dashboard/month-selector.tsx` | Navegação de mês/ano. |
 | `PendencyBlock` | `dashboard/pendency-block.tsx` | Totais de pendências (total/vencidas/hoje). |

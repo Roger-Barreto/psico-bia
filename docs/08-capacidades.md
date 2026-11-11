@@ -126,7 +126,7 @@ detalhada.
 
 - [x] Seletor de mês (com transição animada).
 - [x] Bloco de pendências (total / vencidas / hoje) e lista por paciente.
-- [x] Medidor financeiro (estimado × faturado × pendente; % realizado).
+- [x] Medidor financeiro (estimado × faturado × pendente; % recebido).
 - [x] Diálogo de pacientes não-pagos (com atalho para a sessão).
 - [x] KPIs: atendidos, faltas (com quantas foram cobradas), em tratamento, encerrados
   (total + mês), novos no mês, total de sessões.
@@ -149,8 +149,10 @@ detalhada.
   pessoa abrem o lançamento já com ela selecionada.
 - [x] **Extrato por pessoa** com saldo em aberto `(me devem) − (eu devo)`.
 - [x] **Faturamento da clínica automático** (derivado das sessões atendidas, read-only).
-- [x] **Dashboard financeiro**: receitas×despesas, fluxo acumulado, por categoria, por forma,
-  PJ×PF, saldo por pessoa; período selecionável (mês/3/6/12 meses).
+- [x] **Dashboard financeiro**: receitas×despesas, saldo acumulado, por categoria, por forma,
+  PJ×PF, saldo por pessoa (em aberto de qualquer data), cofrinhos; período selecionável
+  (mês/3/6/12 meses); cartão pela fatura ou pela compra no dashboard inteiro; **acumulado desde
+  jan.** igual ao dos Lançamentos (caixa + cofrinhos, com o saldo inicial deles).
 - [x] CRUD de categorias, formas de pagamento e pessoas (arquivar/restaurar).
 - → [financeiro-pessoal](02-regras-de-negocio/financeiro-pessoal.md)
 

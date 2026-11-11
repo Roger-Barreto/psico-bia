@@ -74,9 +74,13 @@ export function PendencyBlock({
           Pendências antigas! 🔴
         </p>
         <p className="text-sm text-destructive/80">
-          {overdueCount === 1
-            ? `${totalCount} pendências (1 atrasada).`
-            : `${totalCount} pendências, sendo ${overdueCount} atrasadas.`}
+          {totalCount === 1
+            ? "1 pendência, atrasada."
+            : overdueCount === totalCount
+              ? `${totalCount} pendências, todas atrasadas.`
+              : overdueCount === 1
+                ? `${totalCount} pendências, sendo 1 atrasada.`
+                : `${totalCount} pendências, sendo ${overdueCount} atrasadas.`}
         </p>
       </div>
       <MascotImage src={redMascot} />

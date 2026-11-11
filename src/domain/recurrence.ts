@@ -59,22 +59,20 @@ export function occurrencesForSeries(
     const override = byOrigin.get(originISO)
     if (override) {
       if (override.status === "cancelled") continue
-      if (
-        override.status === "rescheduled" &&
-        override.rescheduledTo &&
-        (override.rescheduledTo < range.fromISO ||
-          override.rescheduledTo > range.toISO)
-      ) {
-        continue
-      }
+      const effective =
+        override.status === "rescheduled" && override.rescheduledTo
+          ? override.rescheduledTo
+          : override.date
+      // Reagendada para fora do intervalo: esta data de origem foi embora.
+      // A sessão aparece no intervalo em que a nova data cai (lá ela entra por
+      // `collectOutOfRangeReschedules`); aqui não pode sobrar nem o fantasma
+      // na data antiga, nem uma ocorrência datada fora do intervalo pedido.
+      if (effective < range.fromISO || effective > range.toISO) continue
       out.push({
         seriesId: series.id,
         patientId: series.patientId,
         originDate: originISO,
-        date:
-          override.status === "rescheduled" && override.rescheduledTo
-            ? override.rescheduledTo
-            : override.date,
+        date: effective,
         time: override.time ?? series.time,
         appointment: override,
         pendencyCount: 0,

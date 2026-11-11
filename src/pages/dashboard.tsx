@@ -147,10 +147,17 @@ export function DashboardPage() {
     return m
   }, [patients])
 
-  // Filter out appointments for archived patients
-  const appts = useMemo(
+  // Linhas de pacientes não arquivados. A consulta traz também as sessões que
+  // nasceram neste mês e foram reagendadas para outro — elas servem para a
+  // expansão das ocorrências saber que aquela data foi embora.
+  const overrides = useMemo(
     () => allAppts.filter((a) => patientsById.has(a.patientId)),
     [allAppts, patientsById],
+  )
+  // Sessões que ACONTECEM no mês: é sobre estas que se soma dinheiro.
+  const appts = useMemo(
+    () => overrides.filter((a) => a.date >= from && a.date <= to),
+    [overrides, from, to],
   )
 
   // Ocorrências do mês (mesma fonte da agenda) → pendências unificadas.
@@ -158,14 +165,14 @@ export function DashboardPage() {
     const range = { fromISO: from, toISO: to }
     const out: Occurrence[] = []
     for (const p of patients) {
-      for (const o of occurrencesForPatient(p, allSeries, range, appts)) {
+      for (const o of occurrencesForPatient(p, allSeries, range, overrides)) {
         const b = pendencyBreakdown(o, today)
         o.pendencyCount = b.checklist + b.overdue
         out.push(o)
       }
     }
     return out
-  }, [patients, allSeries, appts, from, to, today])
+  }, [patients, allSeries, overrides, from, to, today])
 
   // ── Pendency totals (item-level) ─────────────────────────
   const pendencyStats = useMemo(() => {
@@ -225,7 +232,10 @@ export function DashboardPage() {
     const monthsWithPendencies = new Set<string>()
     let oldestKey: string | null = null
 
-    for (let i = 12; i >= 1; i--) {
+    // Só os 11 meses anteriores: é o que `longRangeApptsQ` carrega (12 meses
+    // contando o atual). Olhar o 12º para trás era ler um mês sem nenhuma
+    // linha — toda sessão dele parecia "sem confirmação".
+    for (let i = 11; i >= 1; i--) {
       let m = month - i
       let y = year
       while (m < 1) {
@@ -349,23 +359,29 @@ export function DashboardPage() {
     return sum
   }, [appts, patientsById, packagesRevenue])
 
+  // Pelas OCORRÊNCIAS, como as pendências: a sessão recorrente que passou e
+  // ninguém confirmou não tem linha no banco, e por isso ficava de fora daqui
+  // (mas entrava no estimado e na contagem de pendências).
   const pendingValue = useMemo(() => {
     let sum = 0
-    for (const a of appts) {
-      const p = patientsById.get(a.patientId)
+    for (const o of monthOccurrences) {
+      const p = patientsById.get(o.patientId)
       if (!p) continue
-      if (isBillable(a) && !a.paid)
-        sum += effectiveValue(a, p)
-      else if (
-        a.status === "scheduled" &&
-        a.date < today &&
-        // paga pelo pacote quando for concluída: nada a receber
-        !isCovered(covered, a)
-      )
-        sum += p.consultationValue ?? 0
+      const a = o.appointment
+      if (a && isBillable(a)) {
+        if (!a.paid) sum += effectiveValue(a, p)
+        continue
+      }
+      if (a && a.status === "missed") continue
+      // Agendada (com ou sem linha) que já passou e não foi confirmada.
+      if (o.date >= today) continue
+      // Paga pelo pacote quando for concluída, ou já paga antes de ser
+      // reagendada: nada a receber.
+      if (isCovered(covered, o) || a?.paid) continue
+      sum += a ? effectiveValue(a, p) : (p.consultationValue ?? 0)
     }
     return sum
-  }, [appts, patientsById, today, covered])
+  }, [monthOccurrences, patientsById, today, covered])
 
   const estimatedBilling = useMemo(() => {
     // O pacote vendido no mês é receita do mês; as sessões que ele (ou um
@@ -404,9 +420,15 @@ export function DashboardPage() {
       p.dischargedAt >= from &&
       p.dischargedAt <= to,
   ).length
-  const newThisMonth = patients.filter(
-    (p) => p.createdAt.slice(0, 10) >= from && p.createdAt.slice(0, 10) <= to,
-  ).length
+  // `createdAt` é um instante em UTC: cortar a string jogava para o mês
+  // seguinte quem foi cadastrado na noite do último dia (21h aqui = dia 1 lá).
+  const newThisMonth = patients.filter((p) => {
+    const created = new Date(p.createdAt)
+    const day = Number.isNaN(created.getTime())
+      ? p.createdAt.slice(0, 10)
+      : toISO(created)
+    return day >= from && day <= to
+  }).length
 
   // ── Revenue by day ───────────────────────────────────────
   const revenueByDay = useMemo(() => {
@@ -429,46 +451,64 @@ export function DashboardPage() {
   }, [appts, patientsById, year, month, packagesSold])
 
   // ── Status pie ───────────────────────────────────────────
+  // Pelas ocorrências: "pendente" e "a atender" quase nunca têm linha no
+  // banco (a sessão recorrente só ganha uma quando alguém mexe nela), então
+  // contar linhas escondia justamente as que faltam confirmar. As fatias
+  // somam o "Total de sessões" do mês.
   const statusPie = useMemo(() => {
     let attended = 0
     let missed = 0
     let chargedMissed = 0
     let pending = 0
-    for (const a of appts) {
-      if (a.status === "attended") attended++
-      else if (a.status === "missed") {
+    let upcoming = 0
+    for (const o of monthOccurrences) {
+      const a = o.appointment
+      if (a?.status === "attended") attended++
+      else if (a?.status === "missed") {
         if (a.chargedAbsence) chargedMissed++
         else missed++
-      } else if (a.status === "scheduled" && a.date <= today) pending++
+      } else if (o.date < today) pending++
+      else upcoming++
     }
     return [
       { name: "Atendidos", value: attended },
       { name: "Faltas", value: missed },
       { name: "Faltas cobradas", value: chargedMissed },
       { name: "Pendentes", value: pending },
+      { name: "A atender", value: upcoming },
     ]
-  }, [appts, today])
+  }, [monthOccurrences, today])
 
   // ── Payment methods by patients (paid sessions in the month) ──
   const paymentByMethod = useMemo(() => {
     const methodsById = new Map(
       (methodsQ.data ?? []).map((m) => [m.id, m] as const),
     )
+    // Pagamento sem forma informada também é pagamento: vai para um grupo
+    // próprio em vez de sumir do gráfico.
+    const NO_METHOD = "__sem_forma__"
     const byMethod = new Map<string, Set<string>>()
+    const add = (methodId: string | null, patientId: string) => {
+      const key = methodId ?? NO_METHOD
+      const set = byMethod.get(key) ?? new Set<string>()
+      set.add(patientId)
+      byMethod.set(key, set)
+    }
     for (const a of appts) {
-      if (!a.paid || !a.paymentMethodId || !isBillable(a)) continue
-      const set = byMethod.get(a.paymentMethodId) ?? new Set<string>()
-      set.add(a.patientId)
-      byMethod.set(a.paymentMethodId, set)
+      if (!a.paid || !isBillable(a)) continue
+      // Sessão descontada de pacote: quem pagou foi a venda do pacote (abaixo).
+      if (a.packageId && !a.paymentMethodId) continue
+      add(a.paymentMethodId, a.patientId)
     }
-    for (const k of packagesSold) {
-      if (!k.paymentMethodId) continue
-      const set = byMethod.get(k.paymentMethodId) ?? new Set<string>()
-      set.add(k.patientId)
-      byMethod.set(k.paymentMethodId, set)
-    }
+    for (const k of packagesSold) add(k.paymentMethodId, k.patientId)
     return Array.from(byMethod.entries())
       .map(([id, patientsSet]) => {
+        if (id === NO_METHOD)
+          return {
+            name: "Sem forma informada",
+            value: patientsSet.size,
+            color: "#64748b",
+          }
         const pm = methodsById.get(id)
         const name = pm?.name ?? "—"
         return {
@@ -601,6 +641,8 @@ export function DashboardPage() {
 
   const isLoading =
     apptsQ.isLoading ||
+    // Sem as séries não há ocorrência: o estimado e as pendências piscavam 0.
+    seriesQ.isLoading ||
     patientsQ.isLoading ||
     insurancesQ.isLoading ||
     longRangeApptsQ.isLoading ||
@@ -728,7 +770,8 @@ export function DashboardPage() {
         />
         <KpiCard
           label="Total sessões mês"
-          value={appts.length}
+          value={monthOccurrences.length}
+          hint="atendidas, faltas e agendadas"
         />
       </div>
 
@@ -741,13 +784,13 @@ export function DashboardPage() {
         </ChartCard>
         <ChartCard
           title="Sessões por status"
-          subtitle="Atendidos x Faltas x Pendentes"
+          subtitle="Todas as sessões do mês · pendente = passou sem confirmação"
         >
           <CategoryPie data={statusPie} />
         </ChartCard>
         <ChartCard
           title="Formas de pagamento por pacientes"
-          subtitle="Pacientes que pagaram no mês"
+          subtitle="Quantos pacientes pagaram com cada forma no mês"
         >
           <PaymentMethodPie data={paymentByMethod} />
         </ChartCard>

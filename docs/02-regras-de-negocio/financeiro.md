@@ -86,11 +86,16 @@ drawer quando a sessão está **atendida** ou é uma **falta cobrada**.
 Soma de `effectiveValue` de todas as sessões com `paid === true`. No dashboard, mais o valor
 dos **pacotes vendidos no período**.
 
-### `pendingRevenue(appts, patientsById, today)` — Pendente
+### Pendente
 
-Soma de:
+Soma, sobre as **ocorrências** do mês (não só as linhas gravadas):
 - Cobráveis (atendidas ou faltas cobradas) **não pagas** → `effectiveValue`.
-- `scheduled` com `date < today` → `consultationValue` do paciente (expectativa de receita).
+- Sessão que **já passou e ninguém confirmou** → `consultationValue` do paciente (expectativa de
+  receita). Vale também para a sessão recorrente que nunca ganhou linha no banco — ela conta nas
+  pendências e no estimado, então tem de contar aqui. Ficam de fora as que o saldo de um pacote
+  vai pagar e as que já estavam pagas antes de serem reagendadas.
+
+(`pendingRevenue` em `domain/finance.ts` é a versão por linhas, sem uso no dashboard.)
 
 ### Estimado (no dashboard)
 
@@ -118,17 +123,26 @@ Recharts) que compara:
 
 - **Estimado** (rótulo central) — teto/eixo do medidor.
 - **Faturado** (verde) — `revenue`.
-- **Pendente** (âmbar) — `pendingRevenue`.
-- Badge "% realizado" = `(faturado + pendente) / estimado × 100`.
+- **Pendente** (âmbar) — ver acima.
+- Badge **"% recebido"** = `faturado / estimado × 100`. (Era "% realizado" e somava o pendente:
+  sessão passada sem confirmação contava como realizada.)
 - Atalho clicável "N não pagos · R$ X" → abre o diálogo de pacientes não-pagos.
 
-O subtítulo deixa explícito o critério do estimado: *"Agendados, sem faltas/reagendados de outro
-mês"*.
+O subtítulo deixa explícito o critério do estimado: *"sessões do mês e faltas cobradas ·
+reagendada conta no mês da nova data"*.
+
+**Reagendada para outro mês.** `useAppointmentsInRange` traz as sessões que acontecem no
+intervalo **e** as que nasceram nele e foram movidas para fora; `occurrencesForSeries` usa as
+segundas para saber que a data de origem foi embora. Sem isso a sessão reaparecia no mês de
+origem como "sem registro" — fantasma na agenda, pendência falsa e valor a mais no estimado.
+Quem soma por linha (faturado, não pagos) filtra por `date`.
 
 ## Relatórios financeiros no dashboard
 
 - **KPIs:** Atendidos, Faltas, Em tratamento, Encerrados (total + no mês), Novos no mês, Total de
-  sessões do mês.
+  sessões do mês. O **total de sessões** e a pizza de **status** contam **ocorrências** (as mesmas
+  da agenda): atendidas, faltas, pendentes (passaram sem confirmação) e a atender. Contar linhas
+  incluía cancelamentos e deixava de fora toda sessão recorrente ainda não tocada.
 - **Faturamento por dia:** barras por dia do mês (apenas sessões pagas).
 - **Faturamento mensal:** últimos 6 meses (query de intervalo estendido `useAppointmentsInRange` de 6
   meses).

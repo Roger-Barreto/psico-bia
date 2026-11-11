@@ -1027,6 +1027,16 @@ export function useDeleteIndividualItemPermanent() {
 // ════════════════════════════════════════════════════════════════
 // APPOINTMENTS
 // ════════════════════════════════════════════════════════════════
+/**
+ * Sessões registradas que tocam o intervalo: as que ACONTECEM nele (`date`) e
+ * também as que NASCERAM nele e foram reagendadas para fora (`origin_date`).
+ *
+ * As segundas são o que impede o fantasma: sem elas, uma sessão do dia 28
+ * reagendada para o mês seguinte reaparecia no dia 28 como "sem registro" —
+ * na agenda, nas pendências e no estimado do mês de origem. Quem expande as
+ * ocorrências (`occurrencesForSeries`) usa a linha para saber que aquela data
+ * foi embora. Quem soma por linha (dashboard) deve filtrar por `date`.
+ */
 export function useAppointmentsInRange(
   from: string,
   to: string,
@@ -1039,8 +1049,10 @@ export function useAppointmentsInRange(
       const { data, error } = await supabase
         .from("appointments")
         .select("*")
-        .gte("date", from)
-        .lte("date", to)
+        .or(
+          `and(date.gte.${from},date.lte.${to}),` +
+            `and(origin_date.gte.${from},origin_date.lte.${to})`,
+        )
       if (error) throw error
       return (data ?? []).map((r) => rowToAppointment(r as AppointmentRow))
     },

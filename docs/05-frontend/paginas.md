@@ -24,7 +24,8 @@ Computações (memoizadas):
 - **KPIs:** atendidos, faltas, em tratamento, encerrados (total + no mês), novos no mês, total de
   sessões.
 - **Financeiro:** faturado (pagos + pacotes vendidos no mês), pendente (atendidos não pagos +
-  scheduled vencidos), estimado (ocorrências do mês, sem as que o saldo de um pacote vai pagar).
+  sessões passadas sem confirmação, pelas ocorrências), estimado (ocorrências do mês, sem as que o
+  saldo de um pacote vai pagar).
 - **Gráficos:** faturamento por dia; pizza de status; top pacientes; faturamento 6 meses; pizzas de
   gênero/convênio/motivo de alta.
 
