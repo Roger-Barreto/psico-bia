@@ -157,9 +157,14 @@ Regras por indicador:
   atividades do cofrinho, **excluindo transferências** entre cofrinhos (neutras) e **sem** contar
   compras "pagar com cofrinho" (essas viram "Retirado do cofrinho"). Esperado soma o
   **"a guardar"** pendente do mês.
-- **Saldo do mês** e **Acumulado** subtraem o guardado (ele conta como **saída** de caixa
-  disponível): `entradas − saídas − guardado`. Retirar de um cofrinho volta como entrada.
-  No esperado, o guardado inclui os lembretes pendentes (no acumulado, de jan. até o mês visto).
+- **Saldo do mês** subtrai o guardado (ele conta como **saída** de caixa disponível):
+  `entradas − saídas − guardado`. Retirar de um cofrinho volta como entrada. No esperado, o
+  guardado inclui os lembretes pendentes do mês.
+- **Acumulado desde jan.** é **tudo o que a pessoa passou a ter** no ano — o caixa **e** o que
+  está nos cofrinhos. Guardar e retirar só mudam o dinheiro de bolso, então **não** entram na
+  conta. Já a compra **paga com cofrinho** entra como saída (esse dinheiro foi embora):
+  `entradas − saídas − faturas da janela − pagamentos com cofrinho`, de jan. até o mês visto.
+  O saldo inicial informado no cadastro do cofrinho não entra (não é movimento do ano).
 
 O quadro de indicadores dos cofrinhos foi removido; o botão **"Guardar no cofrinho"** (abre o
 diálogo Movimentar) fica no topo da página, ao lado de "Novo lançamento".

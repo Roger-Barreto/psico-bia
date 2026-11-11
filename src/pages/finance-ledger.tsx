@@ -28,7 +28,6 @@ import {
 } from "@/api/queries"
 import type { CofrinhoEntry, LedgerEntry } from "@/db/types"
 import {
-  addPeriod,
   cardInvoiceSummaries,
   formatBRL,
   invoiceDatesForPeriod,
@@ -204,14 +203,17 @@ export function FinanceLedgerPage() {
     return { expected, actual }
   }, [entries])
 
-  // Accumulated totals from January of the viewed year up to this month,
-  // with the same card/cofrinho treatment (invoices due in the window, not
-  // purchases; reserve-paid expenses out).
+  // Acumulado de janeiro do ano visto até este mês: tudo o que a pessoa
+  // passou a TER no período — o caixa e o que está nos cofrinhos. Guardar e
+  // retirar só mudam o dinheiro de bolso, então não entram na conta. Já a
+  // compra paga com cofrinho entra como saída: esse dinheiro foi embora (no
+  // "Saldo do mês" ela fica de fora porque não saiu do caixa do mês).
+  // Cartão segue igual: a fatura que vence na janela, não cada compra.
   const ytdQ = useLedgerRange(yearStartPeriod(period), period)
   const ytdTotals = useMemo(() => {
     const jan = yearStartPeriod(period)
     return ledgerTotals([
-      ...(ytdQ.data ?? []).filter((e) => !e.cardId && !e.cofrinhoId),
+      ...(ytdQ.data ?? []).filter((e) => !e.cardId),
       ...invoicesAll
         .filter((r) => r.period >= jan && r.period <= period && r.amount > 0.005)
         .map((r) => ({
@@ -480,27 +482,6 @@ export function FinanceLedgerPage() {
     [cofrinhoItems],
   )
 
-  // Same thing across jan..period, for the accumulated's expected side.
-  const pendingYTD = useMemo(() => {
-    const jan = yearStartPeriod(period)
-    const cofEntries = cofrinhoEntriesQ.data ?? []
-    let sum = 0
-    for (const c of (cofrinhosQ.data ?? []).filter((c) => c.active)) {
-      const income = incomeByDay(ytdQ.data ?? [], c.incomeScope)
-      for (let p = jan; p <= period; p = addPeriod(p, 1)) {
-        for (const s of cofrinhoSlots(
-          c,
-          p,
-          income,
-          cofEntries,
-          cofrinhoBalances.get(c.id) ?? 0,
-        ))
-          sum += s.pending
-      }
-    }
-    return sum
-  }, [cofrinhosQ.data, cofrinhoEntriesQ.data, cofrinhoBalances, ytdQ.data, period])
-
   // Money moved into savings (guardar − retirar, excluding transfers between
   // jars). It counts as an outflow of available cash for the month balance —
   // pay-with-cofrinho purchases have their own indicator ("Retirado do
@@ -509,18 +490,6 @@ export function FinanceLedgerPage() {
     let net = 0
     for (const e of cofrinhoEntriesQ.data ?? []) {
       if (e.source === "transfer" || e.period !== period) continue
-      if (e.kind === "deposit") net += e.amount
-      else if (e.kind === "withdraw") net -= e.amount
-    }
-    return net
-  }, [cofrinhoEntriesQ.data, period])
-
-  const savedNetYTD = useMemo(() => {
-    const jan = yearStartPeriod(period)
-    let net = 0
-    for (const e of cofrinhoEntriesQ.data ?? []) {
-      if (e.source === "transfer" || e.period < jan || e.period > period)
-        continue
       if (e.kind === "deposit") net += e.amount
       else if (e.kind === "withdraw") net -= e.amount
     }
@@ -796,10 +765,7 @@ export function FinanceLedgerPage() {
               />
               <Stat
                 label="Acumulado desde jan."
-                value={pick(
-                  ytdTotals.realizedBalance - savedNetYTD,
-                  ytdTotals.balance - savedNetYTD - pendingYTD,
-                )}
+                value={pick(ytdTotals.realizedBalance, ytdTotals.balance)}
                 tone="auto"
               />
             </CardContent>
