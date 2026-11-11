@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react"
 import {
   CalendarBlankIcon,
+  CalendarPlusIcon,
   CurrencyDollarIcon,
   MagnifyingGlassIcon,
   PackageIcon,
@@ -34,7 +35,25 @@ import {
   pendencyIndex,
   unpaidIndex,
 } from "@/domain/pendencies"
-import type { Occurrence, Patient, SessionPackage } from "@/db/types"
+import type {
+  EventOccurrence,
+  Occurrence,
+  Patient,
+  SessionPackage,
+} from "@/db/types"
+import {
+  eventOccurrencesByDate,
+  eventsClashingWithSession,
+  eventTimeLabel,
+  sessionsClashingWithEvent,
+} from "@/domain/events"
+import { AgendaEventCard } from "@/components/agenda/event-card"
+import { EventDialog } from "@/components/agenda/event-dialog"
+import { eventColor } from "@/components/agenda/event-style"
+import {
+  useAgendaCategoriesWithDefaults,
+  useEventOccurrences,
+} from "@/components/agenda/use-agenda"
 import { ScheduleAppointmentDialog } from "@/components/appointments/schedule-appointment-dialog"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
@@ -76,6 +95,8 @@ export function HomePage() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [newPatientOpen, setNewPatientOpen] = useState(false)
   const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [eventOpen, setEventOpen] = useState(false)
+  const [editingEvent, setEditingEvent] = useState<EventOccurrence | null>(null)
   const [activeKey, setActiveKey] = useState<{
     seriesId: string
     patientId: string
@@ -132,6 +153,18 @@ export function HomePage() {
     [patients, calendarCells],
   )
 
+  // Compromissos pessoais (tudo o que não é atendimento), nas mesmas 42
+  // células — a borda dos meses vizinhos também ganha a barrinha.
+  const { byId: categoryById } = useAgendaCategoriesWithDefaults()
+  const eventOccurrences = useEventOccurrences(
+    calendarCells[0],
+    calendarCells[calendarCells.length - 1],
+  )
+  const eventsByDate = useMemo(
+    () => eventOccurrencesByDate(eventOccurrences),
+    [eventOccurrences],
+  )
+
   const byDate = useMemo(() => {
     const pend = pendencyIndex(monthOccurrences)
     const unpaid = unpaidIndex(monthOccurrences, (o) =>
@@ -154,8 +187,22 @@ export function HomePage() {
       const cur = out.get(iso) ?? { count: 0, pendencies: 0, unpaid: 0 }
       out.set(iso, { ...cur, birthdays: list.length })
     }
+    // Idem para compromisso pessoal: uma cor por categoria presente no dia.
+    for (const [iso, list] of eventsByDate) {
+      const cur = out.get(iso) ?? { count: 0, pendencies: 0, unpaid: 0 }
+      const colors = [
+        ...new Set(
+          list.map((o) =>
+            eventColor(
+              o.event.categoryId ? categoryById.get(o.event.categoryId) : null,
+            ),
+          ),
+        ),
+      ]
+      out.set(iso, { ...cur, events: colors })
+    }
     return out
-  }, [monthOccurrences, patientById, birthdayByDate])
+  }, [monthOccurrences, patientById, birthdayByDate, eventsByDate, categoryById])
 
   const dayOccurrences = useMemo(
     () => monthOccurrences.filter((o) => o.date === selectedISO),
@@ -177,6 +224,67 @@ export function HomePage() {
         return a.p!.name.localeCompare(b.p!.name)
       })
   }, [dayOccurrences, patientById, query])
+
+  // Compromissos do dia, pelo mesmo campo de busca (título, categoria, local).
+  const dayEvents = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const list = eventsByDate.get(selectedISO) ?? []
+    if (!q) return list
+    return list.filter((o) => {
+      const category = o.event.categoryId
+        ? categoryById.get(o.event.categoryId)
+        : null
+      return [o.event.title, category?.name, o.event.location]
+        .filter(Boolean)
+        .some((t) => t!.toLowerCase().includes(q))
+    })
+  }, [eventsByDate, selectedISO, query, categoryById])
+
+  // O dia numa linha do tempo só: dia inteiro no topo, depois tudo por hora —
+  // é a ordem em que o dia acontece, com atendimento e compromisso misturados.
+  const dayItems = useMemo(() => {
+    type Item =
+      | { kind: "event"; time: string; occ: EventOccurrence }
+      | { kind: "session"; time: string; o: Occurrence; p: Patient }
+    const items: Item[] = [
+      ...dayEvents.map(
+        (occ): Item => ({
+          kind: "event",
+          time: occ.event.allDay ? "" : (occ.event.startTime ?? ""),
+          occ,
+        }),
+      ),
+      ...filteredDay.map(
+        ({ o, p }): Item => ({ kind: "session", time: o.time || "", o, p: p! }),
+      ),
+    ]
+    // Estável: no empate de hora o compromisso fica antes do atendimento.
+    return items.sort((a, b) => a.time.localeCompare(b.time))
+  }, [dayEvents, filteredDay])
+
+  // Conflitos do dia, nos dois sentidos. Olha o dia inteiro (e não a lista
+  // filtrada pela busca): o aviso não pode sumir porque o outro lado foi
+  // filtrado.
+  const allDayEvents = eventsByDate.get(selectedISO) ?? []
+
+  function sessionClashLabel(o: Occurrence): string | null {
+    if (!o.time || o.appointment?.status === "missed") return null
+    const hits = eventsClashingWithSession(allDayEvents, o.date, o.time)
+    if (hits.length === 0) return null
+    const first = hits[0].event
+    const more = hits.length > 1 ? ` e mais ${hits.length - 1}` : ""
+    return `${first.title} (${eventTimeLabel(first).toLowerCase()})${more}`
+  }
+
+  function eventClashLabel(occ: EventOccurrence): string | null {
+    if (!occ.event.busy) return null
+    const hits = sessionsClashingWithEvent(dayOccurrences, occ.event, occ.date)
+    if (hits.length === 0) return null
+    const first = hits[0]
+    const name = patientById.get(first.patientId)?.name ?? "um atendimento"
+    const more = hits.length > 1 ? ` e mais ${hits.length - 1}` : ""
+    return `${name} às ${first.time}${more}`
+  }
 
   const packagesByPatient = useMemo(() => {
     const m = new Map<string, SessionPackage[]>()
@@ -259,6 +367,16 @@ export function HomePage() {
             <PlusIcon weight="bold" />
             Novo atendimento
           </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setEditingEvent(null)
+              setEventOpen(true)
+            }}
+          >
+            <CalendarPlusIcon weight="bold" />
+            Novo compromisso
+          </Button>
           <Button variant="outline" onClick={() => setNewPatientOpen(true)}>
             <PlusIcon weight="bold" />
             Novo paciente
@@ -297,9 +415,16 @@ export function HomePage() {
                 <p className="text-sm font-semibold">
                   {formatLongDateBR(selectedISO)}
                 </p>
-                <span className="ml-auto text-xs text-muted-foreground">
+                <span className="ml-auto text-right text-xs text-muted-foreground">
                   {filteredDay.length}{" "}
                   {filteredDay.length === 1 ? "paciente" : "pacientes"}
+                  {dayEvents.length > 0 && (
+                    <>
+                      {" · "}
+                      {dayEvents.length}{" "}
+                      {dayEvents.length === 1 ? "compromisso" : "compromissos"}
+                    </>
+                  )}
                 </span>
               </div>
               <div className="relative">
@@ -308,7 +433,7 @@ export function HomePage() {
                   className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
                 />
                 <Input
-                  placeholder="Buscar paciente..."
+                  placeholder="Buscar paciente ou compromisso..."
                   className="pl-9"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
@@ -323,16 +448,39 @@ export function HomePage() {
             sessionTimeByPatient={birthdaySessionTime}
           />
 
-          {filteredDay.length === 0 && (
+          {dayItems.length === 0 && (
             <Card>
               <CardContent className="p-10 text-center text-sm text-muted-foreground">
-                Nenhum paciente neste dia.
+                {query.trim()
+                  ? "Nada encontrado neste dia."
+                  : "Nada agendado neste dia."}
               </CardContent>
             </Card>
           )}
 
           <div className="space-y-2">
-            {filteredDay.map(({ o, p }) => {
+            {dayItems.map((item) => {
+              if (item.kind === "event") {
+                const { occ } = item
+                return (
+                  <AgendaEventCard
+                    key={`ev-${occ.event.id}-${occ.date}`}
+                    occurrence={occ}
+                    category={
+                      occ.event.categoryId
+                        ? categoryById.get(occ.event.categoryId)
+                        : null
+                    }
+                    clashLabel={eventClashLabel(occ)}
+                    onClick={() => {
+                      setEditingEvent(occ)
+                      setEventOpen(true)
+                    }}
+                  />
+                )
+              }
+              const { o, p } = item
+              const clash = sessionClashLabel(o)
               const insuranceName = p!.insuranceId
                 ? insuranceById.get(p!.insuranceId) ?? "Convênio"
                 : "Particular"
@@ -392,6 +540,12 @@ export function HomePage() {
                     <p className={cn("mt-0.5 text-xs", statusTextClass(o))}>
                       {statusLabel(o, p!)}
                     </p>
+                    {clash && (
+                      <p className="mt-0.5 flex items-center gap-1 text-xs text-amber-300">
+                        <WarningIcon weight="fill" className="size-3 shrink-0" />
+                        <span className="truncate">Coincide com {clash}</span>
+                      </p>
+                    )}
                   </div>
                   <div className="flex flex-col items-end gap-1">
                     <StatusBadge occurrence={o} />
@@ -436,6 +590,13 @@ export function HomePage() {
         open={scheduleOpen}
         onOpenChange={setScheduleOpen}
         defaultDate={selectedISO}
+      />
+
+      <EventDialog
+        open={eventOpen}
+        onOpenChange={setEventOpen}
+        defaultDate={selectedISO}
+        editing={editingEvent}
       />
     </div>
   )

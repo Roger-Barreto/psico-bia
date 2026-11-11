@@ -451,3 +451,60 @@ export interface BookQuote {
   page: number | null
   createdAt: string
 }
+
+// ════════════════════════════════════════════════════════════════
+// Agenda — compromissos pessoais (036_compromissos.sql)
+// ════════════════════════════════════════════════════════════════
+export type EventFrequency =
+  | "daily"
+  | "weekly"
+  | "biweekly"
+  | "monthly"
+  | "yearly"
+
+/** Categoria de compromisso: é ela que dá a cor e o ícone na agenda. */
+export interface AgendaCategory {
+  id: string
+  name: string
+  color: string // #rrggbb
+  icon: string // chave de `EVENT_ICONS`
+  createdAt: string
+}
+
+/**
+ * Compromisso que não é atendimento (consulta médica, pilates, férias…).
+ * Avulso quando `frequency` é `null`; senão é a REGRA de uma repetição, e as
+ * ocorrências são calculadas (`domain/events.ts`) — nada é materializado.
+ */
+export interface AgendaEvent {
+  id: string
+  title: string
+  categoryId: string | null
+  /** Dia do compromisso avulso, ou o primeiro dia da repetição. */
+  startDate: string // YYYY-MM-DD
+  allDay: boolean
+  startTime: string | null // HH:MM (null em dia inteiro)
+  endTime: string | null // HH:MM (null em dia inteiro)
+  frequency: EventFrequency | null
+  /** Só na repetição semanal: 0 = domingo … 6 = sábado. */
+  weekdays: number[] | null
+  /** Último dia da repetição (inclusive). `null` = sem fim. */
+  endDate: string | null
+  location: string | null
+  notes: string | null
+  /** Ocupa o horário: o app avisa ao agendar paciente em cima. */
+  busy: boolean
+  /** Datas removidas da repetição ("só este dia"). */
+  skips: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+/** Uma ocorrência calculada de um compromisso, num dia. */
+export interface EventOccurrence {
+  event: AgendaEvent
+  date: string // YYYY-MM-DD
+}
+
+/** Alcance de uma edição/exclusão num compromisso que se repete. */
+export type EventScope = "one" | "future" | "all"

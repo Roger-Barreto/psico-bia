@@ -28,6 +28,7 @@ pessoa (ou agente) que precise entender, manter ou evoluir o sistema.
 | [`16-pacotes-sessoes/`](16-pacotes-sessoes/) | **Pacotes de sessões:** [migração 034](16-pacotes-sessoes/034_pacotes_sessoes.sql) — `session_packages`, `appointments.package_id`, trigger de consumo automático e 4º braço do `finance_ledger`. |
 | [`17-mobile/`](17-mobile/) | **Celular:** o X de fechar sob a barra de status do iPhone, o motivo de encerramento e o conteúdo cortado na lateral. |
 | [`18-casais/`](18-casais/) | **Terapia de casal:** [migração 035](18-casais/035_casais.sql) — o casal é um paciente do tipo `couple` com as pessoas dentro (`members`); presença por sessão (`present_member_ids`). |
+| [`19-compromissos/`](19-compromissos/) | **Compromissos pessoais na agenda:** [migração 036](19-compromissos/036_compromissos.sql) — tudo o que não é atendimento (consulta, pilates, férias), com repetição, categorias coloridas e aviso de conflito com pacientes. |
 | [`evolucao/`](evolucao/) | **Migração local → nuvem (Supabase):** plano, passo a passo e tracker de progresso. |
 
 ---

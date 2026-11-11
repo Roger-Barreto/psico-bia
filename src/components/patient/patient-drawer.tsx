@@ -73,6 +73,9 @@ import { Spinner } from "@/components/ui/spinner"
 import { UndoAppointmentDialog } from "@/components/appointments/undo-appointment-dialog"
 import { MissedAppointmentDialog } from "@/components/appointments/missed-appointment-dialog"
 import { RescheduleConflictDialog } from "@/components/appointments/reschedule-conflict-dialog"
+import { EventClashNotice } from "@/components/agenda/event-clash-notice"
+import { useEventOccurrences } from "@/components/agenda/use-agenda"
+import { eventsClashingWithSession } from "@/domain/events"
 import { PackageDetailDialog } from "@/components/packages/package-detail-dialog"
 import { PackageProgress } from "@/components/packages/package-progress"
 import {
@@ -147,6 +150,18 @@ export function PatientDrawer({
       targetDayAppts,
     )
   }, [patient, allSeries, reschedDate, targetDayAppts])
+
+  // Compromissos pessoais no horário escolhido para o reagendamento (só avisa).
+  const reschedDayEvents = useEventOccurrences(reschedDate, reschedDate, {
+    enabled: open && !!reschedDate,
+  })
+  const reschedEventClashes = useMemo(
+    () =>
+      reschedDate && reschedTime
+        ? eventsClashingWithSession(reschedDayEvents, reschedDate, reschedTime)
+        : [],
+    [reschedDayEvents, reschedDate, reschedTime],
+  )
 
   useEffect(() => {
     if (!open) {
@@ -900,6 +915,7 @@ export function PatientDrawer({
                   Confirmar
                 </Button>
               </div>
+              <EventClashNotice clashes={reschedEventClashes} className="mt-2" />
             </div>
           )}
 

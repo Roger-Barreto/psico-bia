@@ -109,8 +109,18 @@ detalhada.
 - [x] **Bloco de aniversariantes** acima da lista do dia: avatar, idade que completa, horário da
   sessão do dia, marca de "encerrado", atalho para o cadastro e confete automático quando é hoje.
 - [x] Lista do dia selecionado com horário, status, valor, badges.
-- [x] Busca de paciente no dia.
-- [x] Atalhos: novo atendimento, novo paciente.
+- [x] Busca de paciente ou compromisso no dia.
+- [x] Atalhos: novo atendimento, novo compromisso, novo paciente.
+- [x] **Compromissos pessoais** (tudo o que não é atendimento): avulsos ou repetidos (todo dia,
+  toda semana em vários dias, a cada 2 semanas, todo mês, todo ano; com ou sem data final), com
+  hora de início e fim ou dia inteiro, local e observações. Editar/excluir *só este dia*, *este e
+  os próximos* ou *todos*. → [compromissos](19-compromissos/README.md)
+- [x] **Categorias de compromisso** do usuário, com cor e ícone (7 iniciais), criadas e editadas
+  no próprio diálogo.
+- [x] Lista do dia numa **linha do tempo única** (atendimentos e compromissos por hora) e barrinha
+  colorida por categoria no mini-calendário.
+- [x] **Aviso de conflito** entre paciente e compromisso (não bloqueia): ao agendar, ao reagendar,
+  ao criar o compromisso e nos cartões do dia (*"Coincide com…"*).
 
 ## Dashboard
 
@@ -135,6 +145,8 @@ detalhada.
 - [x] **Recorrente** (mensal infinito) com edição/exclusão por escopo (este / futuros / todos).
 - [x] **Parcelado** em N meses (parcelas iguais; última absorve a sobra).
 - [x] **Empréstimos** vinculados a uma pessoa; "emprestei pra alguém" gera saída + a-receber ligados.
+- [x] **Novo lançamento a partir da pessoa** (página Pessoas): botão no extrato e no menu da
+  pessoa abrem o lançamento já com ela selecionada.
 - [x] **Extrato por pessoa** com saldo em aberto `(me devem) − (eu devo)`.
 - [x] **Faturamento da clínica automático** (derivado das sessões atendidas, read-only).
 - [x] **Dashboard financeiro**: receitas×despesas, fluxo acumulado, por categoria, por forma,

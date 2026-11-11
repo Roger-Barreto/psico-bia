@@ -33,6 +33,9 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { DatePicker } from "@/components/ui/date-picker"
 import { TimePicker } from "@/components/ui/time-picker"
 import { PatientCombobox } from "@/components/patient/patient-combobox"
+import { EventClashNotice } from "@/components/agenda/event-clash-notice"
+import { useEventOccurrences } from "@/components/agenda/use-agenda"
+import { eventsClashingWithSession } from "@/domain/events"
 import { addDays, formatLongDateBR, fromISO, todayISO, toISO } from "@/domain/dates"
 
 type Tipo = "single" | "recurring"
@@ -142,6 +145,29 @@ export function ScheduleAppointmentDialog({
     return out
   }, [newSlots, patientsQ.data, allSeries, rangeFrom, rangeTo, existingAppts, patientById])
 
+  // ── Compromissos pessoais no caminho ──────────────────────────────────
+  // Diferente do choque entre pacientes (que bloqueia), aqui o app só avisa:
+  // a profissional pode decidir atender mesmo assim.
+  const eventOccurrences = useEventOccurrences(rangeFrom, rangeTo, {
+    enabled: open,
+  })
+  const eventClashes = useMemo(
+    () =>
+      newSlots.flatMap((s) =>
+        eventsClashingWithSession(eventOccurrences, s.date, s.time),
+      ),
+    [newSlots, eventOccurrences],
+  )
+  // No atendimento único, o resto do dia também interessa ("no mesmo dia da
+  // consulta médica"), mesmo sem bater no horário.
+  const sameDayEvents = useMemo(() => {
+    if (tipo !== "single" || !date) return []
+    const clashing = new Set(eventClashes.map((o) => o.event.id))
+    return eventOccurrences.filter(
+      (o) => o.date === date && !clashing.has(o.event.id),
+    )
+  }, [tipo, date, eventOccurrences, eventClashes])
+
   async function onSubmit() {
     if (!patientId) return toast.error("Selecione um paciente")
     if (!date) return toast.error("Informe a data")
@@ -220,6 +246,8 @@ export function ScheduleAppointmentDialog({
             </div>
           )}
 
+          <EventClashNotice clashes={eventClashes} sameDay={sameDayEvents} />
+
           <div className="space-y-2">
             <Label>Tipo</Label>
             <RadioGroup
@@ -281,7 +309,11 @@ export function ScheduleAppointmentDialog({
             onClick={onSubmit}
             disabled={createSeries.isPending || conflicts.length > 0}
           >
-            {createSeries.isPending ? "Agendando..." : "Agendar"}
+            {createSeries.isPending
+              ? "Agendando..."
+              : eventClashes.length > 0
+                ? "Agendar mesmo assim"
+                : "Agendar"}
           </Button>
         </DialogFooter>
       </DialogContent>

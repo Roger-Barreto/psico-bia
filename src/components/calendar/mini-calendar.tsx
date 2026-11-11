@@ -39,7 +39,15 @@ export interface DayMeta {
   unpaid?: number
   /** Quantos pacientes fazem aniversário neste dia. */
   birthdays?: number
+  /**
+   * Cores (da categoria) dos compromissos pessoais do dia, sem repetir.
+   * Viram a barrinha no pé da célula.
+   */
+  events?: string[]
 }
+
+/** Quantos trechos de cor cabem na barrinha de compromissos de um dia. */
+const MAX_EVENT_MARKS = 3
 
 interface Props {
   visibleMonth: Date
@@ -113,6 +121,16 @@ export function MiniCalendar({
           const hasUnpaid = !!meta && (meta.unpaid ?? 0) > 0
           const birthdays = meta?.birthdays ?? 0
           const hasBirthday = birthdays > 0
+          const eventMarks = (meta?.events ?? []).slice(0, MAX_EVENT_MARKS)
+          const hasEvents = eventMarks.length > 0
+          const label = [
+            iso,
+            hasBirthday &&
+              `${birthdays} ${birthdays === 1 ? "aniversariante" : "aniversariantes"}`,
+            hasEvents && "com compromisso pessoal",
+          ]
+            .filter(Boolean)
+            .join(" — ")
 
           return (
             <button
@@ -134,12 +152,10 @@ export function MiniCalendar({
                   !hasPendency &&
                   !hasUnpaid &&
                   "bg-gradient-to-br from-primary/20 to-secondary/15",
+                // Abre espaço para a barrinha sem empurrar o número para fora.
+                hasEvents && "pb-1.5",
               )}
-              aria-label={
-                hasBirthday
-                  ? `${iso} — ${birthdays} ${birthdays === 1 ? "aniversariante" : "aniversariantes"}`
-                  : iso
-              }
+              aria-label={label}
               aria-selected={selected}
             >
               <span className="leading-none">{d.getDate()}</span>
@@ -174,6 +190,23 @@ export function MiniCalendar({
                   <CakeIcon weight="fill" className="size-2.5" />
                 </span>
               )}
+              {/* Pé da célula: os cantos de cima já têm dono. Um trecho por
+                  categoria — a cor diz o tipo, o número âmbar continua sendo
+                  só de pacientes. */}
+              {hasEvents && (
+                <span
+                  aria-hidden
+                  className="absolute inset-x-1.5 bottom-[3px] flex h-[3px] gap-0.5"
+                >
+                  {eventMarks.map((color, i) => (
+                    <span
+                      key={i}
+                      className="flex-1 rounded-full"
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </span>
+              )}
             </button>
           )
         })}
@@ -197,6 +230,13 @@ export function MiniCalendar({
         <span className="flex items-center gap-1.5">
           <CakeIcon weight="fill" className="size-3 text-primary" />{" "}
           aniversário
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span aria-hidden className="flex h-[3px] w-4 gap-0.5">
+            <span className="flex-1 rounded-full bg-teal-500" />
+            <span className="flex-1 rounded-full bg-violet-500" />
+          </span>
+          compromisso
         </span>
       </div>
     </div>
