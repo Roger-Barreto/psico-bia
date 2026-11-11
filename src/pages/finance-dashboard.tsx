@@ -9,10 +9,12 @@ import {
   useLedgerRange,
   usePaymentMethods,
   usePeople,
+  usePeopleOpenEntries,
 } from "@/api/queries"
 import {
+  accumulatedSinceJanuary,
   addPeriod,
-  ledgerTotals,
+  cardInvoiceSummaries,
   periodLabel,
   periodShort,
   todayPeriod,
@@ -21,7 +23,7 @@ import {
 import {
   cofrinhoSlots,
   incomeByDay,
-  monthlyDeposited,
+  monthlySavedNet,
 } from "@/domain/cofrinhos"
 import { Breadcrumbs } from "@/components/breadcrumbs"
 import {
@@ -100,11 +102,27 @@ export function FinanceDashboardPage() {
   // entre contá-las pela fatura ou pela data da compra.
   const cardEntriesQ = useCardEntriesAll()
 
-  // Accumulated balance since January (independent of the selected range).
+  // Em aberto com cada pessoa, de qualquer data (como na página Pessoas): uma
+  // dívida de três meses atrás continua em aberto mesmo vendo só o mês atual.
+  const peopleOpenQ = usePeopleOpenEntries()
+
+  // Cofrinho reserves (balance per cofrinho = deposits − withdrawals).
+  const cofrinhosQ = useCofrinhos()
+  const cofEntriesQ = useAllCofrinhoEntries()
+  const cofWithdrawalsQ = useCofrinhoWithdrawals()
+
+  // Acumulado desde janeiro do ano do período visto — a mesma conta (e o mesmo
+  // número) do indicador dos Lançamentos, não depende do intervalo escolhido.
   const ytdQ = useLedgerRange(yearStartPeriod(toPeriod), toPeriod)
   const accumulated = useMemo(
-    () => ledgerTotals(ytdQ.data ?? []).balance,
-    [ytdQ.data],
+    () =>
+      accumulatedSinceJanuary({
+        entries: ytdQ.data ?? [],
+        invoices: cardInvoiceSummaries(cardEntriesQ.data ?? []),
+        cofrinhos: cofrinhosQ.data ?? [],
+        toPeriod,
+      }),
+    [ytdQ.data, cardEntriesQ.data, cofrinhosQ.data, toPeriod],
   )
 
   const methodsById = useMemo(
@@ -120,10 +138,6 @@ export function FinanceDashboardPage() {
     [categoriesQ.data],
   )
 
-  // Cofrinho reserves (balance per cofrinho = deposits − withdrawals).
-  const cofrinhosQ = useCofrinhos()
-  const cofEntriesQ = useAllCofrinhoEntries()
-  const cofWithdrawalsQ = useCofrinhoWithdrawals()
   const cofrinhoBalances = useMemo<CofrinhoBalance[]>(() => {
     const net = new Map<string, number>()
     for (const e of cofEntriesQ.data ?? []) {
@@ -148,7 +162,7 @@ export function FinanceDashboardPage() {
 
   const cofrinhoMonthly = useMemo(
     () =>
-      monthlyDeposited(cofEntriesQ.data ?? [], fromPeriod, toPeriod).map((p) => ({
+      monthlySavedNet(cofEntriesQ.data ?? [], fromPeriod, toPeriod).map((p) => ({
         label: periodShort(p.period),
         total: p.total,
       })),
@@ -265,6 +279,7 @@ export function FinanceDashboardPage() {
           cardEntries={cardEntriesQ.data ?? []}
           methodsById={methodsById}
           peopleById={peopleById}
+          peopleOpen={peopleOpenQ.data ?? []}
           categoriesById={categoriesById}
           fromPeriod={fromPeriod}
           toPeriod={toPeriod}

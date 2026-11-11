@@ -28,6 +28,7 @@ import {
 } from "@/api/queries"
 import type { CofrinhoEntry, LedgerEntry } from "@/db/types"
 import {
+  accumulatedSinceJanuary,
   cardInvoiceSummaries,
   formatBRL,
   invoiceDatesForPeriod,
@@ -209,20 +210,19 @@ export function FinanceLedgerPage() {
   // compra paga com cofrinho entra como saída: esse dinheiro foi embora (no
   // "Saldo do mês" ela fica de fora porque não saiu do caixa do mês).
   // Cartão segue igual: a fatura que vence na janela, não cada compra.
+  // O saldo inicial de cada cofrinho também conta (ver a função).
+  const cofrinhosQ = useCofrinhos()
   const ytdQ = useLedgerRange(yearStartPeriod(period), period)
-  const ytdTotals = useMemo(() => {
-    const jan = yearStartPeriod(period)
-    return ledgerTotals([
-      ...(ytdQ.data ?? []).filter((e) => !e.cardId),
-      ...invoicesAll
-        .filter((r) => r.period >= jan && r.period <= period && r.amount > 0.005)
-        .map((r) => ({
-          kind: "expense" as const,
-          amount: r.amount,
-          settled: r.settled,
-        })),
-    ])
-  }, [ytdQ.data, invoicesAll, period])
+  const accumulated = useMemo(
+    () =>
+      accumulatedSinceJanuary({
+        entries: ytdQ.data ?? [],
+        invoices: invoicesAll,
+        cofrinhos: cofrinhosQ.data ?? [],
+        toPeriod: period,
+      }),
+    [ytdQ.data, invoicesAll, cofrinhosQ.data, period],
+  )
 
   // Synthetic "Fatura do cartão X" rows, grouped on the invoice due date.
   const invoiceItems: InvoiceListItem[] = useMemo(
@@ -252,7 +252,6 @@ export function FinanceLedgerPage() {
   )
 
   // Cofrinho savings prompts for the month (computed from goals + income).
-  const cofrinhosQ = useCofrinhos()
   const cofrinhosById = useMemo(
     () => new Map((cofrinhosQ.data ?? []).map((c) => [c.id, c] as const)),
     [cofrinhosQ.data],
@@ -765,7 +764,7 @@ export function FinanceLedgerPage() {
               />
               <Stat
                 label="Acumulado desde jan."
-                value={pick(ytdTotals.realizedBalance, ytdTotals.balance)}
+                value={pick(accumulated.realized, accumulated.expected)}
                 tone="auto"
               />
             </CardContent>

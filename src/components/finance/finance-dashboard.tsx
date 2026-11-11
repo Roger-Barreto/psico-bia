@@ -31,11 +31,13 @@ import {
   cardEntriesForBasis,
   useCardBasis,
 } from "@/components/finance/card-basis"
+import type { PersonOpenEntry } from "@/api/queries"
 import {
   formatBRL,
   ledgerTotals,
   monthlySeries,
   periodShort,
+  type AccumulatedTotals,
 } from "@/domain/finance"
 import { colorForKey } from "@/lib/finance-colors"
 import { brl, chartAxis as axisProps, chartTooltip } from "@/lib/chart-theme"
@@ -60,14 +62,16 @@ interface Props {
   cardEntries: LedgerEntry[]
   methodsById: Map<string, PaymentMethod>
   peopleById: Map<string, Person>
+  /** Tudo o que está em aberto com pessoas, de qualquer data. */
+  peopleOpen: PersonOpenEntry[]
   categoriesById: Map<string, FinanceCategory>
   fromPeriod: string
   toPeriod: string
-  /** Accumulated balance since January of the current year. */
-  accumulated: number
+  /** Acumulado desde janeiro — a mesma conta dos Lançamentos. */
+  accumulated: AccumulatedTotals
   /** Reserve balance per cofrinho (deposits − withdrawals). */
   cofrinhoBalances: CofrinhoBalance[]
-  /** Amount deposited into cofrinhos per month across the range. */
+  /** Guardado líquido por mês (depósitos − retiradas, sem transferências). */
   cofrinhoMonthly: { label: string; total: number }[]
   /** Goal vs saved per cofrinho across the range. */
   cofrinhoGoals: CofrinhoGoal[]
@@ -107,10 +111,13 @@ function Stat({
   label,
   value,
   tone,
+  hint,
 }: {
   label: string
   value: number
   tone?: "income" | "expense" | "neutral" | "amber"
+  /** Linha miúda sob o valor — diz do que o número é feito. */
+  hint?: string
 }) {
   return (
     <Card>
@@ -128,6 +135,11 @@ function Stat({
         >
           {formatBRL(value)}
         </p>
+        {hint && (
+          <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+            {hint}
+          </p>
+        )}
       </CardContent>
     </Card>
   )
@@ -146,6 +158,7 @@ export function FinanceDashboard({
   cardEntries,
   methodsById,
   peopleById,
+  peopleOpen,
   categoriesById,
   fromPeriod,
   toPeriod,
@@ -154,7 +167,34 @@ export function FinanceDashboard({
   cofrinhoMonthly,
   cofrinhoGoals,
 }: Props) {
-  const totals = useMemo(() => ledgerTotals(entries), [entries])
+  // Regime do cartão — vale para o dashboard inteiro, não só para os donuts:
+  // pela fatura que vence no período (padrão, igual aos Lançamentos) ou pela
+  // data da compra. Antes os indicadores e os gráficos de fluxo contavam
+  // sempre pela compra, e por isso não batiam com os Lançamentos.
+  const [cardBasis, setCardBasis] = useCardBasis()
+  const canSwitchBasis = cardEntries.length > 0
+
+  // Base dos indicadores e dos gráficos de fluxo: tudo o que não é cartão, mais
+  // as compras no cartão já postas no mês do regime. Estorno no cartão abate a
+  // despesa (é assim que ele aparece na fatura), em vez de inflar a receita.
+  const flowEntries = useMemo(() => {
+    const cards = cardEntriesForBasis(cardEntries, cardBasis, fromPeriod, toPeriod)
+    return [
+      ...entries.filter((e) => !e.cardId),
+      ...cards.map((e): LedgerEntry => {
+        const byInvoice = cardBasis === "invoice" && !!e.invoicePeriod
+        return {
+          ...e,
+          kind: "expense",
+          amount: e.kind === "expense" ? e.amount : -e.amount,
+          period: byInvoice ? e.invoicePeriod! : e.period,
+          date: byInvoice ? (e.invoiceDueDate ?? e.date) : e.date,
+        }
+      }),
+    ]
+  }, [entries, cardEntries, cardBasis, fromPeriod, toPeriod])
+
+  const totals = useMemo(() => ledgerTotals(flowEntries), [flowEntries])
   const reservedTotal = useMemo(
     () => cofrinhoBalances.reduce((s, c) => s + c.value, 0),
     [cofrinhoBalances],
@@ -167,11 +207,11 @@ export function FinanceDashboard({
 
   const monthly = useMemo(
     () =>
-      monthlySeries(entries, fromPeriod, toPeriod).map((p) => ({
+      monthlySeries(flowEntries, fromPeriod, toPeriod).map((p) => ({
         ...p,
         label: periodShort(p.period),
       })),
-    [entries, fromPeriod, toPeriod],
+    [flowEntries, fromPeriod, toPeriod],
   )
 
   const cumulative = useMemo(() => {
@@ -183,15 +223,13 @@ export function FinanceDashboard({
   }, [monthly])
 
   const expenses = useMemo(
-    () => entries.filter((e) => e.kind === "expense"),
-    [entries],
+    () => flowEntries.filter((e) => e.kind === "expense"),
+    [flowEntries],
   )
 
   // Donuts por categoria: toda categoria aparece (a legenda rola), igual à
   // quebra da fatura do cartão. As compras no cartão entram pelo regime
   // escolhido — pela fatura que vence no período ou pela data da compra.
-  const [cardBasis, setCardBasis] = useCardBasis()
-  const canSwitchBasis = cardEntries.length > 0
   const categoryEntries = useMemo(
     () => [
       ...entries.filter((e) => !e.cardId),
@@ -214,16 +252,20 @@ export function FinanceDashboard({
   const byMethod = useMemo(() => {
     const m = new Map<string, { value: number; color: string }>()
     for (const e of expenses) {
-      if (!e.paymentMethodId) continue
-      const pm = methodsById.get(e.paymentMethodId)
-      const name = pm?.name ?? "—"
-      const color = pm?.color ?? colorForKey(name)
+      // Sem forma informada também é despesa: fica num grupo à parte em vez
+      // de sumir do gráfico (o total tem de bater com "Despesas").
+      const pm = e.paymentMethodId
+        ? methodsById.get(e.paymentMethodId)
+        : undefined
+      const name = pm?.name ?? "Sem forma informada"
+      const color = pm?.color ?? (pm ? colorForKey(name) : "#64748b")
       const cur = m.get(name)
       if (cur) cur.value += e.amount
       else m.set(name, { value: e.amount, color })
     }
     return [...m.entries()]
       .map(([name, v]) => ({ name, value: v.value, color: v.color }))
+      .filter((x) => x.value > 0.005)
       .sort((a, b) => b.value - a.value)
   }, [expenses, methodsById])
 
@@ -231,7 +273,7 @@ export function FinanceDashboard({
     const mk = (scope: "personal" | "clinic") => {
       let income = 0
       let expense = 0
-      for (const e of entries) {
+      for (const e of flowEntries) {
         if (e.scope !== scope) continue
         if (e.kind === "income") income += e.amount
         else expense += e.amount
@@ -242,12 +284,11 @@ export function FinanceDashboard({
       { name: "Pessoal", ...mk("personal") },
       { name: "Clínica", ...mk("clinic") },
     ]
-  }, [entries])
+  }, [flowEntries])
 
   const peopleBalances = useMemo(() => {
     const acc = new Map<string, number>()
-    for (const e of entries) {
-      if (!e.personId || e.settled) continue
+    for (const e of peopleOpen) {
       const cur = acc.get(e.personId) ?? 0
       acc.set(e.personId, cur + (e.kind === "income" ? e.amount : -e.amount))
     }
@@ -258,21 +299,53 @@ export function FinanceDashboard({
       }))
       .filter((x) => Math.abs(x.net) > 0.001)
       .sort((a, b) => b.net - a.net)
-  }, [entries, peopleById])
+  }, [peopleOpen, peopleById])
+
+  const basisLabel = canSwitchBasis ? cardBasisNote(cardBasis) : null
+  const openAccumulated = accumulated.expected - accumulated.realized
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-        <Stat label="Receitas" value={totals.income} tone="income" />
-        <Stat label="Despesas" value={totals.expense} tone="expense" />
-        <Stat label="Saldo" value={totals.balance} tone="neutral" />
+        <Stat
+          label="Receitas"
+          value={totals.income}
+          tone="income"
+          hint="recebidas + a receber"
+        />
+        <Stat
+          label="Despesas"
+          value={totals.expense}
+          tone="expense"
+          hint="pagas + a pagar"
+        />
+        <Stat
+          label="Saldo"
+          value={totals.balance}
+          tone="neutral"
+          hint="receitas − despesas"
+        />
         <Stat label="A receber" value={totals.receivable} tone="amber" />
         <Stat label="A pagar" value={totals.payable} tone="amber" />
         <Stat
           label="Acumulado (desde jan)"
-          value={accumulated}
+          value={accumulated.realized}
           tone="neutral"
+          hint={
+            Math.abs(openAccumulated) > 0.005
+              ? `já realizado · previsto ${formatBRL(accumulated.expected)}`
+              : "caixa + cofrinhos"
+          }
         />
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 px-1">
+        <p className="text-xs text-muted-foreground">
+          Despesas incluem o que foi pago com cofrinho
+          {basisLabel && <> · {basisLabel}</>}. O acumulado é o mesmo dos
+          Lançamentos (visão “Efetivo”).
+        </p>
+        {basisAction}
       </div>
 
       {cofrinhoGoals.length > 0 && (
@@ -298,8 +371,8 @@ export function FinanceDashboard({
                   </span>
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {Math.round(goalTotals.pct)}% da meta guardado · reservado{" "}
-                  {formatBRL(reservedTotal)}
+                  {Math.round(goalTotals.pct)}% da meta guardado · total
+                  guardado {formatBRL(reservedTotal)}
                 </p>
               </div>
             </div>
@@ -372,7 +445,11 @@ export function FinanceDashboard({
       <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard
           title="Receitas × Despesas por mês"
-          subtitle="Inclui faturamento da clínica"
+          subtitle={
+            basisLabel
+              ? `Inclui faturamento da clínica · ${basisLabel}`
+              : "Inclui faturamento da clínica"
+          }
         >
           <BarChart data={monthly}>
             <CartesianGrid
@@ -400,8 +477,8 @@ export function FinanceDashboard({
         </ChartCard>
 
         <ChartCard
-          title="Fluxo de caixa acumulado"
-          subtitle="Saldo somado ao longo do período"
+          title="Saldo acumulado no período"
+          subtitle="Receitas − despesas somadas mês a mês (inclui o que está em aberto)"
         >
           <LineChart data={cumulative}>
             <CartesianGrid
@@ -447,7 +524,10 @@ export function FinanceDashboard({
           action={basisAction}
         />
 
-        <ChartCard title="Despesas por forma de pagamento">
+        <ChartCard
+          title="Despesas por forma de pagamento"
+          subtitle={basisLabel ?? undefined}
+        >
           {byMethod.length === 0 ? (
             <EmptyChart />
           ) : (
@@ -487,10 +567,10 @@ export function FinanceDashboard({
 
         <ChartCard
           title="Saldo por pessoa"
-          subtitle="Verde = te devem · Vermelho = você deve (em aberto)"
+          subtitle="Em aberto, de qualquer data · verde = te devem · vermelho = você deve"
         >
           {peopleBalances.length === 0 ? (
-            <EmptyChart label="Sem empréstimos em aberto." />
+            <EmptyChart label="Nada em aberto com pessoas." />
           ) : (
             <BarChart data={peopleBalances} layout="vertical">
               <CartesianGrid
@@ -516,8 +596,8 @@ export function FinanceDashboard({
 
         {cofrinhoBalances.length > 0 && (
           <ChartCard
-            title="Reservas nos cofrinhos"
-            subtitle={`Total reservado: ${formatBRL(reservedTotal)}`}
+            title="Saldo dos cofrinhos"
+            subtitle={`Total guardado: ${formatBRL(reservedTotal)}`}
           >
             <BarChart data={cofrinhoBalances} layout="vertical">
               <CartesianGrid
@@ -540,7 +620,7 @@ export function FinanceDashboard({
         {cofrinhoBalances.length > 0 && (
           <ChartCard
             title="Guardado nos cofrinhos por mês"
-            subtitle="Quanto você separou em reservas a cada mês"
+            subtitle="Guardado − retirado em cada mês (transferências entre cofrinhos não contam)"
           >
             <BarChart data={cofrinhoMonthly}>
               <CartesianGrid
@@ -551,6 +631,7 @@ export function FinanceDashboard({
               <XAxis dataKey="label" {...axisProps} />
               <YAxis {...axisProps} tickFormatter={(v) => `R$${v}`} />
               <Tooltip {...chartTooltip} formatter={brl} />
+              <ReferenceLine y={0} stroke="hsl(var(--border))" />
               <Bar
                 name="Guardado"
                 dataKey="total"

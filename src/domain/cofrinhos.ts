@@ -293,6 +293,36 @@ export function monthlyDeposited(
   return [...by.entries()].map(([period, total]) => ({ period, total }))
 }
 
+/**
+ * Quanto foi GUARDADO por mês em [fromPeriod, toPeriod], somando todos os
+ * cofrinhos: depósitos − retiradas, sem as transferências entre cofrinhos
+ * (que só trocam o dinheiro de lugar). É a mesma conta do indicador
+ * "Guardado" dos Lançamentos — pode dar negativo no mês em que se retirou
+ * mais do que se guardou.
+ */
+export function monthlySavedNet(
+  entries: CofrinhoEntry[],
+  fromPeriod: string,
+  toPeriod: string,
+): { period: string; total: number }[] {
+  const by = new Map<string, number>()
+  let p = fromPeriod
+  while (p <= toPeriod) {
+    by.set(p, 0)
+    p = addPeriod(p, 1)
+  }
+  for (const e of entries) {
+    if (e.source === "transfer" || !by.has(e.period)) continue
+    if (e.kind === "deposit") by.set(e.period, by.get(e.period)! + e.amount)
+    else if (e.kind === "withdraw")
+      by.set(e.period, by.get(e.period)! - e.amount)
+  }
+  return [...by.entries()].map(([period, total]) => ({
+    period,
+    total: roundCents(total),
+  }))
+}
+
 /** Cumulative reserve after each month (initial + deposits − withdrawals). */
 export function reserveTimeline(
   entries: CofrinhoEntry[],

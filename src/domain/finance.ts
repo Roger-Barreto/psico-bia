@@ -524,6 +524,65 @@ export function cardInvoiceSummaries(
 }
 
 // ════════════════════════════════════════════════════════════════
+// "Acumulado desde janeiro" — uma conta só, para Lançamentos e Dashboard
+// ════════════════════════════════════════════════════════════════
+
+export interface AccumulatedTotals {
+  /** Efetivo: só o que já foi recebido/pago. */
+  realized: number
+  /** Esperado: inclui o que ainda está em aberto. */
+  expected: number
+  /** Parte que veio do saldo inicial dos cofrinhos (já somada nos dois). */
+  initial: number
+}
+
+/**
+ * Tudo o que a pessoa passou a TER de janeiro até `toPeriod` — o caixa e o
+ * que está nos cofrinhos.
+ *
+ * - Guardar e retirar não entram: só mudam o dinheiro de bolso.
+ * - Compra paga com cofrinho entra como saída (esse dinheiro foi embora).
+ * - Cartão conta pela fatura que vence na janela, não compra a compra.
+ * - O **saldo inicial** de um cofrinho entra no mês em que ele foi criado:
+ *   é dinheiro que a pessoa já tinha e que passou a existir aqui naquele dia.
+ *
+ * `entries` são os lançamentos de janeiro até `toPeriod`; `invoices`, todas as
+ * faturas (a função recorta a janela).
+ */
+export function accumulatedSinceJanuary(input: {
+  entries: LedgerEntry[]
+  invoices: CardInvoiceSummary[]
+  cofrinhos: { initialAmount: number; createdAt: string; active: boolean }[]
+  toPeriod: string
+}): AccumulatedTotals {
+  const { entries, invoices, cofrinhos, toPeriod } = input
+  const jan = yearStartPeriod(toPeriod)
+  const totals = ledgerTotals([
+    ...entries.filter(
+      (e) => !e.cardId && e.period >= jan && e.period <= toPeriod,
+    ),
+    ...invoices
+      .filter((r) => r.period >= jan && r.period <= toPeriod && r.amount > 0.005)
+      .map((r) => ({
+        kind: "expense" as const,
+        amount: r.amount,
+        settled: r.settled,
+      })),
+  ])
+  let initial = 0
+  for (const c of cofrinhos) {
+    if (!c.active) continue
+    const created = periodOf(c.createdAt)
+    if (created >= jan && created <= toPeriod) initial += c.initialAmount ?? 0
+  }
+  return {
+    realized: totals.realizedBalance + initial,
+    expected: totals.balance + initial,
+    initial,
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
 // Ledger search — accent-insensitive, multi-token over every field
 // ════════════════════════════════════════════════════════════════
 

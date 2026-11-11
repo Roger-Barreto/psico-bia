@@ -163,8 +163,12 @@ Regras por indicador:
 - **Acumulado desde jan.** é **tudo o que a pessoa passou a ter** no ano — o caixa **e** o que
   está nos cofrinhos. Guardar e retirar só mudam o dinheiro de bolso, então **não** entram na
   conta. Já a compra **paga com cofrinho** entra como saída (esse dinheiro foi embora):
-  `entradas − saídas − faturas da janela − pagamentos com cofrinho`, de jan. até o mês visto.
-  O saldo inicial informado no cadastro do cofrinho não entra (não é movimento do ano).
+  `entradas − saídas − faturas da janela − pagamentos com cofrinho + saldo inicial dos
+  cofrinhos`, de jan. até o mês visto. O **saldo inicial** de um cofrinho entra no mês em que
+  ele foi **criado** (é dinheiro que a pessoa já tinha e que passou a existir aqui naquele dia).
+  A conta é uma função só — `accumulatedSinceJanuary` em
+  [`domain/finance.ts`](../../src/domain/finance.ts) — usada pelos Lançamentos e pelo Dashboard,
+  então os dois mostram o **mesmo número**.
 
 O quadro de indicadores dos cofrinhos foi removido; o botão **"Guardar no cofrinho"** (abre o
 diálogo Movimentar) fica no topo da página, ao lado de "Novo lançamento".
@@ -237,12 +241,33 @@ Período selecionável (mês atual padrão; 3/6/12 meses; este ano), **futuros**
 3 meses) e **um mês qualquer** pelo seletor de mês (passado ou futuro). Abaixo dos atalhos, uma
 linha mostra a janela em uso e avisa quando ela é futura (previsão). Num período futuro as
 recorrências são materializadas até o mês visto (`ensure_recurring_materialized`), como nos
-Lançamentos. Gráficos: receitas×despesas por mês, fluxo de caixa acumulado, **despesas por
+Lançamentos. Gráficos: receitas×despesas por mês, saldo acumulado no período, **despesas por
 categoria** e **receitas por categoria** (donut + legenda completa, cada um ocupando a linha
 inteira — mesmo componente da fatura do cartão, com o botão **Fatura | Compra** descrito acima),
-despesas por forma de pagamento, clínica×pessoal, saldo por pessoa (em aberto). KPIs: receitas,
-despesas, saldo, a receber, a pagar — os KPIs e os demais gráficos **não** seguem o botão de
-regime; ele vale só para os dois gráficos por categoria.
+despesas por forma de pagamento, clínica×pessoal, saldo por pessoa, saldo dos cofrinhos e
+guardado por mês. KPIs: receitas, despesas, saldo, a receber, a pagar, acumulado desde jan.
+
+Regras que o dashboard segue (revisão de 2026-11):
+
+- **O botão Fatura | Compra vale para o dashboard inteiro** — KPIs, receitas×despesas, saldo
+  acumulado, forma de pagamento e clínica×pessoal, além dos donuts. O padrão é **fatura**, o mesmo
+  regime dos indicadores dos Lançamentos. Antes só os donuts seguiam o botão e o resto contava o
+  cartão sempre pela compra — o "Despesas" do dashboard não batia com as "Saídas" dos
+  Lançamentos. Estorno no cartão **abate a despesa** (como na fatura), não vira receita.
+- **Despesas incluem o que foi pago com cofrinho** (é gasto, mesmo saindo da reserva). Por isso
+  `Saldo = receitas − despesas` é o **resultado** do período, não o caixa: a visão de caixa
+  (que desconta o guardado) é o "Saldo do mês" dos Lançamentos. A soma desse resultado mês a mês
+  é o que alimenta o acumulado.
+- **Acumulado (desde jan)** mostra o valor **efetivo** (o mesmo da visão "Efetivo" dos
+  Lançamentos); quando há algo em aberto, a linha miúda traz o previsto.
+- **Saldo por pessoa** usa tudo o que está em aberto, **de qualquer data** (igual à página
+  Pessoas) — antes olhava só o período escolhido, e uma dívida de meses atrás sumia no "Mês
+  atual".
+- **Guardado por mês** = depósitos − retiradas, **sem transferências** entre cofrinhos (a mesma
+  conta do indicador "Guardado"). Antes somava todo depósito, então uma transferência aparecia
+  como dinheiro novo guardado e as retiradas não abatiam.
+- **Despesas por forma de pagamento** tem o grupo *Sem forma informada*, para o total bater com
+  "Despesas".
 
 ## Modelo de dados
 
